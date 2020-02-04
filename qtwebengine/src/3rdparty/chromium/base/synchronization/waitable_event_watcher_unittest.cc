@@ -8,11 +8,12 @@
 #include "base/callback.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/sequenced_task_runner_handle.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -20,17 +21,17 @@ namespace base {
 
 namespace {
 
-// The message loops on which each waitable event timer should be tested.
-const MessageLoop::Type testing_message_loops[] = {
-  MessageLoop::TYPE_DEFAULT,
-  MessageLoop::TYPE_IO,
+// The main thread types on which each waitable event should be tested.
+const test::ScopedTaskEnvironment::MainThreadType testing_main_threads[] = {
+    test::ScopedTaskEnvironment::MainThreadType::DEFAULT,
+    test::ScopedTaskEnvironment::MainThreadType::IO,
 #if !defined(OS_IOS)  // iOS does not allow direct running of the UI loop.
-  MessageLoop::TYPE_UI,
+    test::ScopedTaskEnvironment::MainThreadType::UI,
 #endif
 };
 
 void QuitWhenSignaled(WaitableEvent* event) {
-  MessageLoop::current()->QuitWhenIdle();
+  RunLoop::QuitCurrentWhenIdleDeprecated();
 }
 
 class DecrementCountContainer {
@@ -48,25 +49,47 @@ class DecrementCountContainer {
 }  // namespace
 
 class WaitableEventWatcherTest
-    : public testing::TestWithParam<MessageLoop::Type> {};
+    : public testing::TestWithParam<
+          test::ScopedTaskEnvironment::MainThreadType> {};
 
-TEST_P(WaitableEventWatcherTest, BasicSignal) {
-  MessageLoop message_loop(GetParam());
+TEST_P(WaitableEventWatcherTest, BasicSignalManual) {
+  test::ScopedTaskEnvironment scoped_task_environment(GetParam());
 
   // A manual-reset event that is not yet signaled.
   WaitableEvent event(WaitableEvent::ResetPolicy::MANUAL,
                       WaitableEvent::InitialState::NOT_SIGNALED);
 
   WaitableEventWatcher watcher;
-  watcher.StartWatching(&event, BindOnce(&QuitWhenSignaled));
+  watcher.StartWatching(&event, BindOnce(&QuitWhenSignaled),
+                        SequencedTaskRunnerHandle::Get());
 
   event.Signal();
 
   RunLoop().Run();
+
+  EXPECT_TRUE(event.IsSignaled());
+}
+
+TEST_P(WaitableEventWatcherTest, BasicSignalAutomatic) {
+  test::ScopedTaskEnvironment scoped_task_environment(GetParam());
+
+  WaitableEvent event(WaitableEvent::ResetPolicy::AUTOMATIC,
+                      WaitableEvent::InitialState::NOT_SIGNALED);
+
+  WaitableEventWatcher watcher;
+  watcher.StartWatching(&event, BindOnce(&QuitWhenSignaled),
+                        SequencedTaskRunnerHandle::Get());
+
+  event.Signal();
+
+  RunLoop().Run();
+
+  // The WaitableEventWatcher consumes the event signal.
+  EXPECT_FALSE(event.IsSignaled());
 }
 
 TEST_P(WaitableEventWatcherTest, BasicCancel) {
-  MessageLoop message_loop(GetParam());
+  test::ScopedTaskEnvironment scoped_task_environment(GetParam());
 
   // A manual-reset event that is not yet signaled.
   WaitableEvent event(WaitableEvent::ResetPolicy::MANUAL,
@@ -74,13 +97,14 @@ TEST_P(WaitableEventWatcherTest, BasicCancel) {
 
   WaitableEventWatcher watcher;
 
-  watcher.StartWatching(&event, BindOnce(&QuitWhenSignaled));
+  watcher.StartWatching(&event, BindOnce(&QuitWhenSignaled),
+                        SequencedTaskRunnerHandle::Get());
 
   watcher.StopWatching();
 }
 
 TEST_P(WaitableEventWatcherTest, CancelAfterSet) {
-  MessageLoop message_loop(GetParam());
+  test::ScopedTaskEnvironment scoped_task_environment(GetParam());
 
   // A manual-reset event that is not yet signaled.
   WaitableEvent event(WaitableEvent::ResetPolicy::MANUAL,
@@ -92,12 +116,13 @@ TEST_P(WaitableEventWatcherTest, CancelAfterSet) {
   DecrementCountContainer delegate(&counter);
   WaitableEventWatcher::EventCallback callback = BindOnce(
       &DecrementCountContainer::OnWaitableEventSignaled, Unretained(&delegate));
-  watcher.StartWatching(&event, std::move(callback));
+  watcher.StartWatching(&event, std::move(callback),
+                        SequencedTaskRunnerHandle::Get());
 
   event.Signal();
 
   // Let the background thread do its business
-  base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(30));
+  PlatformThread::Sleep(TimeDelta::FromMilliseconds(30));
 
   watcher.StopWatching();
 
@@ -107,69 +132,187 @@ TEST_P(WaitableEventWatcherTest, CancelAfterSet) {
   EXPECT_EQ(1, counter);
 }
 
-TEST_P(WaitableEventWatcherTest, OutlivesMessageLoop) {
-  // Simulate a MessageLoop that dies before an WaitableEventWatcher.  This
+TEST_P(WaitableEventWatcherTest, OutlivesTaskEnvironment) {
+  // Simulate a task environment that dies before an WaitableEventWatcher.  This
   // ordinarily doesn't happen when people use the Thread class, but it can
   // happen when people use the Singleton pattern or atexit.
   WaitableEvent event(WaitableEvent::ResetPolicy::MANUAL,
                       WaitableEvent::InitialState::NOT_SIGNALED);
   {
-    WaitableEventWatcher watcher;
+    std::unique_ptr<WaitableEventWatcher> watcher;
     {
-      MessageLoop message_loop(GetParam());
+      test::ScopedTaskEnvironment scoped_task_environment(GetParam());
+      watcher = std::make_unique<WaitableEventWatcher>();
 
-      watcher.StartWatching(&event, BindOnce(&QuitWhenSignaled));
+      watcher->StartWatching(&event, BindOnce(&QuitWhenSignaled),
+                             SequencedTaskRunnerHandle::Get());
     }
   }
 }
 
-TEST_P(WaitableEventWatcherTest, SignaledAtStart) {
-  MessageLoop message_loop(GetParam());
+TEST_P(WaitableEventWatcherTest, SignaledAtStartManual) {
+  test::ScopedTaskEnvironment scoped_task_environment(GetParam());
 
   WaitableEvent event(WaitableEvent::ResetPolicy::MANUAL,
                       WaitableEvent::InitialState::SIGNALED);
 
   WaitableEventWatcher watcher;
-  watcher.StartWatching(&event, BindOnce(&QuitWhenSignaled));
+  watcher.StartWatching(&event, BindOnce(&QuitWhenSignaled),
+                        SequencedTaskRunnerHandle::Get());
 
   RunLoop().Run();
+
+  EXPECT_TRUE(event.IsSignaled());
+}
+
+TEST_P(WaitableEventWatcherTest, SignaledAtStartAutomatic) {
+  test::ScopedTaskEnvironment scoped_task_environment(GetParam());
+
+  WaitableEvent event(WaitableEvent::ResetPolicy::AUTOMATIC,
+                      WaitableEvent::InitialState::SIGNALED);
+
+  WaitableEventWatcher watcher;
+  watcher.StartWatching(&event, BindOnce(&QuitWhenSignaled),
+                        SequencedTaskRunnerHandle::Get());
+
+  RunLoop().Run();
+
+  // The watcher consumes the event signal.
+  EXPECT_FALSE(event.IsSignaled());
 }
 
 TEST_P(WaitableEventWatcherTest, StartWatchingInCallback) {
-  MessageLoop message_loop(GetParam());
+  test::ScopedTaskEnvironment scoped_task_environment(GetParam());
 
   WaitableEvent event(WaitableEvent::ResetPolicy::MANUAL,
                       WaitableEvent::InitialState::NOT_SIGNALED);
 
   WaitableEventWatcher watcher;
   watcher.StartWatching(
-      &event, BindOnce(
-                  [](WaitableEventWatcher* watcher, WaitableEvent* event) {
-                    // |event| is manual, so the second watcher will run
-                    // immediately.
-                    watcher->StartWatching(event, BindOnce(&QuitWhenSignaled));
-                  },
-                  &watcher));
+      &event,
+      BindOnce(
+          [](WaitableEventWatcher* watcher, WaitableEvent* event) {
+            // |event| is manual, so the second watcher will run
+            // immediately.
+            watcher->StartWatching(event, BindOnce(&QuitWhenSignaled),
+                                   SequencedTaskRunnerHandle::Get());
+          },
+          &watcher),
+      SequencedTaskRunnerHandle::Get());
 
   event.Signal();
 
   RunLoop().Run();
 }
 
+TEST_P(WaitableEventWatcherTest, MultipleWatchersManual) {
+  test::ScopedTaskEnvironment scoped_task_environment(GetParam());
+
+  WaitableEvent event(WaitableEvent::ResetPolicy::MANUAL,
+                      WaitableEvent::InitialState::NOT_SIGNALED);
+
+  int counter1 = 0;
+  int counter2 = 0;
+
+  auto callback = [](RunLoop* run_loop, int* counter, WaitableEvent* event) {
+    ++(*counter);
+    run_loop->QuitWhenIdle();
+  };
+
+  RunLoop run_loop;
+
+  WaitableEventWatcher watcher1;
+  watcher1.StartWatching(
+      &event, BindOnce(callback, Unretained(&run_loop), Unretained(&counter1)),
+      SequencedTaskRunnerHandle::Get());
+
+  WaitableEventWatcher watcher2;
+  watcher2.StartWatching(
+      &event, BindOnce(callback, Unretained(&run_loop), Unretained(&counter2)),
+      SequencedTaskRunnerHandle::Get());
+
+  event.Signal();
+  run_loop.Run();
+
+  EXPECT_EQ(1, counter1);
+  EXPECT_EQ(1, counter2);
+  EXPECT_TRUE(event.IsSignaled());
+}
+
+// Tests that only one async waiter gets called back for an auto-reset event.
+TEST_P(WaitableEventWatcherTest, MultipleWatchersAutomatic) {
+  test::ScopedTaskEnvironment scoped_task_environment(GetParam());
+
+  WaitableEvent event(WaitableEvent::ResetPolicy::AUTOMATIC,
+                      WaitableEvent::InitialState::NOT_SIGNALED);
+
+  int counter1 = 0;
+  int counter2 = 0;
+
+  auto callback = [](RunLoop** run_loop, int* counter, WaitableEvent* event) {
+    ++(*counter);
+    (*run_loop)->QuitWhenIdle();
+  };
+
+  // The same RunLoop instance cannot be Run more than once, and it is
+  // undefined which watcher will get called back first. Have the callback
+  // dereference this pointer to quit the loop, which will be updated on each
+  // Run.
+  RunLoop* current_run_loop;
+
+  WaitableEventWatcher watcher1;
+  watcher1.StartWatching(
+      &event,
+      BindOnce(callback, Unretained(&current_run_loop), Unretained(&counter1)),
+      SequencedTaskRunnerHandle::Get());
+
+  WaitableEventWatcher watcher2;
+  watcher2.StartWatching(
+      &event,
+      BindOnce(callback, Unretained(&current_run_loop), Unretained(&counter2)),
+      SequencedTaskRunnerHandle::Get());
+
+  event.Signal();
+  {
+    RunLoop run_loop;
+    current_run_loop = &run_loop;
+    run_loop.Run();
+  }
+
+  // Only one of the waiters should have been signaled.
+  EXPECT_TRUE((counter1 == 1) ^ (counter2 == 1));
+
+  EXPECT_FALSE(event.IsSignaled());
+
+  event.Signal();
+  {
+    RunLoop run_loop;
+    current_run_loop = &run_loop;
+    run_loop.Run();
+  }
+
+  EXPECT_FALSE(event.IsSignaled());
+
+  // The other watcher should have been signaled.
+  EXPECT_EQ(1, counter1);
+  EXPECT_EQ(1, counter2);
+}
+
 // To help detect errors around deleting WaitableEventWatcher, an additional
 // bool parameter is used to test sleeping between watching and deletion.
 class WaitableEventWatcherDeletionTest
-    : public testing::TestWithParam<std::tuple<MessageLoop::Type, bool>> {};
+    : public testing::TestWithParam<
+          std::tuple<test::ScopedTaskEnvironment::MainThreadType, bool>> {};
 
 TEST_P(WaitableEventWatcherDeletionTest, DeleteUnder) {
-  MessageLoop::Type message_loop_type;
+  test::ScopedTaskEnvironment::MainThreadType main_thread_type;
   bool delay_after_delete;
-  std::tie(message_loop_type, delay_after_delete) = GetParam();
+  std::tie(main_thread_type, delay_after_delete) = GetParam();
 
   // Delete the WaitableEvent out from under the Watcher. This is explictly
   // allowed by the interface.
 
-  MessageLoop message_loop(message_loop_type);
+  test::ScopedTaskEnvironment scoped_task_environment(main_thread_type);
 
   {
     WaitableEventWatcher watcher;
@@ -177,7 +320,8 @@ TEST_P(WaitableEventWatcherDeletionTest, DeleteUnder) {
     auto* event = new WaitableEvent(WaitableEvent::ResetPolicy::AUTOMATIC,
                                     WaitableEvent::InitialState::NOT_SIGNALED);
 
-    watcher.StartWatching(event, BindOnce(&QuitWhenSignaled));
+    watcher.StartWatching(event, BindOnce(&QuitWhenSignaled),
+                          SequencedTaskRunnerHandle::Get());
 
     if (delay_after_delete) {
       // On Windows that sleep() improves the chance to catch some problems.
@@ -185,7 +329,7 @@ TEST_P(WaitableEventWatcherDeletionTest, DeleteUnder) {
       // and gives some time to run to a created background thread.
       // Unfortunately, that thread is under OS control and we can't
       // manipulate it directly.
-      base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(30));
+      PlatformThread::Sleep(TimeDelta::FromMilliseconds(30));
     }
 
     delete event;
@@ -193,22 +337,23 @@ TEST_P(WaitableEventWatcherDeletionTest, DeleteUnder) {
 }
 
 TEST_P(WaitableEventWatcherDeletionTest, SignalAndDelete) {
-  MessageLoop::Type message_loop_type;
+  test::ScopedTaskEnvironment::MainThreadType main_thread_type;
   bool delay_after_delete;
-  std::tie(message_loop_type, delay_after_delete) = GetParam();
+  std::tie(main_thread_type, delay_after_delete) = GetParam();
 
   // Signal and immediately delete the WaitableEvent out from under the Watcher.
 
-  MessageLoop message_loop(message_loop_type);
+  test::ScopedTaskEnvironment scoped_task_environment(main_thread_type);
 
   {
     WaitableEventWatcher watcher;
 
-    auto event = base::MakeUnique<WaitableEvent>(
+    auto event = std::make_unique<WaitableEvent>(
         WaitableEvent::ResetPolicy::AUTOMATIC,
         WaitableEvent::InitialState::NOT_SIGNALED);
 
-    watcher.StartWatching(event.get(), BindOnce(&QuitWhenSignaled));
+    watcher.StartWatching(event.get(), BindOnce(&QuitWhenSignaled),
+                          SequencedTaskRunnerHandle::Get());
     event->Signal();
     event.reset();
 
@@ -218,7 +363,7 @@ TEST_P(WaitableEventWatcherDeletionTest, SignalAndDelete) {
       // and gives some time to run to a created background thread.
       // Unfortunately, that thread is under OS control and we can't
       // manipulate it directly.
-      base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(30));
+      PlatformThread::Sleep(TimeDelta::FromMilliseconds(30));
     }
 
     // Wait for the watcher callback.
@@ -229,20 +374,20 @@ TEST_P(WaitableEventWatcherDeletionTest, SignalAndDelete) {
 // Tests deleting the WaitableEventWatcher between signaling the event and
 // when the callback should be run.
 TEST_P(WaitableEventWatcherDeletionTest, DeleteWatcherBeforeCallback) {
-  MessageLoop::Type message_loop_type;
+  test::ScopedTaskEnvironment::MainThreadType main_thread_type;
   bool delay_after_delete;
-  std::tie(message_loop_type, delay_after_delete) = GetParam();
+  std::tie(main_thread_type, delay_after_delete) = GetParam();
 
-  MessageLoop message_loop(message_loop_type);
+  test::ScopedTaskEnvironment scoped_task_environment(main_thread_type);
   scoped_refptr<SingleThreadTaskRunner> task_runner =
-      message_loop.task_runner();
+      ThreadTaskRunnerHandle::Get();
 
   // Flag used to esnure that the |watcher_callback| never runs.
   bool did_callback = false;
 
   WaitableEvent event(WaitableEvent::ResetPolicy::AUTOMATIC,
                       WaitableEvent::InitialState::NOT_SIGNALED);
-  auto watcher = MakeUnique<WaitableEventWatcher>();
+  auto watcher = std::make_unique<WaitableEventWatcher>();
 
   // Queue up a series of tasks:
   // 1. StartWatching the WaitableEvent
@@ -260,7 +405,7 @@ TEST_P(WaitableEventWatcherDeletionTest, DeleteWatcherBeforeCallback) {
   task_runner->PostTask(
       FROM_HERE, BindOnce(IgnoreResult(&WaitableEventWatcher::StartWatching),
                           Unretained(watcher.get()), Unretained(&event),
-                          std::move(watcher_callback)));
+                          std::move(watcher_callback), task_runner));
   task_runner->PostTask(FROM_HERE,
                         BindOnce(&WaitableEvent::Signal, Unretained(&event)));
   task_runner->DeleteSoon(FROM_HERE, std::move(watcher));
@@ -276,12 +421,11 @@ TEST_P(WaitableEventWatcherDeletionTest, DeleteWatcherBeforeCallback) {
 
 INSTANTIATE_TEST_CASE_P(,
                         WaitableEventWatcherTest,
-                        testing::ValuesIn(testing_message_loops));
+                        testing::ValuesIn(testing_main_threads));
 
 INSTANTIATE_TEST_CASE_P(
     ,
     WaitableEventWatcherDeletionTest,
-    testing::Combine(testing::ValuesIn(testing_message_loops),
-                     testing::Bool()));
+    testing::Combine(testing::ValuesIn(testing_main_threads), testing::Bool()));
 
 }  // namespace base

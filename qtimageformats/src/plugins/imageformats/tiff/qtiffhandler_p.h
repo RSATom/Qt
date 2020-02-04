@@ -55,7 +55,9 @@ public:
     bool read(QImage *image) override;
     bool write(const QImage &image) override;
 
+#if QT_DEPRECATED_SINCE(5, 13)
     QByteArray name() const override;
+#endif
 
     static bool canRead(QIODevice *device);
 
@@ -63,10 +65,10 @@ public:
     void setOption(ImageOption option, const QVariant &value) override;
     bool supportsOption(ImageOption option) const override;
 
-    bool jumpToNextImage() Q_DECL_OVERRIDE;
-    bool jumpToImage(int imageNumber) Q_DECL_OVERRIDE;
-    int imageCount() const Q_DECL_OVERRIDE;
-    int currentImageNumber() const Q_DECL_OVERRIDE;
+    bool jumpToNextImage() override;
+    bool jumpToImage(int imageNumber) override;
+    int imageCount() const override;
+    int currentImageNumber() const override;
 
     enum Compression {
         NoCompression = 0,
@@ -74,6 +76,7 @@ public:
     };
 private:
     void convert32BitOrder(void *buffer, int width);
+    void rgb48fixup(QImage *image);
     const QScopedPointer<QTiffHandlerPrivate> d;
     bool ensureHaveDirectoryCount() const;
 };

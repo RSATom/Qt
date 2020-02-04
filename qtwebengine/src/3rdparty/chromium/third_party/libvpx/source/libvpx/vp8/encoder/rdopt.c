@@ -23,6 +23,7 @@
 #include "modecosts.h"
 #include "encodeintra.h"
 #include "pickinter.h"
+#include "vp8/common/common.h"
 #include "vp8/common/entropymode.h"
 #include "vp8/common/reconinter.h"
 #include "vp8/common/reconintra.h"
@@ -769,9 +770,9 @@ static void rd_pick_intra_mbuv_mode(MACROBLOCK *x, int *rate,
     vp8_quantize_mbuv(x);
 
     rate_to = rd_cost_mbuv(x);
-    this_rate = rate_to +
-                x->intra_uv_mode_cost[xd->frame_type]
-                                     [xd->mode_info_context->mbmi.uv_mode];
+    this_rate =
+        rate_to + x->intra_uv_mode_cost[xd->frame_type]
+                                       [xd->mode_info_context->mbmi.uv_mode];
 
     this_distortion = vp8_mbuverror(x) / 4;
 
@@ -853,8 +854,7 @@ static int labels2mode(MACROBLOCK *x, int const *labelings, int which_label,
         default: break;
       }
 
-      if (m == ABOVE4X4) /* replace above with left if same */
-      {
+      if (m == ABOVE4X4) { /* replace above with left if same */
         int_mv left_mv;
 
         left_mv.as_int = col ? d[-1].bmi.mv.as_int : left_block_mv(mic, i);
@@ -960,19 +960,13 @@ static void rd_check_segment(VP8_COMP *cpi, MACROBLOCK *x, BEST_SEG_INFO *bsi,
   vp8_variance_fn_ptr_t *v_fn_ptr;
 
   ENTROPY_CONTEXT_PLANES t_above, t_left;
-  ENTROPY_CONTEXT *ta;
-  ENTROPY_CONTEXT *tl;
   ENTROPY_CONTEXT_PLANES t_above_b, t_left_b;
-  ENTROPY_CONTEXT *ta_b;
-  ENTROPY_CONTEXT *tl_b;
 
   memcpy(&t_above, x->e_mbd.above_context, sizeof(ENTROPY_CONTEXT_PLANES));
   memcpy(&t_left, x->e_mbd.left_context, sizeof(ENTROPY_CONTEXT_PLANES));
 
-  ta = (ENTROPY_CONTEXT *)&t_above;
-  tl = (ENTROPY_CONTEXT *)&t_left;
-  ta_b = (ENTROPY_CONTEXT *)&t_above_b;
-  tl_b = (ENTROPY_CONTEXT *)&t_left_b;
+  vp8_zero(t_above_b);
+  vp8_zero(t_left_b);
 
   br = 0;
   bd = 0;
@@ -1152,13 +1146,13 @@ static void rd_check_segment(VP8_COMP *cpi, MACROBLOCK *x, BEST_SEG_INFO *bsi,
         mode_selected = this_mode;
         best_label_rd = this_rd;
 
-        memcpy(ta_b, ta_s, sizeof(ENTROPY_CONTEXT_PLANES));
-        memcpy(tl_b, tl_s, sizeof(ENTROPY_CONTEXT_PLANES));
+        memcpy(&t_above_b, &t_above_s, sizeof(ENTROPY_CONTEXT_PLANES));
+        memcpy(&t_left_b, &t_left_s, sizeof(ENTROPY_CONTEXT_PLANES));
       }
     } /*for each 4x4 mode*/
 
-    memcpy(ta, ta_b, sizeof(ENTROPY_CONTEXT_PLANES));
-    memcpy(tl, tl_b, sizeof(ENTROPY_CONTEXT_PLANES));
+    memcpy(&t_above, &t_above_b, sizeof(ENTROPY_CONTEXT_PLANES));
+    memcpy(&t_left, &t_left_b, sizeof(ENTROPY_CONTEXT_PLANES));
 
     labels2mode(x, labels, i, mode_selected, &mode_mv[mode_selected],
                 bsi->ref_mv, x->mvcost);
@@ -1785,6 +1779,10 @@ void vp8_rd_pick_inter_mode(VP8_COMP *cpi, MACROBLOCK *x, int recon_yoffset,
                best_rd_sse = UINT_MAX;
 #endif
 
+  // _uv variables are not set consistantly before calling update_best_mode.
+  rd.rate_uv = 0;
+  rd.distortion_uv = 0;
+
   mode_mv = mode_mv_sb[sign_bias];
   best_ref_mv.as_int = 0;
   best_mode.rd = INT_MAX;
@@ -2137,6 +2135,7 @@ void vp8_rd_pick_inter_mode(VP8_COMP *cpi, MACROBLOCK *x, int recon_yoffset,
         rd.rate2 +=
             vp8_mv_bit_cost(&mode_mv[NEWMV], &best_ref_mv, x->mvcost, 96);
       }
+        // fall through
 
       case NEARESTMV:
       case NEARMV:
@@ -2153,6 +2152,7 @@ void vp8_rd_pick_inter_mode(VP8_COMP *cpi, MACROBLOCK *x, int recon_yoffset,
             (mode_mv[this_mode].as_int == 0)) {
           continue;
         }
+        // fall through
 
       case ZEROMV:
 
@@ -2358,11 +2358,11 @@ void vp8_rd_pick_inter_mode(VP8_COMP *cpi, MACROBLOCK *x, int recon_yoffset,
   rd_update_mvcount(x, &best_ref_mv);
 }
 
-void vp8_rd_pick_intra_mode(MACROBLOCK *x, int *rate_) {
+void vp8_rd_pick_intra_mode(MACROBLOCK *x, int *rate) {
   int error4x4, error16x16;
   int rate4x4, rate16x16 = 0, rateuv;
   int dist4x4, dist16x16, distuv;
-  int rate;
+  int rate_;
   int rate4x4_tokenonly = 0;
   int rate16x16_tokenonly = 0;
   int rateuv_tokenonly = 0;
@@ -2370,7 +2370,7 @@ void vp8_rd_pick_intra_mode(MACROBLOCK *x, int *rate_) {
   x->e_mbd.mode_info_context->mbmi.ref_frame = INTRA_FRAME;
 
   rd_pick_intra_mbuv_mode(x, &rateuv, &rateuv_tokenonly, &distuv);
-  rate = rateuv;
+  rate_ = rateuv;
 
   error16x16 = rd_pick_intra16x16mby_mode(x, &rate16x16, &rate16x16_tokenonly,
                                           &dist16x16);
@@ -2380,10 +2380,10 @@ void vp8_rd_pick_intra_mode(MACROBLOCK *x, int *rate_) {
 
   if (error4x4 < error16x16) {
     x->e_mbd.mode_info_context->mbmi.mode = B_PRED;
-    rate += rate4x4;
+    rate_ += rate4x4;
   } else {
-    rate += rate16x16;
+    rate_ += rate16x16;
   }
 
-  *rate_ = rate;
+  *rate = rate_;
 }

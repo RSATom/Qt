@@ -29,6 +29,10 @@ class USER_PREFS_EXPORT UserPrefs : public base::SupportsUserData::Data {
   // only once per context.
   static void Set(base::SupportsUserData* context, PrefService* prefs);
 
+  // Remove existing |prefs| on a |context|.
+  // TODO: Remove in Qt6 when contexts are only set once
+  static void Remove(base::SupportsUserData* context);
+
  private:
   explicit UserPrefs(PrefService* prefs);
 

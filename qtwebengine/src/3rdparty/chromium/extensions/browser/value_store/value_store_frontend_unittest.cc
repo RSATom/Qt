@@ -24,7 +24,8 @@ class ValueStoreFrontendTest : public testing::Test {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
 
     base::FilePath test_data_dir;
-    ASSERT_TRUE(PathService::Get(extensions::DIR_TEST_DATA, &test_data_dir));
+    ASSERT_TRUE(
+        base::PathService::Get(extensions::DIR_TEST_DATA, &test_data_dir));
     base::FilePath src_db(test_data_dir.AppendASCII("value_store_db"));
     db_path_ = temp_dir_.GetPath().AppendASCII("temp_db");
     base::CopyDirectory(src_db, db_path_, true);
@@ -35,7 +36,7 @@ class ValueStoreFrontendTest : public testing::Test {
   }
 
   void TearDown() override {
-    content::RunAllBlockingPoolTasksUntilIdle();
+    content::RunAllTasksUntilIdle();
     storage_.reset();
   }
 
@@ -48,7 +49,7 @@ class ValueStoreFrontendTest : public testing::Test {
   bool Get(const std::string& key, std::unique_ptr<base::Value>* output) {
     storage_->Get(key, base::Bind(&ValueStoreFrontendTest::GetAndWait,
                                   base::Unretained(this), output));
-    content::RunAllBlockingPoolTasksUntilIdle();
+    content::RunAllTasksUntilIdle();
     return !!output->get();
   }
 

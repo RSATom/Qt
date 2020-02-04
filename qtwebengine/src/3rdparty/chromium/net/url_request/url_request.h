@@ -14,6 +14,7 @@
 #include "base/debug/leak_tracker.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/strings/string16.h"
 #include "base/supports_user_data.h"
@@ -26,14 +27,20 @@
 #include "net/base/net_error_details.h"
 #include "net/base/net_export.h"
 #include "net/base/network_delegate.h"
+#include "net/base/privacy_mode.h"
+#include "net/base/proxy_server.h"
 #include "net/base/request_priority.h"
 #include "net/base/upload_progress.h"
 #include "net/cookies/canonical_cookie.h"
+#include "net/http/http_raw_request_headers.h"
 #include "net/http/http_request_headers.h"
+#include "net/http/http_response_headers.h"
 #include "net/http/http_response_info.h"
+#include "net/log/net_log_event_type.h"
 #include "net/log/net_log_with_source.h"
-#include "net/proxy/proxy_server.h"
+#include "net/net_buildflags.h"
 #include "net/socket/connection_attempts.h"
+#include "net/socket/socket_tag.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "net/url_request/url_request_status.h"
 #include "url/gurl.h"
@@ -75,9 +82,9 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
   // The factory may return NULL to indicate an error, which will cause other
   // factories to be queried.  If no factory handles the request, then the
   // default job will be used.
-  typedef URLRequestJob* (ProtocolFactory)(URLRequest* request,
-                                           NetworkDelegate* network_delegate,
-                                           const std::string& scheme);
+  typedef URLRequestJob*(ProtocolFactory)(URLRequest* request,
+                                          NetworkDelegate* network_delegate,
+                                          const std::string& scheme);
 
   // A ReferrerPolicy for the request can be set with
   // set_referrer_policy() and controls the contents of the Referer
@@ -112,7 +119,7 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
     ORIGIN_CLEAR_ON_TRANSITION_FROM_SECURE_TO_INSECURE,
     // Always clear the referrer regardless of the request destination.
     NO_REFERRER,
-    MAX_REFERRER_POLICY
+    MAX_REFERRER_POLICY = NO_REFERRER
   };
 
   // First-party URL redirect policy: During server redirects, the first-party
@@ -123,6 +130,11 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
     NEVER_CHANGE_FIRST_PARTY_URL,
     UPDATE_FIRST_PARTY_URL_ON_REDIRECT,
   };
+
+  // Max number of http redirects to follow. The Fetch spec says: "If
+  // request's redirect count is twenty, return a network error."
+  // https://fetch.spec.whatwg.org/#http-redirect-fetch
+  static constexpr int kMaxRedirects = 20;
 
   // The delegate's methods are called from the message loop of the thread
   // on which the request's Start() method is called. See above for the
@@ -184,9 +196,8 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
     // selected and its private key, or request->ContinueWithCertificate(NULL,
     // NULL)
     // to continue the SSL handshake without a client certificate.
-    virtual void OnCertificateRequested(
-        URLRequest* request,
-        SSLCertRequestInfo* cert_request_info);
+    virtual void OnCertificateRequested(URLRequest* request,
+                                        SSLCertRequestInfo* cert_request_info);
 
     // Called when using SSL and the server responds with a certificate with
     // an error, for example, whose common name does not match the common name
@@ -209,9 +220,6 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
     // meta data about the response is available, including for example HTTP
     // response headers if this is a request for a HTTP resource.
     virtual void OnResponseStarted(URLRequest* request, int net_error);
-    // Deprecated.
-    // TODO(maksims): Remove this;
-    virtual void OnResponseStarted(URLRequest* request);
 
     // Called when the a Read of the response body is completed after an
     // IO_PENDING status from a Read() call.
@@ -259,7 +267,7 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
 
   // The URL that should be consulted for the third-party cookie blocking
   // policy, as defined in Section 2.1.1 and 2.1.2 of
-  // https://tools.ietf.org/html/draft-west-first-party-cookies.
+  // https://tools.ietf.org/html/draft-ietf-httpbis-cookie-same-site.
   //
   // WARNING: This URL must only be used for the third-party cookie blocking
   //          policy. It MUST NEVER be used for any kind of SECURITY check.
@@ -275,11 +283,31 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
   // this value as a proxy for the "top-level frame URL", which is simply
   // incorrect and fragile. We don't need the full URL for any //net checks,
   // so we should drop the pieces we don't need. https://crbug.com/577565
-  const GURL& first_party_for_cookies() const {
-    return first_party_for_cookies_;
-  }
+  const GURL& site_for_cookies() const { return site_for_cookies_; }
   // This method may only be called before Start().
-  void set_first_party_for_cookies(const GURL& first_party_for_cookies);
+  void set_site_for_cookies(const GURL& site_for_cookies);
+
+#if defined(TOOLKIT_QT)
+  // The top-level frame URL.
+  const GURL& first_party_url() const { return first_party_url_; }
+  void set_first_party_url(const GURL& first_party_url);
+#endif
+
+  // The origin of the top frame of the page making the request (where
+  // applicable). Note that this is experimental and may not always be set.
+  const base::Optional<url::Origin>& top_frame_origin() const {
+    return top_frame_origin_;
+  }
+  void set_top_frame_origin(const base::Optional<url::Origin>& origin) {
+    top_frame_origin_ = origin;
+  }
+
+  // Indicate whether SameSite cookies should be attached even though the
+  // request is cross-site.
+  bool attach_same_site_cookies() const { return attach_same_site_cookies_; }
+  void set_attach_same_site_cookies(bool attach) {
+    attach_same_site_cookies_ = attach;
+  }
 
   // The first-party URL policy to apply when updating the first party URL
   // during redirects. The first-party URL policy may only be changed before
@@ -304,7 +332,7 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
   //    initiator remains `https://example.com/`.
   //
   // This value is used to perform the cross-origin check specified in Section
-  // 4.3 of https://tools.ietf.org/html/draft-west-first-party-cookies.
+  // 4.3 of https://tools.ietf.org/html/draft-ietf-httpbis-cookie-same-site.
   //
   // Note: the initiator can be null for browser-initiated top level
   // navigations. This is different from a unique Origin (e.g. in sandboxed
@@ -318,6 +346,18 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
   // should only be assigned an uppercase value.
   const std::string& method() const { return method_; }
   void set_method(const std::string& method);
+
+#if BUILDFLAG(ENABLE_REPORTING)
+  // Reporting upload nesting depth of this request.
+  //
+  // If the request is not a Reporting upload, the depth is 0.
+  //
+  // If the request is a Reporting upload, the depth is the max of the depth
+  // of the requests reported within it plus 1. (Non-NEL reports are
+  // considered to have depth 0.)
+  int reporting_upload_depth() const { return reporting_upload_depth_; }
+  void set_reporting_upload_depth(int reporting_upload_depth);
+#endif
 
   // The referrer URL for the request
   const std::string& referrer() const { return referrer_; }
@@ -338,17 +378,20 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
   ReferrerPolicy referrer_policy() const { return referrer_policy_; }
   void set_referrer_policy(ReferrerPolicy referrer_policy);
 
-  // If this request should include a referred Token Binding, this returns the
-  // hostname of the referrer that indicated this request should include a
-  // referred Token Binding. Otherwise, this returns the empty string.
-  const std::string& token_binding_referrer() const {
-    return token_binding_referrer_;
-  }
-
   // Sets the delegate of the request.  This is only to allow creating a request
   // before creating its delegate.  |delegate| must be non-NULL and the request
   // must not yet have a Delegate set.
   void set_delegate(Delegate* delegate);
+
+  // Sets whether credentials are allowed.
+  // If credentials are allowed, the request will send and save HTTP
+  // cookies, as well as authentication to the origin server. If not,
+  // they will not be sent, however proxy-level authentication will
+  // still occur.
+  // Setting this to false is equivalent to setting the
+  // LOAD_DO_NOT_SAVE_COOKIES, LOAD_DO_NOT_SEND_COOKIES, and
+  // LOAD_DO_NOT_SEND_AUTH_DATA flags. See https://crbug.com/799935.
+  void set_allow_credentials(bool allow_credentials);
 
   // Sets the upload data.
   void set_upload(std::unique_ptr<UploadDataStream> upload);
@@ -363,7 +406,8 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
   // before Start() is called, or between receiving a redirect and trying to
   // follow it.
   void SetExtraRequestHeaderByName(const std::string& name,
-                                   const std::string& value, bool overwrite);
+                                   const std::string& value,
+                                   bool overwrite);
   void RemoveRequestHeaderByName(const std::string& name);
 
   // Sets all extra request headers.  Any extra request headers set by other
@@ -451,9 +495,7 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
 
   // The time at which the returned response was requested.  For cached
   // responses, this is the last time the cache entry was validated.
-  const base::Time& request_time() const {
-    return response_info_.request_time;
-  }
+  const base::Time& request_time() const { return response_info_.request_time; }
 
   // The time at which the returned response was generated.  For cached
   // responses, this is the last time the cache entry was validated.
@@ -483,9 +525,7 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
   HttpResponseHeaders* response_headers() const;
 
   // Get the SSL connection info.
-  const SSLInfo& ssl_info() const {
-    return response_info_.ssl_info;
-  }
+  const SSLInfo& ssl_info() const { return response_info_.ssl_info; }
 
   // Gets timing information related to the request.  Events that have not yet
   // occurred are left uninitialized.  After a second request starts, due to
@@ -529,6 +569,10 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
 
   // Access the LOAD_* flags modifying this request (see load_flags.h).
   int load_flags() const { return load_flags_; }
+
+  // Returns PrivacyMode that should be used for the request. Updated every time
+  // the request is redirected.
+  PrivacyMode privacy_mode() { return privacy_mode_; }
 
   // The new flags may change the IGNORE_LIMITS flag only when called
   // before Start() is called, it must only set the flag, and if set,
@@ -598,8 +642,12 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
   void StopCaching();
 
   // This method may be called to follow a redirect that was deferred in
-  // response to an OnReceivedRedirect call.
-  void FollowDeferredRedirect();
+  // response to an OnReceivedRedirect call. If non-null,
+  // |modified_headers| are changes applied to the request headers after
+  // updating them for the redirect.
+  void FollowDeferredRedirect(
+      const base::Optional<std::vector<std::string>>& removed_headers,
+      const base::Optional<net::HttpRequestHeaders>& modified_headers);
 
   // One of the following two methods should be called in response to an
   // OnAuthRequired() callback (and only then).
@@ -646,8 +694,8 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
     return received_response_content_length_;
   }
 
-  // Available at NetworkDelegate::NotifyHeadersReceived() time, which is before
-  // the more general response_info() is available, even though it is a subset.
+  // Available when the request headers are sent, which is before the more
+  // general response_info() is available.
   const ProxyServer& proxy_server() const { return proxy_server_; }
 
   // Gets the connection attempts made in the process of servicing this
@@ -659,6 +707,15 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
   // encryption, 0 for cached responses.
   int raw_header_size() const { return raw_header_size_; }
 
+  // True if this request was issued by the proxy service subsystem in order to
+  // probe/fetch a Proxy Auto Config script.
+  // TODO(mmenke): See if there's a way to not need this.
+  bool is_pac_request() const { return is_pac_request_; }
+  // Sets whether this is a request for a PAC script. Defaults to false.
+  void set_is_pac_request(bool is_pac_request) {
+    is_pac_request_ = is_pac_request;
+  }
+
   // Returns the error status of the request.
   // Do not use! Going to be protected!
   const URLRequestStatus& status() const { return status_; }
@@ -667,6 +724,41 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
     return traffic_annotation_;
   }
 
+  // Sets a callback that will be invoked each time the request is about to
+  // be actually sent and will receive actual request headers that are about
+  // to hit the wire, including SPDY/QUIC internal headers and any additional
+  // request headers set via BeforeSendHeaders hooks. Can only be set once
+  // before the request is started.
+  void SetRequestHeadersCallback(RequestHeadersCallback callback);
+
+  // Sets a callback that will be invoked each time the response is received
+  // from the remote party with the actual response headers recieved. Note this
+  // is different from response_headers() getter in that in case of revalidation
+  // request, the latter will return cached headers, while the callback will be
+  // called with a response from the server.
+  void SetResponseHeadersCallback(ResponseHeadersCallback callback);
+
+  // Sets socket tag to be applied to all sockets used to execute this request.
+  // Must be set before Start() is called.  Only currently supported for HTTP
+  // and HTTPS requests on Android; UID tagging requires
+  // MODIFY_NETWORK_ACCOUNTING permission.
+  // NOTE(pauljensen): Setting a tag disallows sharing of sockets with requests
+  // with other tags, which may adversely effect performance by prohibiting
+  // connection sharing. In other words use of multiplexed sockets (e.g. HTTP/2
+  // and QUIC) will only be allowed if all requests have the same socket tag.
+  void set_socket_tag(const SocketTag& socket_tag);
+  const SocketTag& socket_tag() const { return socket_tag_; }
+
+  // |upgrade_if_insecure| should be set to true if this request (including
+  // redirects) should be upgraded to HTTPS due to an Upgrade-Insecure-Requests
+  // requirement.
+  void set_upgrade_if_insecure(bool upgrade_if_insecure) {
+    upgrade_if_insecure_ = upgrade_if_insecure;
+  }
+  bool upgrade_if_insecure() const { return upgrade_if_insecure_; }
+
+  base::WeakPtr<URLRequest> GetWeakPtr();
+
  protected:
   // Allow the URLRequestJob class to control the is_pending() flag.
   void set_is_pending(bool value) { is_pending_ = value; }
@@ -674,8 +766,13 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
   // Allow the URLRequestJob class to set our status too.
   void set_status(URLRequestStatus status);
 
-  // Allow the URLRequestJob to redirect this request.
-  void Redirect(const RedirectInfo& redirect_info);
+  // Allow the URLRequestJob to redirect this request. If non-null,
+  // |removed_headers| and |modified_headers| are changes
+  // applied to the request headers after updating them for the redirect.
+  void Redirect(
+      const RedirectInfo& redirect_info,
+      const base::Optional<std::vector<std::string>>& removed_headers,
+      const base::Optional<net::HttpRequestHeaders>& modified_headers);
 
   // Called by URLRequestJob to allow interception when a redirect occurs.
   void NotifyReceivedRedirect(const RedirectInfo& redirect_info,
@@ -748,12 +845,14 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
   // If |network_delegate_| is NULL, cookies can be used unless
   // SetDefaultCookiePolicyToBlock() has been called.
   bool CanGetCookies(const CookieList& cookie_list) const;
-  bool CanSetCookie(const std::string& cookie_line,
+  bool CanSetCookie(const net::CanonicalCookie& cookie,
                     CookieOptions* options) const;
-  bool CanEnablePrivacyMode() const;
+  PrivacyMode DeterminePrivacyMode() const;
 
-  // Called just before calling a delegate that may block a request.
-  void OnCallToDelegate();
+  // Called just before calling a delegate that may block a request. |type|
+  // should be the delegate's event type,
+  // e.g. NetLogEventType::NETWORK_DELEGATE_AUTH_REQUIRED.
+  void OnCallToDelegate(NetLogEventType type);
   // Called when the delegate lets a request continue.  Also called on
   // cancellation.
   void OnCallToDelegateComplete();
@@ -772,17 +871,27 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
   std::unique_ptr<UploadDataStream> upload_data_stream_;
 
   std::vector<GURL> url_chain_;
-  GURL first_party_for_cookies_;
+  GURL site_for_cookies_;
+#if defined(TOOLKIT_QT)
+  GURL first_party_url_;
+#endif
+  base::Optional<url::Origin> top_frame_origin_;
+
+  bool attach_same_site_cookies_;
   base::Optional<url::Origin> initiator_;
   GURL delegate_redirect_url_;
   std::string method_;  // "GET", "POST", etc. Should be all uppercase.
   std::string referrer_;
   ReferrerPolicy referrer_policy_;
-  std::string token_binding_referrer_;
   FirstPartyURLPolicy first_party_url_policy_;
   HttpRequestHeaders extra_request_headers_;
   int load_flags_;  // Flags indicating the request type for the load;
                     // expected values are LOAD_* enums above.
+  PrivacyMode privacy_mode_;
+
+#if BUILDFLAG(ENABLE_REPORTING)
+  int reporting_upload_depth_;
+#endif
 
   // Never access methods of the |delegate_| directly. Always use the
   // Notify... methods for this.
@@ -828,6 +937,10 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
   // A globally unique identifier for this request.
   const uint64_t identifier_;
 
+  // If |calling_delegate_| is true, the event type of the delegate being
+  // called.
+  NetLogEventType delegate_event_type_;
+
   // True if this request is currently calling a delegate, or is blocked waiting
   // for the URL request or network delegate to resume it.
   bool calling_delegate_;
@@ -838,10 +951,6 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
   bool use_blocked_by_as_load_param_;
 
   base::debug::LeakTracker<URLRequest> leak_tracker_;
-
-  // Callback passed to the network delegate to notify us when a blocked request
-  // is ready to be resumed or canceled.
-  CompletionCallback before_request_callback_;
 
   // Safe-guard to ensure that we do not send multiple "I am completed"
   // messages to network delegate.
@@ -869,9 +978,22 @@ class NET_EXPORT URLRequest : public base::SupportsUserData {
   // The raw header size of the response.
   int raw_header_size_;
 
+  // True if this is a request for a PAC script.
+  bool is_pac_request_;
+
   const NetworkTrafficAnnotationTag traffic_annotation_;
 
+  SocketTag socket_tag_;
+
+  // See Set{Request|Response}HeadersCallback() above for details.
+  RequestHeadersCallback request_headers_callback_;
+  ResponseHeadersCallback response_headers_callback_;
+
+  bool upgrade_if_insecure_;
+
   THREAD_CHECKER(thread_checker_);
+
+  base::WeakPtrFactory<URLRequest> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(URLRequest);
 };

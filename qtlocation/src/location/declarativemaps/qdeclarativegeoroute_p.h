@@ -56,6 +56,7 @@
 #include <QtLocation/QGeoRoute>
 
 QT_BEGIN_NAMESPACE
+class QDeclarativeGeoRouteQuery;
 
 class Q_LOCATION_PRIVATE_EXPORT QDeclarativeGeoRoute : public QObject
 {
@@ -66,6 +67,9 @@ class Q_LOCATION_PRIVATE_EXPORT QDeclarativeGeoRoute : public QObject
     Q_PROPERTY(qreal distance READ distance CONSTANT)
     Q_PROPERTY(QJSValue path READ path WRITE setPath NOTIFY pathChanged)
     Q_PROPERTY(QQmlListProperty<QDeclarativeGeoRouteSegment> segments READ segments CONSTANT)
+    Q_PROPERTY(QDeclarativeGeoRouteQuery *routeQuery READ routeQuery REVISION 11)
+    Q_PROPERTY(QList<QObject *> legs READ legs CONSTANT REVISION 12)
+    Q_PROPERTY(QObject *extendedAttributes READ extendedAttributes CONSTANT REVISION 13)
 
 public:
     explicit QDeclarativeGeoRoute(QObject *parent = 0);
@@ -84,6 +88,14 @@ public:
     void appendSegment(QDeclarativeGeoRouteSegment *segment);
     void clearSegments();
 
+    int segmentsCount() const;
+    const QGeoRoute &route() const;
+    QDeclarativeGeoRouteQuery *routeQuery();
+    QList<QObject *> legs();
+    QQmlPropertyMap *extendedAttributes() const;
+
+    Q_INVOKABLE bool equals(QDeclarativeGeoRoute *other) const;
+
 Q_SIGNALS:
     void pathChanged();
 
@@ -93,12 +105,36 @@ private:
     static QDeclarativeGeoRouteSegment *segments_at(QQmlListProperty<QDeclarativeGeoRouteSegment> *prop, int index);
     static void segments_clear(QQmlListProperty<QDeclarativeGeoRouteSegment> *prop);
 
-    void init();
+    void initSegments(unsigned int lastIndex = ~0U);
     QList<QGeoCoordinate> routePath();
 
     QGeoRoute route_;
+    QDeclarativeGeoRouteQuery *routeQuery_ = nullptr;
     QList<QDeclarativeGeoRouteSegment *> segments_;
+    QList<QObject *> legs_;
+    bool segmentsDirty_ = true;
+    QQmlPropertyMap *m_extendedAttributes = nullptr;
+
     friend class QDeclarativeRouteMapItem;
+};
+
+class Q_LOCATION_PRIVATE_EXPORT QDeclarativeGeoRouteLeg : public QDeclarativeGeoRoute
+{
+    Q_OBJECT
+
+    Q_PROPERTY(int legIndex READ legIndex CONSTANT)
+    Q_PROPERTY(QObject * overallRoute READ overallRoute CONSTANT)
+
+public:
+    explicit QDeclarativeGeoRouteLeg(QObject *parent = nullptr);
+    QDeclarativeGeoRouteLeg(const QGeoRouteLeg &routeLeg, QObject *parent = nullptr);
+    ~QDeclarativeGeoRouteLeg() override;
+
+    int legIndex() const;
+    QObject *overallRoute() const;
+
+private:
+    QGeoRouteLeg m_routeLeg;
 };
 
 QT_END_NAMESPACE

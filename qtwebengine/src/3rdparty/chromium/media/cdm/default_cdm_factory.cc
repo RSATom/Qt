@@ -14,15 +14,13 @@
 #include "media/base/key_systems.h"
 #include "media/base/media_switches.h"
 #include "media/cdm/aes_decryptor.h"
-#include "url/gurl.h"
+#include "url/origin.h"
 
 namespace media {
 
-DefaultCdmFactory::DefaultCdmFactory() {
-}
+DefaultCdmFactory::DefaultCdmFactory() = default;
 
-DefaultCdmFactory::~DefaultCdmFactory() {
-}
+DefaultCdmFactory::~DefaultCdmFactory() = default;
 
 static bool ShouldCreateAesDecryptor(const std::string& key_system) {
   if (CanUseAesDecryptor(key_system))
@@ -36,16 +34,16 @@ static bool ShouldCreateAesDecryptor(const std::string& key_system) {
 
 void DefaultCdmFactory::Create(
     const std::string& key_system,
-    const GURL& security_origin,
+    const url::Origin& security_origin,
     const CdmConfig& cdm_config,
     const SessionMessageCB& session_message_cb,
     const SessionClosedCB& session_closed_cb,
     const SessionKeysChangeCB& session_keys_change_cb,
     const SessionExpirationUpdateCB& session_expiration_update_cb,
     const CdmCreatedCB& cdm_created_cb) {
-  if (!security_origin.is_valid()) {
+  if (security_origin.opaque()) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(cdm_created_cb, nullptr, "Invalid origin."));
+        FROM_HERE, base::BindOnce(cdm_created_cb, nullptr, "Invalid origin."));
     return;
   }
 
@@ -57,10 +55,10 @@ void DefaultCdmFactory::Create(
   }
 
   scoped_refptr<ContentDecryptionModule> cdm(
-      new AesDecryptor(security_origin, session_message_cb, session_closed_cb,
+      new AesDecryptor(session_message_cb, session_closed_cb,
                        session_keys_change_cb, session_expiration_update_cb));
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(cdm_created_cb, cdm, ""));
+      FROM_HERE, base::BindOnce(cdm_created_cb, cdm, ""));
 }
 
 }  // namespace media

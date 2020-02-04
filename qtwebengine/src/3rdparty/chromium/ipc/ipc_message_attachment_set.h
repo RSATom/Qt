@@ -12,7 +12,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "build/build_config.h"
-#include "ipc/ipc_export.h"
+#include "ipc/ipc_message_support_export.h"
 
 namespace IPC {
 
@@ -26,7 +26,7 @@ class MessageAttachment;
 // For ChannelNacl under SFI NaCl, only Type::PLATFORM_FILE is supported. In
 // that case, the FD is sent over socket.
 // -----------------------------------------------------------------------------
-class IPC_EXPORT MessageAttachmentSet
+class IPC_MESSAGE_SUPPORT_EXPORT MessageAttachmentSet
     : public base::RefCountedThreadSafe<MessageAttachmentSet> {
  public:
   MessageAttachmentSet();
@@ -58,7 +58,7 @@ class IPC_EXPORT MessageAttachmentSet
   // auto-close.
   void CommitAllDescriptors();
 
-#if defined(OS_POSIX)
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
   // This is the maximum number of descriptors per message. We need to know this
   // because the control message kernel interface has to be given a buffer which
   // is large enough to store all the descriptor numbers. Otherwise the kernel
@@ -68,7 +68,7 @@ class IPC_EXPORT MessageAttachmentSet
   // In debugging mode, it's a fatal error to try and add more than this number
   // of descriptors to a MessageAttachmentSet.
   static const size_t kMaxDescriptorsPerMessage = 7;
-#endif  // OS_POSIX
+#endif  // OS_POSIX || OS_FUCHSIA
 
   // ---------------------------------------------------------------------------
 

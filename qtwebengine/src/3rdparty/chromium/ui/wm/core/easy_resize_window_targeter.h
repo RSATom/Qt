@@ -7,44 +7,36 @@
 
 #include "base/macros.h"
 #include "ui/aura/window_targeter.h"
-#include "ui/gfx/geometry/insets.h"
 #include "ui/wm/core/wm_core_export.h"
+
+namespace gfx {
+class Insets;
+}
 
 namespace wm {
 
 // An EventTargeter for a container window that uses a slightly larger
-// hit-target region for easier resize.
-// TODO(sky): make this class final.
+// hit-target region for easier resize. It extends the hit test region for child
+// windows (top level Widgets that are resizable) to outside their bounds. For
+// Ash, this correlates to ash::kResizeOutsideBoundsSize. For the interior
+// resize area, see ash::wm::InstallResizeHandleWindowTargeterForWindow().
 class WM_CORE_EXPORT EasyResizeWindowTargeter : public aura::WindowTargeter {
  public:
-  // |container| window is the owner of this targeter.
   // NOTE: the insets must be negative.
-  EasyResizeWindowTargeter(aura::Window* container,
-                           const gfx::Insets& mouse_extend,
+  EasyResizeWindowTargeter(const gfx::Insets& mouse_extend,
                            const gfx::Insets& touch_extend);
 
   ~EasyResizeWindowTargeter() override;
 
- protected:
-  // NOTE: the insets must be negative.
-  void SetInsets(const gfx::Insets& mouse_extend,
-                 const gfx::Insets& touch_extend);
-
-  const gfx::Insets& mouse_extend() const { return mouse_extend_; }
-  const gfx::Insets& touch_extend() const { return touch_extend_; }
-
+ private:
   // aura::WindowTargeter:
-  bool EventLocationInsideBounds(aura::Window* window,
+  // Delegates to WindowTargeter's impl and prevents overriding in subclasses.
+  bool EventLocationInsideBounds(aura::Window* target,
                                  const ui::LocatedEvent& event) const override;
 
- private:
-  // Returns true if the hit testing (EventLocationInsideBounds()) should use
-  // the extended bounds.
-  bool ShouldUseExtendedBounds(const aura::Window* window) const;
-
-  aura::Window* container_;
-  gfx::Insets mouse_extend_;
-  gfx::Insets touch_extend_;
+  // Returns true if the hit testing (GetHitTestRects()) should use the
+  // extended bounds.
+  bool ShouldUseExtendedBounds(const aura::Window* w) const override;
 
   DISALLOW_COPY_AND_ASSIGN(EasyResizeWindowTargeter);
 };

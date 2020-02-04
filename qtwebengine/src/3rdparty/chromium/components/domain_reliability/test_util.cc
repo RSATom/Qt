@@ -4,9 +4,10 @@
 
 #include "components/domain_reliability/test_util.h"
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/memory/ptr_util.h"
 #include "components/domain_reliability/scheduler.h"
 #include "net/url_request/url_request_status.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -28,7 +29,7 @@ class MockTimer : public MockableTime::Timer {
   ~MockTimer() override {}
 
   // MockableTime::Timer implementation:
-  void Start(const tracked_objects::Location& posted_from,
+  void Start(const base::Location& posted_from,
              base::TimeDelta delay,
              const base::Closure& user_task) override {
     DCHECK(!user_task.is_null());
@@ -102,8 +103,12 @@ void MockUploader::UploadReport(const std::string& report_json,
   callback_.Run(report_json, max_upload_depth, upload_url, callback);
 }
 
-void MockUploader::set_discard_uploads(bool discard_uploads) {
+void MockUploader::SetDiscardUploads(bool discard_uploads) {
   discard_uploads_ = discard_uploads;
+}
+
+int MockUploader::GetDiscardedUploadCount() const {
+  return 0;
 }
 
 MockTime::MockTime()
@@ -116,8 +121,12 @@ MockTime::MockTime()
 
 MockTime::~MockTime() {}
 
-base::Time MockTime::Now() { return now_; }
-base::TimeTicks MockTime::NowTicks() { return now_ticks_; }
+base::Time MockTime::Now() const {
+  return now_;
+}
+base::TimeTicks MockTime::NowTicks() const {
+  return now_ticks_;
+}
 
 std::unique_ptr<MockableTime::Timer> MockTime::CreateTimer() {
   return std::unique_ptr<MockableTime::Timer>(new MockTimer(this));
@@ -171,7 +180,7 @@ std::unique_ptr<DomainReliabilityConfig> MakeTestConfigWithOrigin(
   DomainReliabilityConfig* config = new DomainReliabilityConfig();
   config->origin = origin;
   config->collectors.push_back(
-      base::MakeUnique<GURL>("https://exampleuploader/upload"));
+      std::make_unique<GURL>("https://exampleuploader/upload"));
   config->failure_sample_rate = 1.0;
   config->success_sample_rate = 0.0;
 

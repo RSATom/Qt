@@ -30,9 +30,14 @@ import sys
 
 sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
-    '..', '..', 'third_party', 'WebKit', 'Tools', 'gdb'))
+    'util'))
+import class_methods
+
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    '..', '..', 'third_party', 'blink', 'tools', 'gdb'))
 try:
-  import webkit
+  import blink
 finally:
   sys.path.pop(0)
 
@@ -88,7 +93,7 @@ class StringPrinter(Printer):
 
 class String16Printer(StringPrinter):
     def to_string(self):
-        return webkit.ustring_to_string(self.val['_M_dataplus']['_M_p'])
+        return blink.ustring_to_string(self.val['_M_dataplus']['_M_p'])
 pp_set.add_printer(
     'string16',
     '^string16|std::basic_string<(unsigned short|base::char16).*>$',
@@ -155,7 +160,7 @@ class LocationPrinter(Printer):
         return '%s()@%s:%s' % (self.val['function_name_'].string(),
                                self.val['file_name_'].string(),
                                self.val['line_number_'])
-pp_set.add_printer('tracked_objects::Location', '^tracked_objects::Location$',
+pp_set.add_printer('base::Location', '^base::Location$',
                    LocationPrinter)
 
 
@@ -215,15 +220,6 @@ class TimePrinter(object):
     def to_string(self):
         return str(self._datetime)
 pp_set.add_printer('base::Time', '^base::Time$', TimePrinter)
-
-
-class ManualConstructorPrinter(object):
-    def __init__(self, val):
-        self.val = val
-
-    def to_string(self):
-        return self.val['space_'].cast(self.val.type.template_argument(0))
-pp_set.add_printer('base::ManualConstructor', '^base::ManualConstructor<.*>$', ManualConstructorPrinter)
 
 
 class FlatTreePrinter(object):
@@ -384,3 +380,29 @@ pp_set.add_printer('content::RenderProcessHostImpl',
 
 
 gdb.printing.register_pretty_printer(gdb, pp_set, replace=_DEBUGGING)
+
+
+"""Implementations of inlined libc++ std container functions."""
+@class_methods.Class('std::__1::vector', template_types=['T'])
+class LibcppVector(object):
+    @class_methods.member_function('T&', 'operator[]', ['int'])
+    def element(obj, i):
+        return obj['__begin_'][i]
+
+    @class_methods.member_function('size_t', 'size', [])
+    def size(obj):
+        return obj['__end_'] - obj['__begin_']
+
+@class_methods.Class('std::__1::unique_ptr', template_types=['T'])
+class LibcppUniquePtr(object):
+    @class_methods.member_function('T*', 'get', [])
+    def get(obj):
+        return obj['__ptr_']['__value_']
+
+    @class_methods.member_function('T*', 'operator->', [])
+    def arrow(obj):
+        return obj['__ptr_']['__value_']
+
+    @class_methods.member_function('T&', 'operator*', [])
+    def dereference(obj):
+        return obj['__ptr_']['__value_'].dereference()

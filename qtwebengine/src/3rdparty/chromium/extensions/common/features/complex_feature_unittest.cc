@@ -14,23 +14,23 @@
 
 namespace extensions {
 
-TEST(ComplexFeatureTest, MultipleRulesWhitelist) {
-  const std::string kIdFoo("fooabbbbccccddddeeeeffffgggghhhh");
-  const std::string kIdBar("barabbbbccccddddeeeeffffgggghhhh");
+TEST(ComplexFeatureTest, MultipleRulesAllowlist) {
+  const HashedExtensionId kIdFoo("fooabbbbccccddddeeeeffffgggghhhh");
+  const HashedExtensionId kIdBar("barabbbbccccddddeeeeffffgggghhhh");
   std::vector<Feature*> features;
 
   {
-    // Rule: "extension", whitelist "foo".
+    // Rule: "extension", allowlist "foo".
     std::unique_ptr<SimpleFeature> simple_feature(new SimpleFeature());
-    simple_feature->set_whitelist({kIdFoo.c_str()});
+    simple_feature->set_allowlist({kIdFoo.value().c_str()});
     simple_feature->set_extension_types({Manifest::TYPE_EXTENSION});
     features.push_back(simple_feature.release());
   }
 
   {
-    // Rule: "legacy_packaged_app", whitelist "bar".
+    // Rule: "legacy_packaged_app", allowlist "bar".
     std::unique_ptr<SimpleFeature> simple_feature(new SimpleFeature());
-    simple_feature->set_whitelist({kIdBar.c_str()});
+    simple_feature->set_allowlist({kIdBar.value().c_str()});
     simple_feature->set_extension_types({Manifest::TYPE_LEGACY_PACKAGED_APP});
     features.push_back(simple_feature.release());
   }
@@ -55,7 +55,7 @@ TEST(ComplexFeatureTest, MultipleRulesWhitelist) {
                                      Feature::UNSPECIFIED_PLATFORM,
                                      Feature::GetCurrentPlatform()).result());
 
-  // Test whitelist with wrong extension type.
+  // Test allowlist with wrong extension type.
   EXPECT_NE(
       Feature::IS_AVAILABLE,
       feature->IsAvailableToManifest(kIdBar,
@@ -94,31 +94,34 @@ TEST(ComplexFeatureTest, Dependencies) {
   std::unique_ptr<ComplexFeature> feature(new ComplexFeature(&features));
 
   // Available to extensions because of the content_security_policy rule.
-  EXPECT_EQ(
-      Feature::IS_AVAILABLE,
-      feature->IsAvailableToManifest("extensionid",
-                                     Manifest::TYPE_EXTENSION,
-                                     Manifest::INVALID_LOCATION,
-                                     Feature::UNSPECIFIED_PLATFORM,
-                                     Feature::GetCurrentPlatform()).result());
+  EXPECT_EQ(Feature::IS_AVAILABLE,
+            feature
+                ->IsAvailableToManifest(HashedExtensionId(std::string(32, 'a')),
+                                        Manifest::TYPE_EXTENSION,
+                                        Manifest::INVALID_LOCATION,
+                                        Feature::UNSPECIFIED_PLATFORM,
+                                        Feature::GetCurrentPlatform())
+                .result());
 
   // Available to platform apps because of the serial rule.
-  EXPECT_EQ(
-      Feature::IS_AVAILABLE,
-      feature->IsAvailableToManifest("platformappid",
-                                     Manifest::TYPE_PLATFORM_APP,
-                                     Manifest::INVALID_LOCATION,
-                                     Feature::UNSPECIFIED_PLATFORM,
-                                     Feature::GetCurrentPlatform()).result());
+  EXPECT_EQ(Feature::IS_AVAILABLE,
+            feature
+                ->IsAvailableToManifest(HashedExtensionId(std::string(32, 'b')),
+                                        Manifest::TYPE_PLATFORM_APP,
+                                        Manifest::INVALID_LOCATION,
+                                        Feature::UNSPECIFIED_PLATFORM,
+                                        Feature::GetCurrentPlatform())
+                .result());
 
   // Not available to hosted apps.
-  EXPECT_EQ(
-      Feature::INVALID_TYPE,
-      feature->IsAvailableToManifest("hostedappid",
-                                     Manifest::TYPE_HOSTED_APP,
-                                     Manifest::INVALID_LOCATION,
-                                     Feature::UNSPECIFIED_PLATFORM,
-                                     Feature::GetCurrentPlatform()).result());
+  EXPECT_EQ(Feature::INVALID_TYPE,
+            feature
+                ->IsAvailableToManifest(HashedExtensionId(std::string(32, 'c')),
+                                        Manifest::TYPE_HOSTED_APP,
+                                        Manifest::INVALID_LOCATION,
+                                        Feature::UNSPECIFIED_PLATFORM,
+                                        Feature::GetCurrentPlatform())
+                .result());
 }
 
 }  // namespace extensions

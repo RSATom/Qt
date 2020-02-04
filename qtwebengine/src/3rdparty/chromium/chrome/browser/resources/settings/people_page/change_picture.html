@@ -25,15 +25,15 @@
       }
 
       #title {
-        -webkit-margin-start: 20px;
         height: var(--title-height);
+        margin-inline-start: 20px;
         padding-top: var(--title-padding);
       }
 
       #container {
-        -webkit-margin-start: 20px;
         align-items: flex-start;
         display: flex;
+        margin-inline-start: 20px;
         position: absolute;
         top: calc(var(--cr-settings-header-height) +
                   var(--title-padding) +
@@ -42,9 +42,9 @@
 
       #picturePane {
         --cr-picture-image-size: 192px;
-        -webkit-margin-end: 24px;
         flex-shrink: 0;
         height: 288px;
+        margin-inline-end: 24px;
         margin-top: 6px;
         position: relative;
         width: 288px;
@@ -58,7 +58,6 @@
       }
 
       #pictureList {
-        -webkit-margin-end: 16px;
         /* TODO(reveman): Find a way to have height align to viewport
            without using fixed position. */
         height: calc(100vh -
@@ -66,6 +65,7 @@
             var(--cr-settings-header-height) -
             var(--title-padding) -
             var(--title-height));
+        margin-inline-end: 16px;
         margin-top: 0;
         min-height: 332px;
         overflow-x: hidden;
@@ -82,9 +82,12 @@
             image-src="[[getImageSrc_(selectedItem_)]]"
             image-type="[[getImageType_(selectedItem_)]]"
             discard-image-label="$i18n{discardPhoto}"
-            flip-photo-label="$i18n{flipPhoto}"
             preview-alt-text="$i18n{previewAltText}"
-            take-photo-label="$i18n{takePhoto}">
+            take-photo-label="$i18n{takePhoto}"
+            capture-video-label="$i18n{captureVideo}"
+            switch-mode-to-camera-label="$i18n{switchModeToCamera}"
+            switch-mode-to-video-label="$i18n{switchModeToVideo}"
+            camera-video-mode-enabled="[[cameraVideoModeEnabled_]]">
         </cr-picture-pane>
         <div id="authorCredit"
             hidden="[[!isAuthorCreditShown_(selectedItem_)]]">
@@ -103,8 +106,8 @@
           choose-file-label="$i18n{chooseFile}"
           old-image-label="$i18n{oldPhoto}"
           profile-image-label="$i18n{profilePhoto}"
-          profile-image-loading-label="$i18n{profilePhotoLoading}"
-          take-photo-label="$i18n{takePhoto}">
+          take-photo-label="$i18n{takePhoto}"
+          capture-video-label="$i18n{captureVideo}">
       </cr-picture-list>
     </div>
   </template>

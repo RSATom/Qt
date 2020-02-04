@@ -8,6 +8,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/login/startup_utils.h"
@@ -22,8 +23,10 @@
 #include "chromeos/network/network_handler.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
+#include "chromeos/network/network_type_pattern.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "content/public/browser/web_contents.h"
+#include "third_party/cros_system_api/dbus/service_constants.h"
 #include "ui/base/l10n/l10n_util.h"
 
 using chromeos::CrosSettings;
@@ -76,13 +79,34 @@ bool IsAutoUpdateDisabled() {
   return update_disabled;
 }
 
+base::string16 GetConnectionTypeAsUTF16(const chromeos::NetworkState* network) {
+  const std::string type =
+      network->IsUsingMobileData() ? shill::kTypeCellular : network->type();
+  if (chromeos::NetworkTypePattern::Ethernet().MatchesType(type))
+    return l10n_util::GetStringUTF16(IDS_NETWORK_TYPE_ETHERNET);
+  if (type == shill::kTypeWifi)
+    return l10n_util::GetStringUTF16(IDS_NETWORK_TYPE_WIFI);
+  if (type == shill::kTypeWimax)
+    return l10n_util::GetStringUTF16(IDS_NETWORK_TYPE_WIMAX);
+  if (type == shill::kTypeBluetooth)
+    return l10n_util::GetStringUTF16(IDS_NETWORK_TYPE_BLUETOOTH);
+  if (type == shill::kTypeCellular ||
+      chromeos::NetworkTypePattern::Tether().MatchesType(type)) {
+    return l10n_util::GetStringUTF16(IDS_NETWORK_TYPE_MOBILE_DATA);
+  }
+  if (type == shill::kTypeVPN)
+    return l10n_util::GetStringUTF16(IDS_NETWORK_TYPE_VPN);
+  NOTREACHED();
+  return base::string16();
+}
+
 // Returns whether an update is allowed. If not, it calls the callback with
 // the appropriate status. |interactive| indicates whether the user is actively
 // checking for updates.
 bool EnsureCanUpdate(bool interactive,
                      const VersionUpdater::StatusCallback& callback) {
   if (IsAutoUpdateDisabled()) {
-    callback.Run(VersionUpdater::DISABLED_BY_ADMIN, 0, std::string(), 0,
+    callback.Run(VersionUpdater::DISABLED_BY_ADMIN, 0, false, std::string(), 0,
                  l10n_util::GetStringUTF16(IDS_UPGRADE_DISABLED_BY_POLICY));
     return false;
   }
@@ -96,14 +120,13 @@ bool EnsureCanUpdate(bool interactive,
   // to a network for which updates are disallowed.
   NetworkStatus status = GetNetworkStatus(interactive, network);
   if (status == NETWORK_STATUS_OFFLINE) {
-    callback.Run(VersionUpdater::FAILED_OFFLINE, 0, std::string(), 0,
+    callback.Run(VersionUpdater::FAILED_OFFLINE, 0, false, std::string(), 0,
                  l10n_util::GetStringUTF16(IDS_UPGRADE_OFFLINE));
     return false;
   } else if (status == NETWORK_STATUS_DISALLOWED) {
     base::string16 message = l10n_util::GetStringFUTF16(
-        IDS_UPGRADE_DISALLOWED,
-        help_utils_chromeos::GetConnectionTypeAsUTF16(network));
-    callback.Run(VersionUpdater::FAILED_CONNECTION_TYPE_DISALLOWED, 0,
+        IDS_UPGRADE_DISALLOWED, GetConnectionTypeAsUTF16(network));
+    callback.Run(VersionUpdater::FAILED_CONNECTION_TYPE_DISALLOWED, 0, false,
                  std::string(), 0, message);
     return false;
   }
@@ -175,28 +198,30 @@ void VersionUpdaterCros::SetChannel(const std::string& channel,
       SetChannel(channel, is_powerwash_allowed);
 }
 
-void VersionUpdaterCros::SetUpdateOverCellularTarget(
+void VersionUpdaterCros::SetUpdateOverCellularOneTimePermission(
     const StatusCallback& callback,
-    const std::string& target_version,
-    int64_t target_size) {
+    const std::string& update_version,
+    int64_t update_size) {
   callback_ = callback;
   DBusThreadManager::Get()
       ->GetUpdateEngineClient()
-      ->SetUpdateOverCellularTarget(
-          target_version, target_size,
-          base::Bind(&VersionUpdaterCros::OnSetUpdateOverCellularTarget,
-                     weak_ptr_factory_.GetWeakPtr()));
+      ->SetUpdateOverCellularOneTimePermission(
+          update_version, update_size,
+          base::Bind(
+              &VersionUpdaterCros::OnSetUpdateOverCellularOneTimePermission,
+              weak_ptr_factory_.GetWeakPtr()));
 }
 
-void VersionUpdaterCros::OnSetUpdateOverCellularTarget(bool success) {
+void VersionUpdaterCros::OnSetUpdateOverCellularOneTimePermission(
+    bool success) {
   if (success) {
-    // Target is set successfully, so we can proceed to update.
+    // One time permission is set successfully, so we can proceed to update.
     CheckForUpdate(callback_, VersionUpdater::PromoteCallback());
   } else {
     // TODO(weidongg/691108): invoke callback to signal about page to show
     // appropriate error message.
-    LOG(ERROR) << "Error setting update over cellular target.";
-    callback_.Run(VersionUpdater::FAILED, 0, std::string(), 0,
+    LOG(ERROR) << "Error setting update over cellular one time permission.";
+    callback_.Run(VersionUpdater::FAILED, 0, false, std::string(), 0,
                   base::string16());
   }
 }
@@ -218,19 +243,20 @@ void VersionUpdaterCros::OnGetChannel(const ChannelCallback& cb,
   cb.Run(current_channel);
 }
 
-void VersionUpdaterCros::GetEolStatus(const EolStatusCallback& cb) {
+void VersionUpdaterCros::GetEolStatus(EolStatusCallback cb) {
   UpdateEngineClient* update_engine_client =
       DBusThreadManager::Get()->GetUpdateEngineClient();
 
   // Request the Eol Status. Bind to a weak_ptr bound method rather than passing
   // |cb| directly so that |cb| does not outlive |this|.
-  update_engine_client->GetEolStatus(base::Bind(
-      &VersionUpdaterCros::OnGetEolStatus, weak_ptr_factory_.GetWeakPtr(), cb));
+  update_engine_client->GetEolStatus(
+      base::BindOnce(&VersionUpdaterCros::OnGetEolStatus,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(cb)));
 }
 
-void VersionUpdaterCros::OnGetEolStatus(const EolStatusCallback& cb,
+void VersionUpdaterCros::OnGetEolStatus(EolStatusCallback cb,
                                         update_engine::EndOfLifeStatus status) {
-  cb.Run(status);
+  std::move(cb).Run(status);
 }
 
 VersionUpdaterCros::VersionUpdaterCros(content::WebContents* web_contents)
@@ -278,7 +304,7 @@ void VersionUpdaterCros::UpdateStatusChanged(
       break;
     case UpdateEngineClient::UPDATE_STATUS_DOWNLOADING:
       progress = static_cast<int>(round(status.download_progress * 100));
-      // Fall through.
+      FALLTHROUGH;
     case UpdateEngineClient::UPDATE_STATUS_UPDATE_AVAILABLE:
       my_status = UPDATING;
       break;
@@ -299,7 +325,8 @@ void VersionUpdaterCros::UpdateStatusChanged(
       break;
   }
 
-  callback_.Run(my_status, progress, version, size, message);
+  callback_.Run(my_status, progress, status.is_rollback, version, size,
+                message);
   last_operation_ = status.status;
 
   if (check_for_update_when_idle_ &&
@@ -313,5 +340,5 @@ void VersionUpdaterCros::OnUpdateCheck(
   // If version updating is not implemented, this binary is the most up-to-date
   // possible with respect to automatic updating.
   if (result == UpdateEngineClient::UPDATE_RESULT_NOTIMPLEMENTED)
-    callback_.Run(UPDATED, 0, std::string(), 0, base::string16());
+    callback_.Run(UPDATED, 0, false, std::string(), 0, base::string16());
 }

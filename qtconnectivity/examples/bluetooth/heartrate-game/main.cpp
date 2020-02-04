@@ -49,9 +49,9 @@
 ****************************************************************************/
 
 #include <QGuiApplication>
+#include <QLoggingCategory>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
-#include <QtCore/QLoggingCategory>
 
 #include "connectionhandler.h"
 #include "devicefinder.h"
@@ -59,7 +59,7 @@
 
 int main(int argc, char *argv[])
 {
-    //QLoggingCategory::setFilterRules(QStringLiteral("qt.bluetooth* = true"));
+    QLoggingCategory::setFilterRules(QStringLiteral("qt.bluetooth* = true"));
     QGuiApplication app(argc, argv);
 
     ConnectionHandler connectionHandler;

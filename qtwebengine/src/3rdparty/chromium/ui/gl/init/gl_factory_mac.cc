@@ -7,16 +7,20 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/trace_event/trace_event.h"
+#include "ui/gl/buildflags.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context_cgl.h"
-#include "ui/gl/gl_context_osmesa.h"
 #include "ui/gl/gl_context_stub.h"
 #include "ui/gl/gl_implementation.h"
 #include "ui/gl/gl_share_group.h"
 #include "ui/gl/gl_surface.h"
-#include "ui/gl/gl_surface_osmesa.h"
 #include "ui/gl/gl_surface_stub.h"
 #include "ui/gl/gl_switches.h"
+
+#if BUILDFLAG(USE_EGL_ON_MAC)
+#include "ui/gl/gl_context_egl.h"
+#include "ui/gl/gl_surface_egl.h"
+#endif  // BUILDFLAG(USE_EGL_ON_MAC)
 
 namespace gl {
 namespace init {
@@ -35,7 +39,7 @@ class NoOpGLSurface : public GLSurface {
   bool Initialize(GLSurfaceFormat format) override { return true; }
   void Destroy() override {}
   bool IsOffscreen() override { return true; }
-  gfx::SwapResult SwapBuffers() override {
+  gfx::SwapResult SwapBuffers(const PresentationCallback& callback) override {
     NOTREACHED() << "Cannot call SwapBuffers on a NoOpGLSurface.";
     return gfx::SwapResult::SWAP_FAILED;
   }
@@ -54,6 +58,8 @@ class NoOpGLSurface : public GLSurface {
   DISALLOW_COPY_AND_ASSIGN(NoOpGLSurface);
 };
 
+const int kOpenGL3_2Core = 0x3200;
+const int kOpenGL4_1Core = 0x4100;
 }  // namespace
 
 std::vector<GLImplementation> GetAllowedGLImplementations() {
@@ -61,12 +67,28 @@ std::vector<GLImplementation> GetAllowedGLImplementations() {
   impls.push_back(kGLImplementationDesktopGLCoreProfile);
   impls.push_back(kGLImplementationDesktopGL);
   impls.push_back(kGLImplementationAppleGL);
-  impls.push_back(kGLImplementationOSMesaGL);
+#if BUILDFLAG(USE_EGL_ON_MAC)
+  impls.push_back(kGLImplementationEGLGLES2);
+  impls.push_back(kGLImplementationSwiftShaderGL);
+#endif  // BUILDFLAG(USE_EGL_ON_MAC)
   return impls;
 }
 
 bool GetGLWindowSystemBindingInfo(GLWindowSystemBindingInfo* info) {
   return false;
+}
+
+scoped_refptr<GLContext> tryCreateCoreProfileContext(GLShareGroup* share_group,
+                                                     GLSurface* compatible_surface,
+                                                     const GLContextAttribs& attribs) {
+  scoped_refptr<GLContext> context = InitializeGLContext(new GLContextCGL(share_group,
+                                                                          kOpenGL4_1Core),
+                                                         compatible_surface, attribs);
+  if (context != nullptr)
+    return context;
+
+  return InitializeGLContext(new GLContextCGL(share_group, kOpenGL3_2Core),
+                             compatible_surface, attribs);
 }
 
 scoped_refptr<GLContext> CreateGLContext(GLShareGroup* share_group,
@@ -75,17 +97,19 @@ scoped_refptr<GLContext> CreateGLContext(GLShareGroup* share_group,
   TRACE_EVENT0("gpu", "gl::init::CreateGLContext");
   switch (GetGLImplementation()) {
     case kGLImplementationDesktopGL:
-    case kGLImplementationDesktopGLCoreProfile:
     case kGLImplementationAppleGL:
-      // Note that with virtualization we might still be able to make current
-      // a different onscreen surface with this context later. But we should
-      // always be creating the context with an offscreen surface first.
-      DCHECK(compatible_surface->IsOffscreen());
       return InitializeGLContext(new GLContextCGL(share_group),
                                  compatible_surface, attribs);
-    case kGLImplementationOSMesaGL:
-      return InitializeGLContext(new GLContextOSMesa(share_group),
+    case kGLImplementationDesktopGLCoreProfile:
+      return tryCreateCoreProfileContext(share_group,
+                                         compatible_surface, attribs);
+
+#if BUILDFLAG(USE_EGL_ON_MAC)
+    case kGLImplementationEGLGLES2:
+    case kGLImplementationSwiftShaderGL:
+      return InitializeGLContext(new GLContextEGL(share_group),
                                  compatible_surface, attribs);
+#endif  // BUILDFLAG(USE_EGL_ON_MAC)
     case kGLImplementationMockGL:
       return new GLContextStub(share_group);
     case kGLImplementationStubGL: {
@@ -105,12 +129,11 @@ scoped_refptr<GLSurface> CreateViewGLSurface(gfx::AcceleratedWidget window) {
   switch (GetGLImplementation()) {
     case kGLImplementationDesktopGL:
     case kGLImplementationDesktopGLCoreProfile:
-    case kGLImplementationAppleGL: {
+    case kGLImplementationAppleGL:
+    case kGLImplementationEGLGLES2:
+    case kGLImplementationSwiftShaderGL: {
       NOTIMPLEMENTED() << "No onscreen support on Mac.";
       return nullptr;
-    }
-    case kGLImplementationOSMesaGL: {
-      return InitializeGLSurface(new GLSurfaceOSMesaHeadless());
     }
     case kGLImplementationMockGL:
     case kGLImplementationStubGL:
@@ -125,15 +148,22 @@ scoped_refptr<GLSurface> CreateOffscreenGLSurfaceWithFormat(
     const gfx::Size& size, GLSurfaceFormat format) {
   TRACE_EVENT0("gpu", "gl::init::CreateOffscreenGLSurface");
   switch (GetGLImplementation()) {
-    case kGLImplementationOSMesaGL:
-      format.SetDefaultPixelLayout(GLSurfaceFormat::PIXEL_LAYOUT_RGBA);
-      return InitializeGLSurfaceWithFormat(
-          new GLSurfaceOSMesa(format, size), format);
     case kGLImplementationDesktopGL:
     case kGLImplementationDesktopGLCoreProfile:
     case kGLImplementationAppleGL:
       return InitializeGLSurfaceWithFormat(
           new NoOpGLSurface(size), format);
+#if BUILDFLAG(USE_EGL_ON_MAC)
+    case kGLImplementationEGLGLES2:
+    case kGLImplementationSwiftShaderGL:
+      if (GLSurfaceEGL::IsEGLSurfacelessContextSupported() &&
+          size.width() == 0 && size.height() == 0) {
+        return InitializeGLSurfaceWithFormat(new SurfacelessEGL(size), format);
+      } else {
+        return InitializeGLSurfaceWithFormat(new PbufferGLSurfaceEGL(size),
+                                             format);
+      }
+#endif  // BUILDFLAG(USE_EGL_ON_MAC)
     case kGLImplementationMockGL:
     case kGLImplementationStubGL:
       return new GLSurfaceStub;
@@ -141,6 +171,19 @@ scoped_refptr<GLSurface> CreateOffscreenGLSurfaceWithFormat(
       NOTREACHED();
       return nullptr;
   }
+}
+
+void SetDisabledExtensionsPlatform(const std::string& disabled_extensions) {
+  GLImplementation implementation = GetGLImplementation();
+  DCHECK_NE(kGLImplementationNone, implementation);
+  // TODO(zmo): Implement this if needs arise.
+}
+
+bool InitializeExtensionSettingsOneOffPlatform() {
+  GLImplementation implementation = GetGLImplementation();
+  DCHECK_NE(kGLImplementationNone, implementation);
+  // TODO(zmo): Implement this if needs arise.
+  return true;
 }
 
 }  // namespace init

@@ -57,6 +57,10 @@
 #include "QtWidgets/qboxlayout.h"
 #include "QtWidgets/qdockwidget.h"
 
+#if QT_CONFIG(tabwidget)
+#  include "QtWidgets/qtabwidget.h"
+#endif
+
 QT_REQUIRE_CONFIG(dockwidget);
 
 QT_BEGIN_NAMESPACE
@@ -81,31 +85,32 @@ class QDockWidgetPrivate : public QWidgetPrivate
     };
 
 public:
-    inline QDockWidgetPrivate()
-        : QWidgetPrivate(), state(0),
-          features(QDockWidget::DockWidgetClosable
-                   | QDockWidget::DockWidgetMovable
-                   | QDockWidget::DockWidgetFloatable),
-          allowedAreas(Qt::AllDockWidgetAreas), resizer(0)
-    { }
-
     void init();
     void _q_toggleView(bool); // private slot
     void _q_toggleTopLevel(); // private slot
 
     void updateButtons();
-    DragState *state;
 
-    QDockWidget::DockWidgetFeatures features;
-    Qt::DockWidgetAreas allowedAreas;
+#if QT_CONFIG(tabwidget)
+    QTabWidget::TabPosition tabPosition = QTabWidget::North;
+#endif
+
+    DragState *state = nullptr;
+
+    QDockWidget::DockWidgetFeatures features = QDockWidget::DockWidgetClosable
+        | QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable;
+    Qt::DockWidgetAreas allowedAreas = Qt::AllDockWidgetAreas;
+
+    QFont font;
 
 #ifndef QT_NO_ACTION
-    QAction *toggleViewAction;
+    QAction *toggleViewAction = nullptr;
 #endif
 
 //    QMainWindow *findMainWindow(QWidget *widget) const;
     QRect undockedGeometry;
     QString fixedWindowTitle;
+    QString dockedWindowTitle;
 
     bool mousePressEvent(QMouseEvent *event);
     bool mouseDoubleClickEvent(QMouseEvent *event);
@@ -126,7 +131,7 @@ public:
     bool isAnimating() const;
 
 private:
-    QWidgetResizeHandler *resizer;
+    QWidgetResizeHandler *resizer = nullptr;
 };
 
 class Q_WIDGETS_EXPORT QDockWidgetLayout : public QLayout
@@ -135,18 +140,18 @@ class Q_WIDGETS_EXPORT QDockWidgetLayout : public QLayout
 public:
     QDockWidgetLayout(QWidget *parent = 0);
     ~QDockWidgetLayout();
-    void addItem(QLayoutItem *item) Q_DECL_OVERRIDE;
-    QLayoutItem *itemAt(int index) const Q_DECL_OVERRIDE;
-    QLayoutItem *takeAt(int index) Q_DECL_OVERRIDE;
-    int count() const Q_DECL_OVERRIDE;
+    void addItem(QLayoutItem *item) override;
+    QLayoutItem *itemAt(int index) const override;
+    QLayoutItem *takeAt(int index) override;
+    int count() const override;
 
-    QSize maximumSize() const Q_DECL_OVERRIDE;
-    QSize minimumSize() const Q_DECL_OVERRIDE;
-    QSize sizeHint() const Q_DECL_OVERRIDE;
+    QSize maximumSize() const override;
+    QSize minimumSize() const override;
+    QSize sizeHint() const override;
 
     QSize sizeFromContent(const QSize &content, bool floating) const;
 
-    void setGeometry(const QRect &r) Q_DECL_OVERRIDE;
+    void setGeometry(const QRect &r) override;
 
     enum Role { Content, CloseButton, FloatButton, TitleBar, RoleCount };
     QWidget *widgetForRole(Role r) const;
@@ -178,9 +183,9 @@ class QDockWidgetItem : public QWidgetItem
 {
 public:
     QDockWidgetItem(QDockWidget *dockWidget);
-    QSize minimumSize() const Q_DECL_OVERRIDE;
-    QSize maximumSize() const Q_DECL_OVERRIDE;
-    QSize sizeHint() const Q_DECL_OVERRIDE;
+    QSize minimumSize() const override;
+    QSize maximumSize() const override;
+    QSize sizeHint() const override;
 
 private:
     inline QLayoutItem *dockWidgetChildItem() const;

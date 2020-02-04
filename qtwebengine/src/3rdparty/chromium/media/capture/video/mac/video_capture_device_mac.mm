@@ -25,6 +25,7 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "media/base/timestamp_constants.h"
+#include "media/capture/mojom/image_capture_types.h"
 #import "media/capture/video/mac/video_capture_device_avfoundation_mac.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -315,7 +316,7 @@ void VideoCaptureDeviceMac::AllocateAndStart(
   client_ = std::move(client);
   if (device_descriptor_.capture_api == VideoCaptureApi::MACOSX_AVFOUNDATION)
     LogMessage("Using AVFoundation for device: " +
-               device_descriptor_.display_name);
+               device_descriptor_.display_name());
 
   NSString* deviceId =
       [NSString stringWithUTF8String:device_descriptor_.device_id.c_str()];
@@ -324,7 +325,8 @@ void VideoCaptureDeviceMac::AllocateAndStart(
 
   NSString* errorMessage = nil;
   if (![capture_device_ setCaptureDevice:deviceId errorMessage:&errorMessage]) {
-    SetErrorState(FROM_HERE, base::SysNSStringToUTF8(errorMessage));
+    SetErrorState(VideoCaptureError::kMacSetCaptureDeviceFailed, FROM_HERE,
+                  base::SysNSStringToUTF8(errorMessage));
     return;
   }
 
@@ -357,7 +359,8 @@ void VideoCaptureDeviceMac::AllocateAndStart(
   }
 
   if (![capture_device_ startCapture]) {
-    SetErrorState(FROM_HERE, "Could not start capture device.");
+    SetErrorState(VideoCaptureError::kMacCouldNotStartCaptureDevice, FROM_HERE,
+                  "Could not start capture device.");
     return;
   }
 
@@ -385,36 +388,23 @@ void VideoCaptureDeviceMac::TakePhoto(TakePhotoCallback callback) {
   if (photo_callback_)  // Only one picture can be in flight at a time.
     return;
 
-  photo_callback_.reset(new TakePhotoCallback(std::move(callback)));
+  photo_callback_ = std::move(callback);
   [capture_device_ takePhoto];
 }
 
 void VideoCaptureDeviceMac::GetPhotoState(GetPhotoStateCallback callback) {
   DCHECK(task_runner_->BelongsToCurrentThread());
 
-  auto photo_state = mojom::PhotoState::New();
+  auto photo_state = mojo::CreateEmptyPhotoState();
 
-  photo_state->exposure_compensation = mojom::Range::New();
-  photo_state->color_temperature = mojom::Range::New();
-  photo_state->iso = mojom::Range::New();
-
-  photo_state->brightness = mojom::Range::New();
-  photo_state->contrast = mojom::Range::New();
-  photo_state->saturation = mojom::Range::New();
-  photo_state->sharpness = mojom::Range::New();
-
-  photo_state->zoom = mojom::Range::New();
-
-  photo_state->red_eye_reduction = mojom::RedEyeReduction::NEVER;
   photo_state->height = mojom::Range::New(
       capture_format_.frame_size.height(), capture_format_.frame_size.height(),
       capture_format_.frame_size.height(), 0 /* step */);
   photo_state->width = mojom::Range::New(
       capture_format_.frame_size.width(), capture_format_.frame_size.width(),
       capture_format_.frame_size.width(), 0 /* step */);
-  photo_state->torch = false;
 
-  callback.Run(std::move(photo_state));
+  std::move(callback).Run(std::move(photo_state));
 }
 
 void VideoCaptureDeviceMac::SetPhotoOptions(mojom::PhotoSettingsPtr settings,
@@ -429,7 +419,7 @@ void VideoCaptureDeviceMac::SetPhotoOptions(mojom::PhotoSettingsPtr settings,
       settings->has_fill_light_mode || settings->has_red_eye_reduction) {
     return;
   }
-  callback.Run(true);
+  std::move(callback).Run(true);
 }
 
 bool VideoCaptureDeviceMac::Init(VideoCaptureApi capture_api_type) {
@@ -456,7 +446,8 @@ void VideoCaptureDeviceMac::ReceiveFrame(const uint8_t* video_frame,
                                          int aspect_denominator,
                                          base::TimeDelta timestamp) {
   if (capture_format_.frame_size != frame_format.frame_size) {
-    ReceiveError(FROM_HERE,
+    ReceiveError(VideoCaptureError::kMacReceivedFrameWithUnexpectedResolution,
+                 FROM_HERE,
                  "Captured resolution " + frame_format.frame_size.ToString() +
                      ", and expected " + capture_format_.frame_size.ToString());
     return;
@@ -478,21 +469,21 @@ void VideoCaptureDeviceMac::OnPhotoTaken(const uint8_t* image_data,
   mojom::BlobPtr blob = mojom::Blob::New();
   blob->data.assign(image_data, image_data + image_length);
   blob->mime_type = mime_type;
-  photo_callback_->Run(std::move(blob));
-  photo_callback_.reset();
+  std::move(photo_callback_).Run(std::move(blob));
 }
 
 void VideoCaptureDeviceMac::OnPhotoError() {
   DLOG(ERROR) << __func__ << " error taking picture";
-  photo_callback_.reset();
+  photo_callback_.Reset();
 }
 
-void VideoCaptureDeviceMac::ReceiveError(
-    const tracked_objects::Location& from_here,
-    const std::string& reason) {
+void VideoCaptureDeviceMac::ReceiveError(VideoCaptureError error,
+                                         const base::Location& from_here,
+                                         const std::string& reason) {
   task_runner_->PostTask(
-      FROM_HERE, base::Bind(&VideoCaptureDeviceMac::SetErrorState,
-                            weak_factory_.GetWeakPtr(), from_here, reason));
+      FROM_HERE,
+      base::BindOnce(&VideoCaptureDeviceMac::SetErrorState,
+                     weak_factory_.GetWeakPtr(), error, from_here, reason));
 }
 
 void VideoCaptureDeviceMac::LogMessage(const std::string& message) {
@@ -525,19 +516,20 @@ std::string VideoCaptureDeviceMac::GetDeviceModelId(
   return id_vendor + ":" + id_product;
 }
 
-void VideoCaptureDeviceMac::SetErrorState(
-    const tracked_objects::Location& from_here,
-    const std::string& reason) {
+void VideoCaptureDeviceMac::SetErrorState(VideoCaptureError error,
+                                          const base::Location& from_here,
+                                          const std::string& reason) {
   DCHECK(task_runner_->BelongsToCurrentThread());
   state_ = kError;
-  client_->OnError(from_here, reason);
+  client_->OnError(error, from_here, reason);
 }
 
 bool VideoCaptureDeviceMac::UpdateCaptureResolution() {
   if (![capture_device_ setCaptureHeight:capture_format_.frame_size.height()
                                    width:capture_format_.frame_size.width()
                                frameRate:capture_format_.frame_rate]) {
-    ReceiveError(FROM_HERE, "Could not configure capture device.");
+    ReceiveError(VideoCaptureError::kMacUpdateCaptureResolutionFailed,
+                 FROM_HERE, "Could not configure capture device.");
     return false;
   }
   return true;

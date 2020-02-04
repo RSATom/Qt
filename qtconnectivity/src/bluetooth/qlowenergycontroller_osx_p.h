@@ -54,7 +54,7 @@
 #include "osx/osxbtperipheralmanager_p.h"
 #include "qlowenergyserviceprivate_p.h"
 #include "osx/osxbtcentralmanager_p.h"
-#include "qlowenergycontroller_p.h"
+#include "qlowenergycontrollerbase_p.h"
 #include "qlowenergycontroller.h"
 #include "osx/osxbtnotifier_p.h"
 #include "osx/osxbtutility_p.h"
@@ -98,6 +98,7 @@ private Q_SLOTS:
 
     void _q_serviceDiscoveryFinished();
     void _q_serviceDetailsDiscoveryFinished(QSharedPointer<QLowEnergyServicePrivate> service);
+    void _q_servicesWereModified();
 
     void _q_characteristicRead(QLowEnergyHandle charHandle, const QByteArray &value);
     void _q_characteristicWritten(QLowEnergyHandle charHandle, const QByteArray &value);

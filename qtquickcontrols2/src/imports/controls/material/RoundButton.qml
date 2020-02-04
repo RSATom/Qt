@@ -34,23 +34,25 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Templates 2.3 as T
-import QtQuick.Controls 2.3
-import QtQuick.Controls.impl 2.3
-import QtQuick.Controls.Material 2.3
-import QtQuick.Controls.Material.impl 2.3
+import QtQuick 2.12
+import QtQuick.Templates 2.12 as T
+import QtQuick.Controls 2.12
+import QtQuick.Controls.impl 2.12
+import QtQuick.Controls.Material 2.12
+import QtQuick.Controls.Material.impl 2.12
 
 T.RoundButton {
     id: control
 
-    implicitWidth: Math.max(background ? background.implicitWidth : 0,
-                            contentItem.implicitWidth + leftPadding + rightPadding)
-    implicitHeight: Math.max(background ? background.implicitHeight : 0,
-                             contentItem.implicitHeight + topPadding + bottomPadding)
-    baselineOffset: contentItem.y + contentItem.baselineOffset
+    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                            implicitContentWidth + leftPadding + rightPadding)
+    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                             implicitContentHeight + topPadding + bottomPadding)
 
-    // external vertical padding is 6 (to increase touch area)
+    topInset: 6
+    leftInset: 6
+    rightInset: 6
+    bottomInset: 6
     padding: 12
     spacing: 6
 
@@ -79,14 +81,9 @@ T.RoundButton {
 
     // TODO: Add a proper ripple/ink effect for mouse/touch input and focus state
     background: Rectangle {
-        implicitWidth: 48
-        implicitHeight: 48
+        implicitWidth: control.Material.buttonHeight
+        implicitHeight: control.Material.buttonHeight
 
-        // external vertical padding is 6 (to increase touch area)
-        x: 6
-        y: 6
-        width: parent.width - 12
-        height: parent.height - 12
         radius: control.radius
         color: !control.enabled ? control.Material.buttonDisabledColor
             : control.checked || control.highlighted ? control.Material.highlightedButtonColor : control.Material.buttonColor

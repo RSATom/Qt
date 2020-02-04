@@ -8,14 +8,14 @@
 
 #include <string>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
 #include "net/http/http_util.h"
 #include "net/http/http_version.h"
-#include "third_party/WebKit/public/platform/WebString.h"
-#include "third_party/WebKit/public/platform/WebURLResponse.h"
+#include "third_party/blink/public/platform/web_string.h"
+#include "third_party/blink/public/platform/web_url_response.h"
 
 using base::Time;
 using base::TimeDelta;
@@ -65,7 +65,7 @@ uint32_t GetReasonsForUncacheability(const WebURLResponse& response) {
       TimeDelta::FromSeconds(3600);  // Arbitrary value.
 
   const char kMaxAgePrefix[] = "max-age=";
-  const size_t kMaxAgePrefixLen = arraysize(kMaxAgePrefix) - 1;
+  const size_t kMaxAgePrefixLen = base::size(kMaxAgePrefix) - 1;
   if (cache_control_header.substr(0, kMaxAgePrefixLen) == kMaxAgePrefix) {
     int64_t max_age_seconds;
     base::StringToInt64(
@@ -101,7 +101,7 @@ base::TimeDelta GetCacheValidUntil(const WebURLResponse& response) {
   base::TimeDelta ret = base::TimeDelta::FromDays(30);
 
   const char kMaxAgePrefix[] = "max-age=";
-  const size_t kMaxAgePrefixLen = arraysize(kMaxAgePrefix) - 1;
+  const size_t kMaxAgePrefixLen = base::size(kMaxAgePrefix) - 1;
   if (cache_control_header.substr(0, kMaxAgePrefixLen) == kMaxAgePrefix) {
     int64_t max_age_seconds;
     base::StringToInt64(

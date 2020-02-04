@@ -8,10 +8,10 @@
 #include "gm.h"
 #include "sk_tool_utils.h"
 #include "SkBlurMask.h"
-#include "SkBlurMaskFilter.h"
 #include "SkCanvas.h"
 #include "SkGraphics.h"
 #include "SkLayerDrawLooper.h"
+#include "SkMaskFilter.h"
 #include "SkRandom.h"
 
 #define WIDTH   200
@@ -20,7 +20,7 @@
 class DrawLooperGM : public skiagm::GM {
 public:
     DrawLooperGM() : fLooper(nullptr) {
-        this->setBGColor(sk_tool_utils::color_to_565(0xFFDDDDDD));
+        this->setBGColor(0xFFDDDDDD);
     }
 
 protected:
@@ -37,13 +37,13 @@ protected:
 
         SkPaint  paint;
         paint.setAntiAlias(true);
-        sk_tool_utils::set_portable_typeface(&paint);
-        paint.setTextSize(SkIntToScalar(72));
         paint.setLooper(fLooper);
+
+        SkFont font(sk_tool_utils::create_portable_typeface(), 72);
 
         canvas->drawCircle(50, 50, 30, paint);
         canvas->drawRect({ 150, 50, 200, 100 }, paint);
-        canvas->drawString("Looper", 230, 100, paint);
+        canvas->drawString("Looper", 230, 100, font, paint);
     }
 
 private:
@@ -78,7 +78,7 @@ private:
             paint->setStyle(gParams[i].fStyle);
             paint->setStrokeWidth(gParams[i].fWidth);
             if (gParams[i].fBlur > 0) {
-                paint->setMaskFilter(SkBlurMaskFilter::Make(kNormal_SkBlurStyle,
+                paint->setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle,
                                          SkBlurMask::ConvertRadiusToSigma(gParams[i].fBlur)));
             }
         }

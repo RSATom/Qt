@@ -125,6 +125,7 @@ en{
         car{"Carib"}
         cay{"Cayuga"}
         cch{"Atsam"}
+        ccp{"Chakma"}
         ce{"Chechen"}
         ceb{"Cebuano"}
         cgg{"Chiga"}
@@ -357,6 +358,7 @@ en{
         ln{"Lingala"}
         lo{"Lao"}
         lol{"Mongo"}
+        lou{"Louisiana Creole"}
         loz{"Lozi"}
         lrc{"Northern Luri"}
         lt{"Lithuanian"}
@@ -546,6 +548,7 @@ en{
         sog{"Sogdien"}
         sq{"Albanian"}
         sr{"Serbian"}
+        sr_ME{"Montenegrin"}
         srn{"Sranan Tongo"}
         srr{"Serer"}
         ss{"Swati"}
@@ -701,6 +704,7 @@ en{
         Cyrl{"Cyrillic"}
         Cyrs{"Old Church Slavonic Cyrillic"}
         Deva{"Devanagari"}
+        Dogr{"Dogra"}
         Dsrt{"Deseret"}
         Dupl{"Duployan shorthand"}
         Egyd{"Egyptian demotic"}
@@ -711,6 +715,8 @@ en{
         Geok{"Georgian Khutsuri"}
         Geor{"Georgian"}
         Glag{"Glagolitic"}
+        Gong{"Gunjala Gondi"}
+        Gonm{"Masaram Gondi"}
         Goth{"Gothic"}
         Gran{"Grantha"}
         Grek{"Greek"}
@@ -758,10 +764,12 @@ en{
         Lyci{"Lycian"}
         Lydi{"Lydian"}
         Mahj{"Mahajani"}
+        Maka{"Makasar"}
         Mand{"Mandaean"}
         Mani{"Manichaean"}
         Marc{"Marchen"}
         Maya{"Mayan hieroglyphs"}
+        Medf{"Medefaidrin"}
         Mend{"Mende"}
         Merc{"Meroitic Cursive"}
         Mero{"Meroitic"}
@@ -796,6 +804,7 @@ en{
         Plrd{"Pollard Phonetic"}
         Prti{"Inscriptional Parthian"}
         Rjng{"Rejang"}
+        Rohg{"Hanifi Rohingya"}
         Roro{"Rongorongo"}
         Runr{"Runic"}
         Samr{"Samaritan"}
@@ -808,7 +817,10 @@ en{
         Sidd{"Siddham"}
         Sind{"Khudawadi"}
         Sinh{"Sinhala"}
+        Sogd{"Sogdian"}
+        Sogo{"Old Sogdian"}
         Sora{"Sora Sompeng"}
+        Soyo{"Soyombo"}
         Sund{"Sundanese"}
         Sylo{"Syloti Nagri"}
         Syrc{"Syriac"}
@@ -838,6 +850,7 @@ en{
         Xpeo{"Old Persian"}
         Xsux{"Sumero-Akkadian Cuneiform"}
         Yiii{"Yi"}
+        Zanb{"Zanabazar Square"}
         Zinh{"Inherited"}
         Zmth{"Mathematical Notation"}
         Zsye{"Emoji"}
@@ -939,6 +952,7 @@ en{
             ascii{"To ASCII"}
             casefold{"To Casefolded"}
             charname{"To Unicode Character Names"}
+            digit{"To Digit Form Of Accent"}
             fcc{"To Unicode FCC"}
             fcd{"To Unicode FCD"}
             fwidth{"To Fullwidth"}
@@ -955,6 +969,7 @@ en{
             remove{"To Empty String"}
             title{"To Titlecase"}
             upper{"To Uppercase"}
+            zawgyi{"To Zawgyi Myanmar Encoding"}
         }
         em{
             default{"Use Default Presentation For Emoji Characters"}
@@ -1043,14 +1058,23 @@ en{
             alaloc{"US ALA-LOC Transliteration"}
             bgn{"US BGN Transliteration"}
             buckwalt{"Buckwalter Arabic Transliteration"}
+            c11{"Hex Transforms Using C11 Syntax"}
+            css{"Hex Transforms Using CSS Syntax"}
             din{"German DIN Transliteration"}
             gost{"CIS GOST Transliteration"}
             iso{"ISO Transliteration"}
+            java{"Hex Transforms Using Java Syntax"}
             mcst{"Korean MCST Transliteration"}
             mns{"Mongolian National Standard Transliteration"}
+            percent{"Hex Transforms Using Percent Syntax"}
+            perl{"Hex Transforms Using Perl Syntax"}
+            plain{"Hex Transforms With No Surrounding Syntax"}
             prprname{"Personal Name Transliteration Variant"}
             satts{"Standard Arabic Technical Transliteration"}
             ungegn{"UN GEGN Transliteration"}
+            unicode{"Hex Transforms Using Unicode Syntax"}
+            xml{"Hex Transforms Using XML Syntax"}
+            xml10{"Hex Transforms Using XML Decimal Syntax"}
         }
         ms{
             metric{"Metric System"}
@@ -1076,6 +1100,8 @@ en{
             finance{"Financial Numerals"}
             fullwide{"Full-Width Digits"}
             geor{"Georgian Numerals"}
+            gong{"Gunjala Gondi digits"}
+            gonm{"Masaram Gondi digits"}
             grek{"Greek Numerals"}
             greklow{"Greek Lowercase Numerals"}
             gujr{"Gujarati Digits"}
@@ -1119,6 +1145,7 @@ en{
             olck{"Ol Chiki Digits"}
             orya{"Odia Digits"}
             osma{"Osmanya Digits"}
+            rohg{"Hanifi Rohingya digits"}
             roman{"Roman Numerals"}
             romanlow{"Roman Lowercase Numerals"}
             saur{"Saurashtra Digits"}
@@ -1220,7 +1247,7 @@ en{
         VALENCIA{"Valencian"}
         WADEGILE{"Wade-Giles Romanization"}
     }
-    Version{"2.1.32.59"}
+    Version{"2.1.44.91"}
     characterLabelPattern{
         all{"{0} — all"}
         category-list{"{0}: {1}"}

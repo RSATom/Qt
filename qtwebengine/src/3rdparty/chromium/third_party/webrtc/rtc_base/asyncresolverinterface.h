@@ -1,5 +1,5 @@
 /*
- *  Copyright 2013 The WebRTC Project Authors. All rights reserved.
+ *  Copyright 2019 The WebRTC project authors. All Rights Reserved.
  *
  *  Use of this source code is governed by a BSD-style license
  *  that can be found in the LICENSE file in the root of the source
@@ -8,40 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_ASYNCRESOLVERINTERFACE_H_
-#define WEBRTC_RTC_BASE_ASYNCRESOLVERINTERFACE_H_
+#ifndef RTC_BASE_ASYNCRESOLVERINTERFACE_H_
+#define RTC_BASE_ASYNCRESOLVERINTERFACE_H_
 
-#include "webrtc/rtc_base/sigslot.h"
-#include "webrtc/rtc_base/socketaddress.h"
+// TODO(bugs.webrtc.org/10159): Remove this files once downstream projects have
+// been updated to include the new path.
 
-namespace rtc {
+#include "rtc_base/async_resolver_interface.h"
 
-// This interface defines the methods to resolve the address asynchronously.
-class AsyncResolverInterface {
- public:
-  AsyncResolverInterface();
-  virtual ~AsyncResolverInterface();
-
-  // Start address resolve process.
-  virtual void Start(const SocketAddress& addr) = 0;
-  // Returns top most resolved address of |family|
-  virtual bool GetResolvedAddress(int family, SocketAddress* addr) const = 0;
-  // Returns error from resolver.
-  virtual int GetError() const = 0;
-  // Delete the resolver.
-  virtual void Destroy(bool wait) = 0;
-  // Returns top most resolved IPv4 address if address is resolved successfully.
-  // Otherwise returns address set in SetAddress.
-  SocketAddress address() const {
-    SocketAddress addr;
-    GetResolvedAddress(AF_INET, &addr);
-    return addr;
-  }
-
-  // This signal is fired when address resolve process is completed.
-  sigslot::signal1<AsyncResolverInterface*> SignalDone;
-};
-
-}  // namespace rtc
-
-#endif
+#endif  // RTC_BASE_ASYNCRESOLVERINTERFACE_H_

@@ -83,6 +83,18 @@
       }
     ]
   },
+  "declarativeNetRequest": {
+    "Permissions": [
+      {
+        "class": "code",
+        "text": "\"declarativeNetRequest\""
+      },
+      {
+        "link": "declare_permissions#host-permissions",
+        "text": "host permissions"
+      }
+    ]
+  },
   "declarativeWebRequest": {
     "Permissions": [
       {
@@ -247,11 +259,11 @@
   "storage": {
     "Learn More": [
       {
-        "link": "https://developers.google.com/live/shows/7320022/",
+        "link": "https://youtu.be/tmzxMO9lrF0",
         "text": "Chrome Apps Office Hours: Chrome Storage APIs"
       },
       {
-        "link": "https://developers.google.com/live/shows/7320022-1/",
+        "link": "https://youtu.be/4cIFRn0rp5s",
         "text": "Chrome Apps Office Hours: Storage API Deep Dive"
       }
     ]

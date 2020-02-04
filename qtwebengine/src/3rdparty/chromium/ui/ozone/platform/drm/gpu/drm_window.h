@@ -14,7 +14,7 @@
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/swap_result.h"
 #include "ui/gfx/vsync_provider.h"
-#include "ui/ozone/platform/drm/gpu/overlay_plane.h"
+#include "ui/ozone/platform/drm/gpu/drm_overlay_plane.h"
 #include "ui/ozone/platform/drm/gpu/page_flip_request.h"
 #include "ui/ozone/public/swap_completion_callback.h"
 
@@ -27,13 +27,11 @@ class Rect;
 
 namespace ui {
 
-class DrmBuffer;
 class DrmDeviceManager;
 class DrmOverlayValidator;
 class HardwareDisplayController;
 struct OverlayCheck_Params;
 struct OverlayCheckReturn_Params;
-class ScanoutBufferGenerator;
 class ScreenManager;
 
 // The GPU object representing a window.
@@ -55,7 +53,7 @@ class DrmWindow {
 
   gfx::Rect bounds() const { return bounds_; }
 
-  void Initialize(ScanoutBufferGenerator* buffer_generator);
+  void Initialize();
 
   void Shutdown();
 
@@ -77,40 +75,32 @@ class DrmWindow {
                  const gfx::Point& location,
                  int frame_delay_ms);
 
-  // Update the HW cursor bitmap & move to specified location. If
-  // the bitmap is empty, the cursor is hidden.
-  void SetCursorWithoutAnimations(const std::vector<SkBitmap>& bitmaps,
-                                  const gfx::Point& location);
-
   // Move the HW cursor to the specified location.
   void MoveCursor(const gfx::Point& location);
 
-  void SchedulePageFlip(const std::vector<OverlayPlane>& planes,
-                        SwapCompletionOnceCallback callback);
+  void SchedulePageFlip(std::vector<DrmOverlayPlane> planes,
+                        SwapCompletionOnceCallback submission_callback,
+                        PresentationOnceCallback presentation_callback);
   std::vector<OverlayCheckReturn_Params> TestPageFlip(
       const std::vector<OverlayCheck_Params>& overlay_params);
 
   // Returns the last buffer associated with this window.
-  const OverlayPlane* GetLastModesetBuffer();
-
-  void GetVSyncParameters(
-      const gfx::VSyncProvider::UpdateVSyncCallback& callback) const;
+  const DrmOverlayPlane* GetLastModesetBuffer();
 
  private:
-  // Draw the last set cursor & update the cursor plane.
-  void ResetCursor(bool bitmap_only);
-
   // Draw next frame in an animated cursor.
   void OnCursorAnimationTimeout();
 
-  // When |controller_| changes this is called to reallocate the cursor buffers
-  // since the allocation DRM device may have changed.
-  void UpdateCursorBuffers();
+  void UpdateCursorImage();
+  void UpdateCursorLocation();
 
-  gfx::AcceleratedWidget widget_;
+  // Draw the last set cursor & update the cursor plane.
+  void ResetCursor();
 
-  DrmDeviceManager* device_manager_;  // Not owned.
-  ScreenManager* screen_manager_;     // Not owned.
+  const gfx::AcceleratedWidget widget_;
+
+  DrmDeviceManager* const device_manager_;  // Not owned.
+  ScreenManager* const screen_manager_;     // Not owned.
 
   // The current bounds of the window.
   gfx::Rect bounds_;
@@ -121,16 +111,12 @@ class DrmWindow {
   std::unique_ptr<DrmOverlayValidator> overlay_validator_;
 
   base::RepeatingTimer cursor_timer_;
-
-  scoped_refptr<DrmBuffer> cursor_buffers_[2];
-  int cursor_frontbuffer_ = 0;
-
   std::vector<SkBitmap> cursor_bitmaps_;
   gfx::Point cursor_location_;
   int cursor_frame_ = 0;
   int cursor_frame_delay_ms_ = 0;
 
-  OverlayPlaneList last_submitted_planes_;
+  DrmOverlayPlaneList last_submitted_planes_;
 
   bool force_buffer_reallocation_ = false;
 

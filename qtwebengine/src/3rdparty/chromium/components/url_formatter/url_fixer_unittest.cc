@@ -9,7 +9,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -192,6 +192,52 @@ static const SegmentCase segment_cases[] = {
     url::Component(), // query
     url::Component(), // ref
   },
+  {
+      "file://host/path/file#ref", "file", url::Component(0, 4),  // scheme
+      url::Component(),                                           // username
+      url::Component(),                                           // password
+      url::Component(7, 4),                                       // host
+      url::Component(),                                           // port
+      url::Component(11, 10),                                     // path
+      url::Component(),                                           // query
+      url::Component(22, 3),                                      // ref
+  },
+  {
+      "file:///notahost/path/file#ref", "file",
+      url::Component(0, 4),   // scheme
+      url::Component(),       // username
+      url::Component(),       // password
+      url::Component(),       // host
+      url::Component(),       // port
+      url::Component(7, 19),  // path
+      url::Component(),       // query
+      url::Component(27, 3),  // ref
+  },
+#if defined(OS_WIN)
+  {
+      "c:/notahost/path/file#ref", "file",
+      url::Component(),       // scheme
+      url::Component(),       // username
+      url::Component(),       // password
+      url::Component(),       // host
+      url::Component(),       // port
+      url::Component(0, 21),  // path
+      url::Component(),       // query
+      url::Component(22, 3),  // ref
+  },
+#elif defined(OS_POSIX)
+  {
+      "~/notahost/path/file#ref", "file",
+      url::Component(),       // scheme
+      url::Component(),       // username
+      url::Component(),       // password
+      url::Component(),       // host
+      url::Component(),       // port
+      url::Component(0, 20),  // path
+      url::Component(),       // query
+      url::Component(21, 3),  // ref
+  },
+#endif
 };
 
 typedef testing::Test URLFixerTest;
@@ -200,7 +246,7 @@ TEST(URLFixerTest, SegmentURL) {
   std::string result;
   url::Parsed parts;
 
-  for (size_t i = 0; i < arraysize(segment_cases); ++i) {
+  for (size_t i = 0; i < base::size(segment_cases); ++i) {
     SegmentCase value = segment_cases[i];
     result = url_formatter::SegmentURL(value.input, &parts);
     EXPECT_EQ(value.result, result);
@@ -233,9 +279,9 @@ static bool IsMatchingFileURL(const std::string& url,
   if (url.length() <= 8)
     return false;
   if (std::string("file:///") != url.substr(0, 8))
-    return false; // no file:/// prefix
+    return false;  // no file:/// prefix
   if (url.find('\\') != std::string::npos)
-    return false; // contains backslashes
+    return false;  // contains backslashes
 
   base::FilePath derived_path;
   net::FileURLToFilePath(GURL(url), &derived_path);
@@ -248,74 +294,74 @@ struct FixupCase {
   const std::string input;
   const std::string output;
 } fixup_cases[] = {
-  {"www.google.com", "http://www.google.com/"},
-  {" www.google.com     ", "http://www.google.com/"},
-  {" foo.com/asdf  bar", "http://foo.com/asdf%20%20bar"},
-  {"..www.google.com..", "http://www.google.com./"},
-  {"http://......", "http://....../"},
-  {"http://host.com:ninety-two/", "http://host.com:ninety-two/"},
-  {"http://host.com:ninety-two?foo", "http://host.com:ninety-two/?foo"},
-  {"google.com:123", "http://google.com:123/"},
-  {"about:", "chrome://version/"},
-  {"about:foo", "chrome://foo/"},
-  {"about:version", "chrome://version/"},
-  {"about:blank", "about:blank"},
-  {"about:usr:pwd@hst/pth?qry#ref", "chrome://usr:pwd@hst/pth?qry#ref"},
-  {"about://usr:pwd@hst/pth?qry#ref", "chrome://usr:pwd@hst/pth?qry#ref"},
-  {"chrome:usr:pwd@hst/pth?qry#ref", "chrome://usr:pwd@hst/pth?qry#ref"},
-  {"chrome://usr:pwd@hst/pth?qry#ref", "chrome://usr:pwd@hst/pth?qry#ref"},
-  {"www:123", "http://www:123/"},
-  {"   www:123", "http://www:123/"},
-  {"www.google.com?foo", "http://www.google.com/?foo"},
-  {"www.google.com#foo", "http://www.google.com/#foo"},
-  {"www.google.com?", "http://www.google.com/?"},
-  {"www.google.com#", "http://www.google.com/#"},
-  {"www.google.com:123?foo#bar", "http://www.google.com:123/?foo#bar"},
-  {"user@www.google.com", "http://user@www.google.com/"},
-  {"\xE6\xB0\xB4.com", "http://xn--1rw.com/"},
-  // It would be better if this next case got treated as http, but I don't see
-  // a clean way to guess this isn't the new-and-exciting "user" scheme.
-  {"user:passwd@www.google.com:8080/", "user:passwd@www.google.com:8080/"},
-  // {"file:///c:/foo/bar%20baz.txt", "file:///C:/foo/bar%20baz.txt"},
-  {"ftp.google.com", "ftp://ftp.google.com/"},
-  {"    ftp.google.com", "ftp://ftp.google.com/"},
-  {"FTP.GooGle.com", "ftp://ftp.google.com/"},
-  {"ftpblah.google.com", "http://ftpblah.google.com/"},
-  {"ftp", "http://ftp/"},
-  {"google.ftp.com", "http://google.ftp.com/"},
-  // URLs which end with 0x85 (NEL in ISO-8859).
-  {"http://foo.com/s?q=\xd0\x85", "http://foo.com/s?q=%D0%85"},
-  {"http://foo.com/s?q=\xec\x97\x85", "http://foo.com/s?q=%EC%97%85"},
-  {"http://foo.com/s?q=\xf0\x90\x80\x85", "http://foo.com/s?q=%F0%90%80%85"},
-  // URLs which end with 0xA0 (non-break space in ISO-8859).
-  {"http://foo.com/s?q=\xd0\xa0", "http://foo.com/s?q=%D0%A0"},
-  {"http://foo.com/s?q=\xec\x97\xa0", "http://foo.com/s?q=%EC%97%A0"},
-  {"http://foo.com/s?q=\xf0\x90\x80\xa0", "http://foo.com/s?q=%F0%90%80%A0"},
-  // URLs containing IPv6 literals.
-  {"[2001:db8::2]", "http://[2001:db8::2]/"},
-  {"[::]:80", "http://[::]/"},
-  {"[::]:80/path", "http://[::]/path"},
-  {"[::]:180/path", "http://[::]:180/path"},
-  // TODO(pmarks): Maybe we should parse bare IPv6 literals someday. Currently
-  // the first colon is treated as a scheme separator, and we default
-  // unspecified schemes to "http".
-  {"::1", "http://:1/"},
-  // Semicolon as scheme separator for standard schemes.
-  {"http;//www.google.com/", "http://www.google.com/"},
-  {"about;chrome", "chrome://chrome/"},
-  // Semicolon in non-standard schemes is not replaced by colon.
-  {"whatsup;//fool", "http://whatsup%3B//fool"},
-  // Semicolon left as-is in URL itself.
-  {"http://host/port?query;moar", "http://host/port?query;moar"},
-  // Fewer slashes than expected.
-  {"http;www.google.com/", "http://www.google.com/"},
-  {"http;/www.google.com/", "http://www.google.com/"},
-  // Semicolon at start.
-  {";http://www.google.com/", "http://%3Bhttp//www.google.com/"},
+    {"www.google.com", "http://www.google.com/"},
+    {" www.google.com     ", "http://www.google.com/"},
+    {" foo.com/asdf  bar", "http://foo.com/asdf%20%20bar"},
+    {"..www.google.com..", "http://www.google.com./"},
+    {"http://......", "http://....../"},
+    {"http://host.com:ninety-two/", "http://host.com:ninety-two/"},
+    {"http://host.com:ninety-two?foo", "http://host.com:ninety-two/?foo"},
+    {"google.com:123", "http://google.com:123/"},
+    {"about:", "chrome://version/"},
+    {"about:foo", "chrome://foo/"},
+    {"about:version", "chrome://version/"},
+    {"about:blank", "about:blank"},
+    {"About:blaNk", "about:blank"},
+    {"about:blank#blah", "about:blank#blah"},
+    {"about:blank/#blah", "about:blank/#blah"},
+    {"about:srcdoc", "about:srcdoc"},
+    {"about:srcdoc#blah", "about:srcdoc#blah"},
+    {"about:srcdoc/#blah", "about:srcdoc/#blah"},
+    {"about:usr:pwd@hst:20/pth?qry#ref", "chrome://hst/pth?qry#ref"},
+    {"about://usr:pwd@hst/pth?qry#ref", "chrome://hst/pth?qry#ref"},
+    {"chrome:usr:pwd@hst/pth?qry#ref", "chrome://hst/pth?qry#ref"},
+    {"chrome://usr:pwd@hst/pth?qry#ref", "chrome://hst/pth?qry#ref"},
+    {"www:123", "http://www:123/"},
+    {"   www:123", "http://www:123/"},
+    {"www.google.com?foo", "http://www.google.com/?foo"},
+    {"www.google.com#foo", "http://www.google.com/#foo"},
+    {"www.google.com?", "http://www.google.com/?"},
+    {"www.google.com#", "http://www.google.com/#"},
+    {"www.google.com:123?foo#bar", "http://www.google.com:123/?foo#bar"},
+    {"user@www.google.com", "http://user@www.google.com/"},
+    {"\xE6\xB0\xB4.com", "http://xn--1rw.com/"},
+    // It would be better if this next case got treated as http, but I don't see
+    // a clean way to guess this isn't the new-and-exciting "user" scheme.
+    {"user:passwd@www.google.com:8080/", "user:passwd@www.google.com:8080/"},
+    // {"file:///c:/foo/bar%20baz.txt", "file:///C:/foo/bar%20baz.txt"},
+    // URLs which end with 0x85 (NEL in ISO-8859).
+    {"http://foo.com/s?q=\xd0\x85", "http://foo.com/s?q=%D0%85"},
+    {"http://foo.com/s?q=\xec\x97\x85", "http://foo.com/s?q=%EC%97%85"},
+    {"http://foo.com/s?q=\xf0\x90\x80\x85", "http://foo.com/s?q=%F0%90%80%85"},
+    // URLs which end with 0xA0 (non-break space in ISO-8859).
+    {"http://foo.com/s?q=\xd0\xa0", "http://foo.com/s?q=%D0%A0"},
+    {"http://foo.com/s?q=\xec\x97\xa0", "http://foo.com/s?q=%EC%97%A0"},
+    {"http://foo.com/s?q=\xf0\x90\x80\xa0", "http://foo.com/s?q=%F0%90%80%A0"},
+    // URLs containing IPv6 literals.
+    {"[2001:db8::2]", "http://[2001:db8::2]/"},
+    {"[::]:80", "http://[::]/"},
+    {"[::]:80/path", "http://[::]/path"},
+    {"[::]:180/path", "http://[::]:180/path"},
+    // TODO(pmarks): Maybe we should parse bare IPv6 literals someday. Currently
+    // the first colon is treated as a scheme separator, and we default
+    // unspecified schemes to "http".
+    {"::1", "http://:1/"},
+    // Semicolon as scheme separator for standard schemes.
+    {"http;//www.google.com/", "http://www.google.com/"},
+    {"about;chrome", "chrome://chrome/"},
+    // Semicolon in non-standard schemes is not replaced by colon.
+    {"whatsup;//fool", "http://whatsup%3B//fool"},
+    // Semicolon left as-is in URL itself.
+    {"http://host/port?query;moar", "http://host/port?query;moar"},
+    // Fewer slashes than expected.
+    {"http;www.google.com/", "http://www.google.com/"},
+    {"http;/www.google.com/", "http://www.google.com/"},
+    // Semicolon at start.
+    {";http://www.google.com/", "http://%3Bhttp//www.google.com/"},
 };
 
 TEST(URLFixerTest, FixupURL) {
-  for (size_t i = 0; i < arraysize(fixup_cases); ++i) {
+  for (size_t i = 0; i < base::size(fixup_cases); ++i) {
     FixupCase value = fixup_cases[i];
     EXPECT_EQ(value.output,
               url_formatter::FixupURL(value.input, "").possibly_invalid_spec())
@@ -360,7 +406,7 @@ TEST(URLFixerTest, FixupURL) {
       {"http://somedomainthatwillnotbeagtld:123",
        "http://www.somedomainthatwillnotbeagtld.com:123/"},
   };
-  for (size_t i = 0; i < arraysize(tld_cases); ++i) {
+  for (size_t i = 0; i < base::size(tld_cases); ++i) {
     FixupCase value = tld_cases[i];
     EXPECT_EQ(value.output, url_formatter::FixupURL(value.input, "com")
                                 .possibly_invalid_spec());
@@ -422,7 +468,7 @@ TEST(URLFixerTest, FixupFile) {
     //   {"file:///foo:/bar", "file://foo/bar"},
     //   {"file:/\\/server\\folder/file", "file://server/folder/file"},
   };
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
 
 #if defined(OS_MACOSX)
 #define HOME "/Users/"
@@ -446,7 +492,7 @@ TEST(URLFixerTest, FixupFile) {
   };
 #endif
 
-  for (size_t i = 0; i < arraysize(cases); i++) {
+  for (size_t i = 0; i < base::size(cases); i++) {
     EXPECT_EQ(cases[i].output,
               url_formatter::FixupURL(cases[i].input, std::string())
                   .possibly_invalid_spec());
@@ -466,12 +512,13 @@ TEST(URLFixerTest, FixupRelativeFile) {
   ASSERT_FALSE(full_path.empty());
 
   // make sure we pass through good URLs
-  for (size_t i = 0; i < arraysize(fixup_cases); ++i) {
+  for (size_t i = 0; i < base::size(fixup_cases); ++i) {
     FixupCase value = fixup_cases[i];
     base::FilePath input = base::FilePath::FromUTF8Unsafe(value.input);
     EXPECT_EQ(value.output,
               url_formatter::FixupRelativeFile(temp_dir_.GetPath(), input)
-                  .possibly_invalid_spec());
+                  .possibly_invalid_spec())
+        << "input: " << value.input;
   }
 
   // make sure the existing file got fixed-up to a file URL, and that there

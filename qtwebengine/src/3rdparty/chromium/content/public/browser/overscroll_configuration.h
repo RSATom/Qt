@@ -5,35 +5,66 @@
 #ifndef CONTENT_PUBLIC_BROWSER_OVERSCROLL_CONFIGURATION_H_
 #define CONTENT_PUBLIC_BROWSER_OVERSCROLL_CONFIGURATION_H_
 
+#include "base/macros.h"
+#include "base/time/time.h"
 #include "content/common/content_export.h"
 
 namespace content {
 
-// Sets and retrieves various overscroll related configuration values.
-enum OverscrollConfig {
-  OVERSCROLL_CONFIG_NONE,
+class CONTENT_EXPORT OverscrollConfig {
+ public:
+  // Determines pull-to-refresh mode according to --pull-to-refresh flag.
+  enum class PullToRefreshMode {
+    // Pull-to-refresh is disabled.
+    kDisabled,
 
-  // Threshold to complete horizontal overscroll. For touchpad, it represents
-  // the percentage of the display width. For touchscreen, it represents the
-  // percentage of the window width.
-  OVERSCROLL_CONFIG_HORIZ_THRESHOLD_COMPLETE,
+    // Pull-to-refresh is enabled for both touchscreen and touchpad.
+    kEnabled,
 
-  // Threshold to complete vertical overscroll. For touchpad, it represents the
-  // percentage of the display width. For touchscreen, it represents the
-  // percentage of the window width.
-  OVERSCROLL_CONFIG_VERT_THRESHOLD_COMPLETE,
+    // Pull-to-refresh is enabled only for touchscreen.
+    kEnabledTouchschreen,
+  };
 
-  // Threshold to start horizontal touchpad overscroll, in DIPs.
-  OVERSCROLL_CONFIG_HORIZ_THRESHOLD_START_TOUCHPAD,
+  // Specifies an overscroll controller threshold.
+  enum class Threshold {
+    // Threshold to complete touchpad overscroll, in terms of the percentage of
+    // the display size.
+    kCompleteTouchpad,
 
-  // Threshold to start horizontal touchscreen overscroll, in DIPs.
-  OVERSCROLL_CONFIG_HORIZ_THRESHOLD_START_TOUCHSCREEN,
+    // Threshold to complete touchscreen overscroll, in terms of the percentage
+    // of the display size.
+    kCompleteTouchscreen,
 
-  // Threshold to start vertical overscroll, in DIPs.
-  OVERSCROLL_CONFIG_VERT_THRESHOLD_START,
+    // Threshold to start touchpad overscroll, in DIPs.
+    kStartTouchpad,
+
+    // Threshold to start touchscreen overscroll, in DIPs.
+    kStartTouchscreen,
+  };
+
+  static PullToRefreshMode GetPullToRefreshMode();
+
+  static float GetThreshold(Threshold threshold);
+
+  static bool TouchpadOverscrollHistoryNavigationEnabled();
+
+  static base::TimeDelta MaxInertialEventsBeforeOverscrollCancellation();
+
+ private:
+  friend class ScopedPullToRefreshMode;
+  friend class OverscrollControllerTest;
+
+  // Helper functions used by |ScopedPullToRefreshMode| to set and reset mode in
+  // tests.
+  static void SetPullToRefreshMode(PullToRefreshMode mode);
+  static void ResetPullToRefreshMode();
+
+  // Helper functions to reset TouchpadOverscrollHistoryNavigationEnabled in
+  // tests.
+  static void ResetTouchpadOverscrollHistoryNavigationEnabled();
+
+  DISALLOW_IMPLICIT_CONSTRUCTORS(OverscrollConfig);
 };
-
-CONTENT_EXPORT float GetOverscrollConfig(OverscrollConfig config);
 
 }  // namespace content
 

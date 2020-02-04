@@ -7,27 +7,25 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-#ifndef WEBRTC_TEST_FRAME_GENERATOR_CAPTURER_H_
-#define WEBRTC_TEST_FRAME_GENERATOR_CAPTURER_H_
+#ifndef TEST_FRAME_GENERATOR_CAPTURER_H_
+#define TEST_FRAME_GENERATOR_CAPTURER_H_
 
 #include <memory>
 #include <string>
 
-#include "webrtc/api/video/video_frame.h"
-#include "webrtc/rtc_base/criticalsection.h"
-#include "webrtc/rtc_base/task_queue.h"
-#include "webrtc/test/video_capturer.h"
-#include "webrtc/typedefs.h"
+#include "api/video/video_frame.h"
+#include "rtc_base/critical_section.h"
+#include "rtc_base/task_queue.h"
+#include "test/frame_generator.h"
+#include "test/test_video_capturer.h"
 
 namespace webrtc {
-
-class EventTimerWrapper;
 
 namespace test {
 
 class FrameGenerator;
 
-class FrameGeneratorCapturer : public VideoCapturer {
+class FrameGeneratorCapturer : public TestVideoCapturer {
  public:
   class SinkWantsObserver {
    public:
@@ -40,21 +38,33 @@ class FrameGeneratorCapturer : public VideoCapturer {
     virtual ~SinkWantsObserver() {}
   };
 
-  static FrameGeneratorCapturer* Create(int width,
-                                        int height,
-                                        int target_fps,
-                                        Clock* clock);
+  // |type| has the default value OutputType::I420. |num_squares| has the
+  // default value 10.
+  static FrameGeneratorCapturer* Create(
+      int width,
+      int height,
+      absl::optional<FrameGenerator::OutputType> type,
+      absl::optional<int> num_squares,
+      int target_fps,
+      Clock* clock);
 
   static FrameGeneratorCapturer* CreateFromYuvFile(const std::string& file_name,
                                                    size_t width,
                                                    size_t height,
                                                    int target_fps,
                                                    Clock* clock);
+
+  static FrameGeneratorCapturer* CreateSlideGenerator(int width,
+                                                      int height,
+                                                      int frame_repeat_count,
+                                                      int target_fps,
+                                                      Clock* clock);
   virtual ~FrameGeneratorCapturer();
 
-  void Start() override;
-  void Stop() override;
+  void Start();
+  void Stop();
   void ChangeResolution(size_t width, size_t height);
+  void ChangeFramerate(int target_framerate);
 
   void SetSinkWantsObserver(SinkWantsObserver* observer);
 
@@ -64,6 +74,7 @@ class FrameGeneratorCapturer : public VideoCapturer {
 
   void ForceFrame();
   void SetFakeRotation(VideoRotation rotation);
+  void SetFakeColorSpace(absl::optional<ColorSpace> color_space);
 
   int64_t first_frame_capture_time() const { return first_frame_capture_time_; }
 
@@ -73,23 +84,23 @@ class FrameGeneratorCapturer : public VideoCapturer {
   bool Init();
 
  private:
-  class InsertFrameTask;
-
   void InsertFrame();
   static bool Run(void* obj);
   int GetCurrentConfiguredFramerate();
+  void UpdateFps(int max_fps) RTC_EXCLUSIVE_LOCKS_REQUIRED(&lock_);
 
   Clock* const clock_;
   bool sending_;
-  rtc::VideoSinkInterface<VideoFrame>* sink_ GUARDED_BY(&lock_);
-  SinkWantsObserver* sink_wants_observer_ GUARDED_BY(&lock_);
+  SinkWantsObserver* sink_wants_observer_ RTC_GUARDED_BY(&lock_);
 
   rtc::CriticalSection lock_;
   std::unique_ptr<FrameGenerator> frame_generator_;
 
-  int target_fps_ GUARDED_BY(&lock_);
-  rtc::Optional<int> wanted_fps_ GUARDED_BY(&lock_);
+  int source_fps_ RTC_GUARDED_BY(&lock_);
+  int target_capture_fps_ RTC_GUARDED_BY(&lock_);
+  absl::optional<int> wanted_fps_ RTC_GUARDED_BY(&lock_);
   VideoRotation fake_rotation_ = kVideoRotation_0;
+  absl::optional<ColorSpace> fake_color_space_ RTC_GUARDED_BY(&lock_);
 
   int64_t first_frame_capture_time_;
   // Must be the last field, so it will be deconstructed first as tasks
@@ -99,4 +110,4 @@ class FrameGeneratorCapturer : public VideoCapturer {
 }  // namespace test
 }  // namespace webrtc
 
-#endif  // WEBRTC_TEST_FRAME_GENERATOR_CAPTURER_H_
+#endif  // TEST_FRAME_GENERATOR_CAPTURER_H_

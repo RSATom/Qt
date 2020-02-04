@@ -21,6 +21,9 @@ Polymer({
   behaviors: [settings.RouteObserverBehavior],
 
   properties: {
+    /** Preferences state. */
+    prefs: Object,
+
     // <if expr="chromeos">
     /** @private */
     showPowerwashDialog_: Boolean,
@@ -32,11 +35,15 @@ Polymer({
       value: cr.isChromeOS ? loadTimeData.getBoolean('allowPowerwash') : false
     },
 
+    // <if expr="_google_chrome and is_win">
     /** @private */
-    showResetProfileDialog_: {
+    showIncompatibleApplications_: {
       type: Boolean,
-      value: false,
+      value: function() {
+        return loadTimeData.getBoolean('showIncompatibleApplications');
+      },
     },
+    // </if>
   },
 
   /**
@@ -45,9 +52,20 @@ Polymer({
    * @protected
    */
   currentRouteChanged: function(route) {
-    this.showResetProfileDialog_ =
-        route == settings.routes.TRIGGERED_RESET_DIALOG ||
-        route == settings.routes.RESET_DIALOG;
+    const lazyRender =
+        /** @type {!CrLazyRenderElement} */ (this.$.resetProfileDialog);
+
+    if (route == settings.routes.TRIGGERED_RESET_DIALOG ||
+        route == settings.routes.RESET_DIALOG) {
+      /** @type {!SettingsResetProfileDialogElement} */ (lazyRender.get())
+          .show();
+    } else {
+      const dialog = /** @type {?SettingsResetProfileDialogElement} */ (
+          lazyRender.getIfExists());
+      if (dialog) {
+        dialog.cancel();
+      }
+    }
   },
 
   /** @private */
@@ -59,7 +77,7 @@ Polymer({
   /** @private */
   onResetProfileDialogClose_: function() {
     settings.navigateToPreviousRoute();
-    cr.ui.focusWithoutInk(assert(this.$.resetProfileArrow));
+    cr.ui.focusWithoutInk(assert(this.$.resetProfile));
   },
 
   // <if expr="chromeos">
@@ -75,7 +93,20 @@ Polymer({
   /** @private */
   onPowerwashDialogClose_: function() {
     this.showPowerwashDialog_ = false;
-    cr.ui.focusWithoutInk(assert(this.$.powerwashArrow));
+    cr.ui.focusWithoutInk(assert(this.$.powerwash));
   },
   // </if>
+
+  // <if expr="_google_chrome and is_win">
+  /** @private */
+  onChromeCleanupTap_: function() {
+    settings.navigateTo(settings.routes.CHROME_CLEANUP);
+  },
+
+  /** @private */
+  onIncompatibleApplicationsTap_: function() {
+    settings.navigateTo(settings.routes.INCOMPATIBLE_APPLICATIONS);
+  },
+  // </if>
+
 });

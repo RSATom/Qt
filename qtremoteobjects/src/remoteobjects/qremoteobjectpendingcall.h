@@ -42,7 +42,7 @@
 
 #include <QtRemoteObjects/qtremoteobjectglobal.h>
 
-#include <QVariant>
+#include <QtCore/qvariant.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -79,7 +79,7 @@ protected:
     QExplicitlySharedDataPointer<QRemoteObjectPendingCallData> d;
 
 private:
-    friend class QConnectedReplicaPrivate;
+    friend class QConnectedReplicaImplementation;
 };
 
 QT_END_NAMESPACE
@@ -92,7 +92,7 @@ class Q_REMOTEOBJECTS_EXPORT QRemoteObjectPendingCallWatcher: public QObject, pu
 
 public:
     QRemoteObjectPendingCallWatcher(const QRemoteObjectPendingCall &call, QObject *parent = nullptr);
-    ~QRemoteObjectPendingCallWatcher();
+    ~QRemoteObjectPendingCallWatcher() override;
 
     bool isFinished() const;
 
@@ -103,7 +103,6 @@ Q_SIGNALS:
 
 private:
     Q_DECLARE_PRIVATE(QRemoteObjectPendingCallWatcher)
-    Q_PRIVATE_SLOT(d_func(), void _q_finished())
 };
 
 template<typename T>
@@ -112,18 +111,11 @@ class QRemoteObjectPendingReply : public QRemoteObjectPendingCall
 public:
     typedef T Type;
 
-    inline QRemoteObjectPendingReply()
+    QRemoteObjectPendingReply() = default;
+    explicit QRemoteObjectPendingReply(const QRemoteObjectPendingCall &call)
+        : QRemoteObjectPendingCall(call)
     {
     }
-    inline QRemoteObjectPendingReply(const QRemoteObjectPendingReply &other)
-        : QRemoteObjectPendingCall(other)
-    {
-    }
-    explicit inline QRemoteObjectPendingReply(const QRemoteObjectPendingCall &call)
-    {
-        *this = call;
-    }
-    inline ~QRemoteObjectPendingReply() {}
 
     QRemoteObjectPendingReply &operator=(const QRemoteObjectPendingCall &other)
     {

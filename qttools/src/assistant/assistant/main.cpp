@@ -268,6 +268,8 @@ void setupTranslations()
 int main(int argc, char *argv[])
 {
     QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+    QCoreApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
+    QCoreApplication::setAttribute(Qt::AA_DisableWindowContextHelpButton);
     TRACE_OBJ
     QScopedPointer<QCoreApplication> a(createApplication(argc, argv));
 #if QT_CONFIG(library)
@@ -301,6 +303,7 @@ int main(int argc, char *argv[])
     QScopedPointer<QHelpEngineCore> collection;
     if (collectionFileGiven) {
         collection.reset(new QHelpEngineCore(collectionFile));
+        collection->setProperty("_q_readonly", QVariant::fromValue<bool>(true));
         if (!collection->setupData()) {
             cmd.showMessage(QCoreApplication::translate("Assistant",
                                 "Error reading collection file '%1': %2.").

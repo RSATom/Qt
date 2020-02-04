@@ -54,6 +54,7 @@
 #include <math.h> // needed for non-std:: versions of functions
 #include <qmath.h>
 #include <QtPositioning/QGeoCoordinate>
+#include <QtPositioning/private/qpositioningglobal_p.h>
 
 static const double offsetEpsilon = 1e-12; // = 0.000000000001
 static const double leftOffset = -180.0 + offsetEpsilon;
@@ -64,7 +65,7 @@ class QTime;
 class QByteArray;
 
 class QGeoPositionInfo;
-class QLocationUtils
+class Q_POSITIONING_PRIVATE_EXPORT QLocationUtils
 {
 public:
     enum CardinalDirection {
@@ -84,6 +85,16 @@ public:
         CardinalWSW,
         CardinalWNW,
         CardinalNNW
+    };
+
+    enum NmeaSentence {
+        NmeaSentenceInvalid,
+        NmeaSentenceGGA, // Fix information
+        NmeaSentenceGSA, // Overall Satellite data, such as HDOP and VDOP
+        NmeaSentenceGLL, // Lat/Lon data
+        NmeaSentenceRMC, // Recommended minimum data for gps
+        NmeaSentenceVTG, // Vector track an Speed over the Ground
+        NmeaSentenceZDA  // Date and Time
     };
 
     inline static bool isValidLat(double lat) {
@@ -218,7 +229,7 @@ public:
         return 6371007.2;
     }
 
-    inline static double earthMeanDiameter()
+    inline static double earthMeanCircumference()
     {
         return earthMeanRadius() * 2.0 * M_PI;
     }
@@ -245,6 +256,17 @@ public:
         return wrapLong(centerLongitude - leftOffset);
     }
 
+    static qreal metersPerPixel(qreal zoomLevel, const QGeoCoordinate &coordinate)
+    {
+        const qreal metersPerTile = earthMeanCircumference() * std::cos(radians(coordinate.latitude())) / std::pow(2, zoomLevel);
+        return metersPerTile / 256.0;
+    }
+
+    /*
+        returns the NMEA sentence type.
+    */
+    static NmeaSentence getNmeaSentenceType(const char *data, int size);
+
     /*
         Creates a QGeoPositionInfo from a GGA, GLL, RMC, VTG or ZDA sentence.
 
@@ -254,25 +276,31 @@ public:
         - RMC reports date with a two-digit year so in this case the year
           is assumed to be after the year 2000.
     */
-    Q_AUTOTEST_EXPORT static bool getPosInfoFromNmea(const char *data, int size,
-                                                     QGeoPositionInfo *info, double uere,
-                                                     bool *hasFix = 0);
+    static bool getPosInfoFromNmea(const char *data,
+                                   int size,
+                                   QGeoPositionInfo *info, double uere,
+                                   bool *hasFix = nullptr);
 
     /*
         Returns true if the given NMEA sentence has a valid checksum.
     */
-    Q_AUTOTEST_EXPORT static bool hasValidNmeaChecksum(const char *data, int size);
+    static bool hasValidNmeaChecksum(const char *data, int size);
 
     /*
         Returns time from a string in hhmmss or hhmmss.z+ format.
     */
-    Q_AUTOTEST_EXPORT static bool getNmeaTime(const QByteArray &bytes, QTime *time);
+    static bool getNmeaTime(const QByteArray &bytes, QTime *time);
 
     /*
         Accepts for example ("2734.7964", 'S', "15306.0124", 'E') and returns the
         lat-long values. Fails if lat or long fail isValidLat() or isValidLong().
     */
-    Q_AUTOTEST_EXPORT static bool getNmeaLatLong(const QByteArray &latString, char latDirection, const QByteArray &lngString, char lngDirection, double *lat, double *lon);
+    static bool getNmeaLatLong(const QByteArray &latString,
+                               char latDirection,
+                               const QByteArray &lngString,
+                               char lngDirection,
+                               double *lat,
+                               double *lon);
 };
 
 QT_END_NAMESPACE

@@ -43,6 +43,7 @@
 #include <QtCore/QSharedPointer>
 #include <QtCore/QTimer>
 #include <QtCore/QVariant>
+#include <QtCore/QRectF>
 #include <QtLocation/private/qgeomap_p_p.h>
 #include <QtLocation/private/qgeomapparameter_p.h>
 
@@ -60,19 +61,20 @@ public:
 
     QSGNode *updateSceneGraph(QSGNode *oldNode, QQuickWindow *window);
 
-    void addParameter(QGeoMapParameter *param) Q_DECL_OVERRIDE;
-    void removeParameter(QGeoMapParameter *param) Q_DECL_OVERRIDE;
+    void addParameter(QGeoMapParameter *param) override;
+    void removeParameter(QGeoMapParameter *param) override;
 
-    QGeoMap::ItemTypes supportedMapItemTypes() const Q_DECL_OVERRIDE;
-    void addMapItem(QDeclarativeGeoMapItemBase *item) Q_DECL_OVERRIDE;
-    void removeMapItem(QDeclarativeGeoMapItemBase *item) Q_DECL_OVERRIDE;
+    QGeoMap::ItemTypes supportedMapItemTypes() const override;
+    void addMapItem(QDeclarativeGeoMapItemBase *item) override;
+    void removeMapItem(QDeclarativeGeoMapItemBase *item) override;
 
     /* Data members */
     enum SyncState : int {
         NoSync = 0,
-        ViewportSync   = 1 << 0,
-        CameraDataSync = 1 << 1,
-        MapTypeSync    = 1 << 2
+        ViewportSync    = 1 << 0,
+        CameraDataSync  = 1 << 1,
+        MapTypeSync     = 1 << 2,
+        VisibleAreaSync = 1 << 3
     };
     Q_DECLARE_FLAGS(SyncStates, SyncState);
 
@@ -92,15 +94,20 @@ public:
     QList<QSharedPointer<QMapboxGLStyleChange>> m_styleChanges;
 
 protected:
-    void changeViewportSize(const QSize &size) Q_DECL_OVERRIDE;
-    void changeCameraData(const QGeoCameraData &oldCameraData) Q_DECL_OVERRIDE;
-    void changeActiveMapType(const QGeoMapType mapType) Q_DECL_OVERRIDE;
+    void changeViewportSize(const QSize &size) override;
+    void changeCameraData(const QGeoCameraData &oldCameraData) override;
+    void changeActiveMapType(const QGeoMapType mapType) override;
+
+    void setVisibleArea(const QRectF &visibleArea) override;
+    QRectF visibleArea() const override;
 
 private:
     Q_DISABLE_COPY(QGeoMapMapboxGLPrivate);
 
     void syncStyleChanges(QMapboxGL *map);
     void threadedRenderingHack(QQuickWindow *window, QMapboxGL *map);
+
+    QRectF m_visibleArea;
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(QGeoMapMapboxGLPrivate::SyncStates)

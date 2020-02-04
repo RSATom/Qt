@@ -240,6 +240,6 @@ void QGeoTileRequestManagerPrivate::tileError(const QGeoTileSpec &tile, const QS
     }
 }
 
-#include "qgeotilerequestmanager.moc"
-
 QT_END_NAMESPACE
+
+#include "qgeotilerequestmanager.moc"

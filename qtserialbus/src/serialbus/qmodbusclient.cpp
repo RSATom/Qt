@@ -41,8 +41,6 @@
 #include <QtCore/qdebug.h>
 #include <QtCore/qloggingcategory.h>
 
-#include <bitset>
-
 QT_BEGIN_NAMESPACE
 
 Q_DECLARE_LOGGING_CATEGORY(QT_MODBUS)
@@ -159,13 +157,15 @@ int QModbusClient::timeout() const
 /*!
     \fn void QModbusClient::timeoutChanged(int newTimeout)
 
-    This signal is emitted if the response is not received within the required
-    timeout. The new response timeout for the device is passed as \a newTimeout.
+    This signal is emitted when the timeout used by this QModbusClient instance
+    is changed. The new response timeout for the device is passed as \a newTimeout.
+
+    \sa setTimeout()
 */
 
 /*!
     Sets the \a newTimeout for this QModbusClient instance. The minimum timeout
-    is 50 ms.
+    is 10 ms.
 
     The timeout is used by the client to determine how long it waits for
     a response from the server. If the response is not received within the
@@ -174,11 +174,11 @@ int QModbusClient::timeout() const
     Already active/running timeouts are not affected by such timeout duration
     changes.
 
-    \sa timeout
+    \sa timeout timeoutChanged()
 */
 void QModbusClient::setTimeout(int newTimeout)
 {
-    if (newTimeout < 50)
+    if (newTimeout < 10)
         return;
 
     Q_D(QModbusClient);
@@ -304,10 +304,11 @@ QModbusRequest QModbusClientPrivate::createWriteRequest(const QModbusDataUnit &d
         quint8 address = 0;
         QVector<quint8> bytes;
         for (quint8 i = 0; i < byteCount; ++i) {
-            std::bitset<8> byte;
+            quint8 byte = 0;
             for (int currentBit = 0; currentBit < 8; ++currentBit)
-                byte[currentBit] = data.value(address++);
-            bytes.append(static_cast<quint8> (byte.to_ulong()));
+                if (data.value(address++))
+                    byte |= (1U << currentBit);
+            bytes.append(byte);
         }
 
         return QModbusRequest(QModbusRequest::WriteMultipleCoils, quint16(data.startAddress()),
@@ -350,6 +351,9 @@ QModbusRequest QModbusClientPrivate::createRWRequest(const QModbusDataUnit &read
 void QModbusClientPrivate::processQueueElement(const QModbusResponse &pdu,
                                                const QueueElement &element)
 {
+    if (element.reply.isNull())
+        return;
+
     element.reply->setRawResult(pdu);
     if (pdu.isException()) {
         element.reply->setError(QModbusDevice::ProtocolError,
@@ -357,7 +361,7 @@ void QModbusClientPrivate::processQueueElement(const QModbusResponse &pdu,
         return;
     }
 
-    if (element.reply->type() == QModbusReply::Raw) {
+    if (element.reply->type() != QModbusReply::Common) {
         element.reply->setFinished(true);
         return;
     }
@@ -454,9 +458,9 @@ bool QModbusClientPrivate::collateBits(const QModbusPdu &response,
     if (data) {
         uint value = 0;
         for (qint32 i = 1; i < payload.size(); ++i) {
-            const std::bitset<8> byte = payload[i];
+            const quint8 byte = quint8(payload[i]);
             for (qint32 currentBit = 0; currentBit < 8 && value < data->valueCount(); ++currentBit)
-                data->setValue(value++, byte[currentBit]);
+                data->setValue(value++, byte & (1U << currentBit) ? 1 : 0);
         }
         data->setRegisterType(type);
     }

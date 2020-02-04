@@ -61,7 +61,7 @@ public:
     {
     }
 
-    bool filter(QSensorReading *reading)
+    bool filter(QSensorReading *reading) override
     {
         int percent = reading->property("chanceOfBeingEaten").value<int>();
         if (percent == 0) {

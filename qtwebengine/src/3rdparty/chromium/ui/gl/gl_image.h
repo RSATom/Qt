@@ -11,18 +11,36 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "build/build_config.h"
+#include "ui/gfx/color_space.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/gfx/gpu_fence.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/overlay_transform.h"
 #include "ui/gl/gl_export.h"
 
+#if defined(OS_ANDROID)
+#include <android/hardware_buffer.h>
+#include <memory>
+#include "base/android/scoped_hardware_buffer_handle.h"
+#include "base/files/scoped_file.h"
+#endif
+
 namespace base {
 namespace trace_event {
 class ProcessMemoryDump;
-}
+}  // namespace trace_event
+
+namespace android {
+class ScopedHardwareBufferFenceSync;
+}  // namespace android
+}  // namespace base
+
+namespace gfx {
+class GpuFence;
 }
 
 namespace gl {
@@ -66,11 +84,17 @@ class GL_EXPORT GLImage : public base::RefCounted<GLImage> {
                                const gfx::Rect& rect) = 0;
 
   // Schedule image as an overlay plane to be shown at swap time for |widget|.
-  virtual bool ScheduleOverlayPlane(gfx::AcceleratedWidget widget,
-                                    int z_order,
-                                    gfx::OverlayTransform transform,
-                                    const gfx::Rect& bounds_rect,
-                                    const gfx::RectF& crop_rect) = 0;
+  virtual bool ScheduleOverlayPlane(
+      gfx::AcceleratedWidget widget,
+      int z_order,
+      gfx::OverlayTransform transform,
+      const gfx::Rect& bounds_rect,
+      const gfx::RectF& crop_rect,
+      bool enable_blend,
+      std::unique_ptr<gfx::GpuFence> gpu_fence) = 0;
+
+  // Set the color space when image is used as an overlay.
+  virtual void SetColorSpace(const gfx::ColorSpace& color_space) = 0;
 
   // Flush any preceding rendering for the image.
   virtual void Flush() = 0;
@@ -91,6 +115,17 @@ class GL_EXPORT GLImage : public base::RefCounted<GLImage> {
   // GLImage API. Theoretically, when Apple fixes their drivers, this can be
   // removed. https://crbug.com/581777#c36
   virtual bool EmulatingRGB() const;
+
+#if defined(OS_ANDROID)
+  // Provides the buffer backing this image, if it is backed by an
+  // AHardwareBuffer. The ScopedHardwareBuffer returned may include a fence
+  // which will be signaled when all pending work for the buffer has been
+  // finished and it can be safely read from.
+  // The buffer is guaranteed to be valid until the lifetime of the object
+  // returned.
+  virtual std::unique_ptr<base::android::ScopedHardwareBufferFenceSync>
+  GetAHardwareBuffer();
+#endif
 
   // An identifier for subclasses. Necessary for safe downcasting.
   enum class Type { NONE, MEMORY, IOSURFACE, DXGI_IMAGE };

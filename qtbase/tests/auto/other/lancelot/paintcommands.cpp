@@ -36,6 +36,7 @@
 #include <qtextlayout.h>
 #include <qdebug.h>
 #include <QStaticText>
+#include <QTextDocument>
 #include <private/qimage_p.h>
 
 #ifndef QT_NO_OPENGL
@@ -106,7 +107,8 @@ const char *PaintCommands::spreadMethodTable[] = {
 const char *PaintCommands::coordinateMethodTable[] = {
     "LogicalMode",
     "StretchToDeviceMode",
-    "ObjectBoundingMode"
+    "ObjectBoundingMode",
+    "ObjectMode"
 };
 
 const char *PaintCommands::sizeModeTable[] = {
@@ -176,6 +178,9 @@ const char *PaintCommands::imageFormatTable[] = {
     "Format_A2RGB30_Premultiplied",
     "Alpha8",
     "Grayscale8",
+    "RGBx64",
+    "RGBA64",
+    "RGBA64_Premultiplied",
 };
 
 int PaintCommands::translateEnum(const char *table[], const QString &pattern, int limit)
@@ -192,7 +197,7 @@ QList<QPair<QString,QStringList> > PaintCommands::s_enumsTable = QList<QPair<QSt
 QMultiHash<QString, int> PaintCommands::s_commandHash;
 
 #define DECL_PAINTCOMMAND(identifier, method, regexp, syntax, sample) \
-    s_commandInfoTable << PaintCommandInfos(QLatin1String(identifier), &PaintCommands::method, QRegExp(regexp), \
+    s_commandInfoTable << PaintCommandInfos(QLatin1String(identifier), &PaintCommands::method, QRegularExpression(regexp), \
                                             QLatin1String(syntax), QLatin1String(sample) );
 
 #define DECL_PAINTCOMMANDSECTION(title) \
@@ -418,7 +423,7 @@ void PaintCommands::staticInit()
                       "\n- a width or height of -1 means maximum space",
                       "drawImage :/images/face.png 0 0 -1 -1 0 0 -1 -1");
     DECL_PAINTCOMMAND("drawPolygon", command_drawPolygon,
-                      "^drawPolygon\\s+\\[([\\w\\s-.]*)\\]\\s*(\\w*)$",
+                      "^drawPolygon\\s+\\[([\\w\\s\\-.]*)\\]\\s*(\\w*)$",
                       "drawPolygon <[ <x1> <y1> ... <xn> <yn> ]> <Winding|OddEven>",
                       "drawPolygon [ 1 4  6 8  5 3 ] Winding");
     DECL_PAINTCOMMAND("drawConvexPolygon", command_drawConvexPolygon,
@@ -437,6 +442,10 @@ void PaintCommands::staticInit()
                       "^drawStaticText\\s+(-?\\w*)\\s+(-?\\w*)\\s+\"(.*)\"$",
                       "drawStaticText <x> <y> <text>",
                       "drawStaticText 10 10 \"my text\"");
+    DECL_PAINTCOMMAND("drawTextDocument", command_drawTextDocument,
+                      "^drawTextDocument\\s+(-?\\w*)\\s+(-?\\w*)\\s+\"(.*)\"$",
+                      "drawTextDocument <x> <y> <html>",
+                      "drawTextDocument 10 10 \"html\"");
     DECL_PAINTCOMMAND("drawTiledPixmap", command_drawTiledPixmap,
                       "^drawTiledPixmap\\s+([\\w.:\\/]*)"
                       "\\s+(-?\\w*)\\s+(-?\\w*)\\s*(-?\\w*)\\s*(-?\\w*)"
@@ -561,6 +570,10 @@ void PaintCommands::staticInit()
                       "^bitmap_load\\s+([\\w.:\\/]*)\\s*([\\w.:\\/]*)$",
                       "bitmap_load <bitmap filename> <bitmapName>\n  - note that the image is stored as a pixmap",
                       "bitmap_load :/images/bitmap.png myBitmap");
+    DECL_PAINTCOMMAND("pixmap_setDevicePixelRatio", command_pixmap_setDevicePixelRatio,
+                      "^pixmap_setDevicePixelRatio\\s+([\\w.:\\/]*)\\s+([.0-9]*)$",
+                      "pixmap_setDevicePixelRatio <pixmapName> <dpr>",
+                      "pixmap_setDevicePixelRatio myPixmap 2.0");
     DECL_PAINTCOMMAND("image_convertToFormat", command_image_convertToFormat,
                       "^image_convertToFormat\\s+([\\w.:\\/]*)\\s+([\\w.:\\/]+)\\s+([\\w0-9_]*)$",
                       "image_convertToFormat <sourceImageName> <destImageName> <image format enum>",
@@ -577,6 +590,10 @@ void PaintCommands::staticInit()
                       "^image_setColorCount\\s+([\\w.:\\/]*)\\s+([0-9]*)$",
                       "image_setColorCount <imageName> <nbColors>",
                       "image_setColorCount myImage 128");
+    DECL_PAINTCOMMAND("image_setDevicePixelRatio", command_image_setDevicePixelRatio,
+                      "^image_setDevicePixelRatio\\s+([\\w.:\\/]*)\\s+([.0-9]*)$",
+                      "image_setDevicePixelRatio <imageName> <dpr>",
+                      "image_setDevicePixelRatio myImage 2.0");
 
     DECL_PAINTCOMMANDSECTION("transformations");
     DECL_PAINTCOMMAND("resetMatrix", command_resetMatrix,
@@ -615,6 +632,8 @@ void PaintCommands::staticInit()
 
     // populate the command lookup hash
     for (int i=0; i<s_commandInfoTable.size(); i++) {
+        // and pre-optimize the regexps.
+        s_commandInfoTable.at(i).regExp.optimize();
         if (s_commandInfoTable.at(i).isSectionHeader() ||
             s_commandInfoTable.at(i).identifier == QLatin1String("comment") ||
             s_commandInfoTable.at(i).identifier == QLatin1String("noop"))
@@ -682,20 +701,23 @@ void PaintCommands::insertAt(int commandIndex, const QStringList &newCommands)
 **********************************************************************************/
 void PaintCommands::runCommand(const QString &scriptLine)
 {
+    static QRegularExpression separators("\\s");
     if (scriptLine.isEmpty()) {
-        command_noop(QRegExp());
+        command_noop(QRegularExpressionMatch());
         return;
     }
     if (scriptLine.startsWith('#')) {
-        command_comment(QRegExp());
+        command_comment(QRegularExpressionMatch());
         return;
     }
-    QString firstWord = scriptLine.section(QRegExp("\\s"), 0, 0);
+    QString firstWord = scriptLine.section(separators, 0, 0);
     QList<int> indices = s_commandHash.values(firstWord);
     foreach(int idx, indices) {
         PaintCommandInfos command = s_commandInfoTable.at(idx);
-        if (command.regExp.indexIn(scriptLine) >= 0) {
-            (this->*(command.paintMethod))(command.regExp);
+        Q_ASSERT(command.regExp.isValid());
+        QRegularExpressionMatch match = command.regExp.match(scriptLine);
+        if (match.hasMatch()) {
+            (this->*(command.paintMethod))(match);
             return;
         }
     }
@@ -751,7 +773,7 @@ float PaintCommands::convertToFloat(const QString &str)
 
 double PaintCommands::convertToDouble(const QString &str)
 {
-    static QRegExp re("cp([0-9])([xy])");
+    static QRegularExpression re("cp([0-9])([xy])");
     if (str.toLower() == "width") {
         if (m_painter->device()->devType() == Qt::Widget)
             return m_painter->window().width();
@@ -764,9 +786,10 @@ double PaintCommands::convertToDouble(const QString &str)
         else
             return 800;
     }
-    if (re.indexIn(str) >= 0) {
-        int index = re.cap(1).toInt();
-        bool is_it_x = re.cap(2) == "x";
+    QRegularExpressionMatch match = re.match(str);
+    if (match.hasMatch()) {
+        int index = match.captured(1).toInt();
+        bool is_it_x = match.captured(2) == "x";
         if (index < 0 || index >= m_controlPoints.size()) {
             qWarning("ERROR: control point index=%d is out of bounds", index);
             return 0;
@@ -778,21 +801,23 @@ double PaintCommands::convertToDouble(const QString &str)
 
 QColor PaintCommands::convertToColor(const QString &str)
 {
-    static QRegExp alphaColor("#?([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})");
-    static QRegExp opaqueColor("#?([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})");
+    static QRegularExpression alphaColorRe("#?([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})");
+    static QRegularExpression opaqueColorRe("#?([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})");
 
-    Q_ASSERT(alphaColor.isValid());
-    Q_ASSERT(opaqueColor.isValid());
+    Q_ASSERT(alphaColorRe.isValid());
+    Q_ASSERT(opaqueColorRe.isValid());
 
-    if (alphaColor.indexIn(str) >= 0) {
-        return QColor(alphaColor.cap(2).toInt(0, 16),
-                      alphaColor.cap(3).toInt(0, 16),
-                      alphaColor.cap(4).toInt(0, 16),
-                      alphaColor.cap(1).toInt(0, 16));
-    } else if (opaqueColor.indexIn(str) >= 0) {
-        return QColor(opaqueColor.cap(1).toInt(0, 16),
-                      opaqueColor.cap(2).toInt(0, 16),
-                      opaqueColor.cap(3).toInt(0, 16));
+    QRegularExpressionMatch alphaColor = alphaColorRe.match(str);
+    QRegularExpressionMatch opaqueColor = opaqueColorRe.match(str);
+    if (alphaColor.hasMatch()) {
+        return QColor(alphaColor.captured(2).toInt(0, 16),
+                      alphaColor.captured(3).toInt(0, 16),
+                      alphaColor.captured(4).toInt(0, 16),
+                      alphaColor.captured(1).toInt(0, 16));
+    } else if (opaqueColor.hasMatch()) {
+        return QColor(opaqueColor.captured(1).toInt(0, 16),
+                      opaqueColor.captured(2).toInt(0, 16),
+                      opaqueColor.captured(3).toInt(0, 16));
     }
     return QColor(str);
 }
@@ -800,16 +825,16 @@ QColor PaintCommands::convertToColor(const QString &str)
 /*********************************************************************************
 ** command implementations
 **********************************************************************************/
-void PaintCommands::command_comment(QRegExp)
+void PaintCommands::command_comment(QRegularExpressionMatch)
 {
     if (m_verboseMode)
         printf(" -(lance) comment: %s\n", qPrintable(m_currentCommand));
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_import(QRegExp re)
+void PaintCommands::command_import(QRegularExpressionMatch re)
 {
-    QString importFile(re.cap(1));
+    QString importFile(re.captured(1));
     QFileInfo fi(m_filepath);
     QDir dir = fi.absoluteDir();
     QFile *file = new QFile(dir.absolutePath() + QDir::separator() + importFile);
@@ -862,9 +887,9 @@ void PaintCommands::command_import(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_begin_block(QRegExp re)
+void PaintCommands::command_begin_block(QRegularExpressionMatch re)
 {
-    const QString &blockName = re.cap(1);
+    const QString &blockName = re.captured(1);
     if (m_verboseMode)
         printf(" -(lance) begin_block (%s)\n", qPrintable(blockName));
 
@@ -891,7 +916,7 @@ void PaintCommands::command_begin_block(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_end_block(QRegExp)
+void PaintCommands::command_end_block(QRegularExpressionMatch)
 {
     printf(" - end_block should be consumed by begin_block command.\n");
     printf("   You will never see this if your block markers are in sync\n");
@@ -899,9 +924,9 @@ void PaintCommands::command_end_block(QRegExp)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_repeat_block(QRegExp re)
+void PaintCommands::command_repeat_block(QRegularExpressionMatch re)
 {
-    QString blockName = re.cap(1);
+    QString blockName = re.captured(1);
     if (m_verboseMode)
         printf(" -(lance) repeating block (%s)\n", qPrintable(blockName));
 
@@ -916,7 +941,7 @@ void PaintCommands::command_repeat_block(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_drawLine(QRegExp re)
+void PaintCommands::command_drawLine(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double x1 = convertToDouble(caps.at(1));
@@ -931,28 +956,28 @@ void PaintCommands::command_drawLine(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_drawPath(QRegExp re)
+void PaintCommands::command_drawPath(QRegularExpressionMatch re)
 {
     if (m_verboseMode)
-        printf(" -(lance) drawPath(name=%s)\n", qPrintable(re.cap(1)));
+        printf(" -(lance) drawPath(name=%s)\n", qPrintable(re.captured(1)));
 
-    QPainterPath &path = m_pathMap[re.cap(1)];
+    QPainterPath &path = m_pathMap[re.captured(1)];
     m_painter->drawPath(path);
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_drawPixmap(QRegExp re)
+void PaintCommands::command_drawPixmap(QRegularExpressionMatch re)
 {
     QPixmap pm;
-    pm = m_pixmapMap[re.cap(1)]; // try cache first
+    pm = m_pixmapMap[re.captured(1)]; // try cache first
     if (pm.isNull())
-        pm = image_load<QPixmap>(re.cap(1));
+        pm = image_load<QPixmap>(re.captured(1));
     if (pm.isNull()) {
         QFileInfo fi(m_filepath);
         QDir dir = fi.absoluteDir();
         dir.cdUp();
         dir.cd("images");
-        QString fileName = dir.absolutePath() + QLatin1Char('/') + re.cap(1);
+        QString fileName = dir.absolutePath() + QLatin1Char('/') + re.captured(1);
         pm = QPixmap(fileName);
         if (pm.isNull() && !fileName.endsWith(".png")) {
             fileName.append(".png");
@@ -961,19 +986,19 @@ void PaintCommands::command_drawPixmap(QRegExp re)
     }
     if (pm.isNull()) {
         fprintf(stderr, "ERROR(drawPixmap): failed to load pixmap: '%s'\n",
-                qPrintable(re.cap(1)));
+                qPrintable(re.captured(1)));
         return;
     }
 
-    qreal tx = convertToFloat(re.cap(2));
-    qreal ty = convertToFloat(re.cap(3));
-    qreal tw = convertToFloat(re.cap(4));
-    qreal th = convertToFloat(re.cap(5));
+    qreal tx = convertToFloat(re.captured(2));
+    qreal ty = convertToFloat(re.captured(3));
+    qreal tw = convertToFloat(re.captured(4));
+    qreal th = convertToFloat(re.captured(5));
 
-    qreal sx = convertToFloat(re.cap(6));
-    qreal sy = convertToFloat(re.cap(7));
-    qreal sw = convertToFloat(re.cap(8));
-    qreal sh = convertToFloat(re.cap(9));
+    qreal sx = convertToFloat(re.captured(6));
+    qreal sy = convertToFloat(re.captured(7));
+    qreal sw = convertToFloat(re.captured(8));
+    qreal sh = convertToFloat(re.captured(9));
 
     if (tw == 0) tw = -1;
     if (th == 0) th = -1;
@@ -982,26 +1007,29 @@ void PaintCommands::command_drawPixmap(QRegExp re)
 
     if (m_verboseMode)
         printf(" -(lance) drawPixmap('%s' dim=(%d, %d), depth=%d, (%f, %f, %f, %f), (%f, %f, %f, %f)\n",
-               qPrintable(re.cap(1)), pm.width(), pm.height(), pm.depth(),
+               qPrintable(re.captured(1)), pm.width(), pm.height(), pm.depth(),
                tx, ty, tw, th, sx, sy, sw, sh);
 
-    m_painter->drawPixmap(QRectF(tx, ty, tw, th), pm, QRectF(sx, sy, sw, sh));
+    if (!re.capturedLength(4))  // at most two coordinates specified
+        m_painter->drawPixmap(QPointF(tx, ty), pm);
+    else
+        m_painter->drawPixmap(QRectF(tx, ty, tw, th), pm, QRectF(sx, sy, sw, sh));
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_drawImage(QRegExp re)
+void PaintCommands::command_drawImage(QRegularExpressionMatch re)
 {
     QImage im;
-    im = m_imageMap[re.cap(1)]; // try cache first
+    im = m_imageMap[re.captured(1)]; // try cache first
     if (im.isNull())
-        im = image_load<QImage>(re.cap(1));
+        im = image_load<QImage>(re.captured(1));
 
     if (im.isNull()) {
         QFileInfo fi(m_filepath);
         QDir dir = fi.absoluteDir();
         dir.cdUp();
         dir.cd("images");
-        QString fileName = dir.absolutePath() + QLatin1Char('/') + re.cap(1);
+        QString fileName = dir.absolutePath() + QLatin1Char('/') + re.captured(1);
         im = QImage(fileName);
         if (im.isNull() && !fileName.endsWith(".png")) {
             fileName.append(".png");
@@ -1009,19 +1037,19 @@ void PaintCommands::command_drawImage(QRegExp re)
         }
     }
     if (im.isNull()) {
-        fprintf(stderr, "ERROR(drawImage): failed to load image: '%s'\n", qPrintable(re.cap(1)));
+        fprintf(stderr, "ERROR(drawImage): failed to load image: '%s'\n", qPrintable(re.captured(1)));
         return;
     }
 
-    qreal tx = convertToFloat(re.cap(2));
-    qreal ty = convertToFloat(re.cap(3));
-    qreal tw = convertToFloat(re.cap(4));
-    qreal th = convertToFloat(re.cap(5));
+    qreal tx = convertToFloat(re.captured(2));
+    qreal ty = convertToFloat(re.captured(3));
+    qreal tw = convertToFloat(re.captured(4));
+    qreal th = convertToFloat(re.captured(5));
 
-    qreal sx = convertToFloat(re.cap(6));
-    qreal sy = convertToFloat(re.cap(7));
-    qreal sw = convertToFloat(re.cap(8));
-    qreal sh = convertToFloat(re.cap(9));
+    qreal sx = convertToFloat(re.captured(6));
+    qreal sy = convertToFloat(re.captured(7));
+    qreal sw = convertToFloat(re.captured(8));
+    qreal sh = convertToFloat(re.captured(9));
 
     if (tw == 0) tw = -1;
     if (th == 0) th = -1;
@@ -1030,24 +1058,27 @@ void PaintCommands::command_drawImage(QRegExp re)
 
     if (m_verboseMode)
         printf(" -(lance) drawImage('%s' dim=(%d, %d), (%f, %f, %f, %f), (%f, %f, %f, %f)\n",
-               qPrintable(re.cap(1)), im.width(), im.height(), tx, ty, tw, th, sx, sy, sw, sh);
+               qPrintable(re.captured(1)), im.width(), im.height(), tx, ty, tw, th, sx, sy, sw, sh);
 
-    m_painter->drawImage(QRectF(tx, ty, tw, th), im, QRectF(sx, sy, sw, sh), Qt::OrderedDither | Qt::OrderedAlphaDither);
+    if (!re.capturedLength(4))  // at most two coordinates specified
+        m_painter->drawImage(QPointF(tx, ty), im);
+    else
+        m_painter->drawImage(QRectF(tx, ty, tw, th), im, QRectF(sx, sy, sw, sh));
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_drawTiledPixmap(QRegExp re)
+void PaintCommands::command_drawTiledPixmap(QRegularExpressionMatch re)
 {
     QPixmap pm;
-    pm = m_pixmapMap[re.cap(1)]; // try cache first
+    pm = m_pixmapMap[re.captured(1)]; // try cache first
     if (pm.isNull())
-        pm = image_load<QPixmap>(re.cap(1));
+        pm = image_load<QPixmap>(re.captured(1));
     if (pm.isNull()) {
         QFileInfo fi(m_filepath);
         QDir dir = fi.absoluteDir();
         dir.cdUp();
         dir.cd("images");
-        QString fileName = dir.absolutePath() + QLatin1Char('/') + re.cap(1);
+        QString fileName = dir.absolutePath() + QLatin1Char('/') + re.captured(1);
         pm = QPixmap(fileName);
         if (pm.isNull() && !fileName.endsWith(".png")) {
             fileName.append(".png");
@@ -1056,30 +1087,30 @@ void PaintCommands::command_drawTiledPixmap(QRegExp re)
     }
     if (pm.isNull()) {
         fprintf(stderr, "ERROR(drawTiledPixmap): failed to load pixmap: '%s'\n",
-                qPrintable(re.cap(1)));
+                qPrintable(re.captured(1)));
         return;
     }
 
-    int tx = convertToInt(re.cap(2));
-    int ty = convertToInt(re.cap(3));
-    int tw = convertToInt(re.cap(4));
-    int th = convertToInt(re.cap(5));
+    int tx = convertToInt(re.captured(2));
+    int ty = convertToInt(re.captured(3));
+    int tw = convertToInt(re.captured(4));
+    int th = convertToInt(re.captured(5));
 
-    int sx = convertToInt(re.cap(6));
-    int sy = convertToInt(re.cap(7));
+    int sx = convertToInt(re.captured(6));
+    int sy = convertToInt(re.captured(7));
 
     if (tw == 0) tw = -1;
     if (th == 0) th = -1;
 
     if (m_verboseMode)
         printf(" -(lance) drawTiledPixmap('%s' dim=(%d, %d), (%d, %d, %d, %d), (%d, %d)\n",
-               qPrintable(re.cap(1)), pm.width(), pm.height(), tx, ty, tw, th, sx, sy);
+               qPrintable(re.captured(1)), pm.width(), pm.height(), tx, ty, tw, th, sx, sy);
 
     m_painter->drawTiledPixmap(tx, ty, tw, th, pm, sx, sy);
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_drawPoint(QRegExp re)
+void PaintCommands::command_drawPoint(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     float x = convertToFloat(caps.at(1));
@@ -1092,9 +1123,9 @@ void PaintCommands::command_drawPoint(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_drawPolygon(QRegExp re)
+void PaintCommands::command_drawPolygon(QRegularExpressionMatch re)
 {
-    static QRegExp separators("\\s");
+    static QRegularExpression separators("\\s");
     QStringList caps = re.capturedTexts();
     QString cap = caps.at(1);
     QStringList numbers = cap.split(separators, QString::SkipEmptyParts);
@@ -1110,10 +1141,10 @@ void PaintCommands::command_drawPolygon(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_drawPolyline(QRegExp re)
+void PaintCommands::command_drawPolyline(QRegularExpressionMatch re)
 {
-    static QRegExp separators("\\s");
-    QStringList numbers = re.cap(1).split(separators, QString::SkipEmptyParts);
+    static QRegularExpression separators("\\s");
+    QStringList numbers = re.captured(1).split(separators, QString::SkipEmptyParts);
 
     QPolygonF array;
     for (int i=0; i + 1<numbers.size(); i+=2)
@@ -1126,7 +1157,7 @@ void PaintCommands::command_drawPolyline(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_drawRect(QRegExp re)
+void PaintCommands::command_drawRect(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     float x = convertToFloat(caps.at(1));
@@ -1141,7 +1172,7 @@ void PaintCommands::command_drawRect(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_drawRoundedRect(QRegExp re)
+void PaintCommands::command_drawRoundedRect(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     float x = convertToFloat(caps.at(1));
@@ -1162,7 +1193,7 @@ void PaintCommands::command_drawRoundedRect(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_drawRoundRect(QRegExp re)
+void PaintCommands::command_drawRoundRect(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     int x = convertToInt(caps.at(1));
@@ -1175,11 +1206,14 @@ void PaintCommands::command_drawRoundRect(QRegExp re)
     if (m_verboseMode)
         printf(" -(lance) drawRoundRect(%d, %d, %d, %d, [%d, %d])\n", x, y, w, h, xs, ys);
 
+    QT_WARNING_PUSH
+    QT_WARNING_DISABLE_DEPRECATED
     m_painter->drawRoundRect(x, y, w, h, xs, ys);
+    QT_WARNING_POP
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_drawEllipse(QRegExp re)
+void PaintCommands::command_drawEllipse(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     float x = convertToFloat(caps.at(1));
@@ -1194,7 +1228,7 @@ void PaintCommands::command_drawEllipse(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_drawPie(QRegExp re)
+void PaintCommands::command_drawPie(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     int x = convertToInt(caps.at(1));
@@ -1211,7 +1245,7 @@ void PaintCommands::command_drawPie(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_drawChord(QRegExp re)
+void PaintCommands::command_drawChord(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     int x = convertToInt(caps.at(1));
@@ -1228,7 +1262,7 @@ void PaintCommands::command_drawChord(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_drawArc(QRegExp re)
+void PaintCommands::command_drawArc(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     int x = convertToInt(caps.at(1));
@@ -1245,7 +1279,7 @@ void PaintCommands::command_drawArc(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_drawText(QRegExp re)
+void PaintCommands::command_drawText(QRegularExpressionMatch re)
 {
     if (!m_shouldDrawText)
         return;
@@ -1260,7 +1294,7 @@ void PaintCommands::command_drawText(QRegExp re)
     m_painter->drawText(x, y, txt);
 }
 
-void PaintCommands::command_drawStaticText(QRegExp re)
+void PaintCommands::command_drawStaticText(QRegularExpressionMatch re)
 {
     if (!m_shouldDrawText)
         return;
@@ -1275,8 +1309,31 @@ void PaintCommands::command_drawStaticText(QRegExp re)
     m_painter->drawStaticText(x, y, QStaticText(txt));
 }
 
+void PaintCommands::command_drawTextDocument(QRegularExpressionMatch re)
+{
+    if (!m_shouldDrawText)
+        return;
+    QStringList caps = re.capturedTexts();
+    int x = convertToInt(caps.at(1));
+    int y = convertToInt(caps.at(2));
+    QString txt = caps.at(3);
+
+    if (m_verboseMode)
+        printf(" -(lance) drawTextDocument(%d, %d, %s)\n", x, y, qPrintable(txt));
+
+    QTextDocument doc;
+    doc.setBaseUrl(QUrl::fromLocalFile(QDir::currentPath() + QLatin1String("/")));
+    doc.setHtml(txt);
+
+    m_painter->save();
+    m_painter->translate(x, y);
+    doc.drawContents(m_painter);
+    m_painter->restore();
+}
+
+
 /***************************************************************************************************/
-void PaintCommands::command_noop(QRegExp)
+void PaintCommands::command_noop(QRegularExpressionMatch)
 {
     if (m_verboseMode)
         printf(" -(lance) noop: %s\n", qPrintable(m_currentCommand));
@@ -1287,7 +1344,7 @@ void PaintCommands::command_noop(QRegExp)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_path_addText(QRegExp re)
+void PaintCommands::command_path_addText(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     QString name = caps.at(1);
@@ -1302,7 +1359,7 @@ void PaintCommands::command_path_addText(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_path_addEllipse(QRegExp re)
+void PaintCommands::command_path_addEllipse(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     QString name = caps.at(1);
@@ -1318,7 +1375,7 @@ void PaintCommands::command_path_addEllipse(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_path_addRect(QRegExp re)
+void PaintCommands::command_path_addRect(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     QString name = caps.at(1);
@@ -1334,9 +1391,9 @@ void PaintCommands::command_path_addRect(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_path_addPolygon(QRegExp re)
+void PaintCommands::command_path_addPolygon(QRegularExpressionMatch re)
 {
-    static QRegExp separators("\\s");
+    static QRegularExpression separators("\\s");
     QStringList caps = re.capturedTexts();
     QString name = caps.at(1);
     QString cap = caps.at(2);
@@ -1353,7 +1410,7 @@ void PaintCommands::command_path_addPolygon(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_path_arcTo(QRegExp re)
+void PaintCommands::command_path_arcTo(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     QString name = caps.at(1);
@@ -1371,7 +1428,7 @@ void PaintCommands::command_path_arcTo(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_path_createOutline(QRegExp re)
+void PaintCommands::command_path_createOutline(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     QString name = caps.at(1);
@@ -1395,7 +1452,7 @@ void PaintCommands::command_path_createOutline(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_path_cubicTo(QRegExp re)
+void PaintCommands::command_path_cubicTo(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     QString name = caps.at(1);
@@ -1413,7 +1470,7 @@ void PaintCommands::command_path_cubicTo(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_path_moveTo(QRegExp re)
+void PaintCommands::command_path_moveTo(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     QString name = caps.at(1);
@@ -1427,7 +1484,7 @@ void PaintCommands::command_path_moveTo(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_path_lineTo(QRegExp re)
+void PaintCommands::command_path_lineTo(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     QString name = caps.at(1);
@@ -1441,7 +1498,7 @@ void PaintCommands::command_path_lineTo(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_path_setFillRule(QRegExp re)
+void PaintCommands::command_path_setFillRule(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     QString name = caps.at(1);
@@ -1454,7 +1511,7 @@ void PaintCommands::command_path_setFillRule(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_path_closeSubpath(QRegExp re)
+void PaintCommands::command_path_closeSubpath(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     QString name = caps.at(1);
@@ -1466,7 +1523,7 @@ void PaintCommands::command_path_closeSubpath(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_path_getClipPath(QRegExp re)
+void PaintCommands::command_path_getClipPath(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     QString name = caps.at(1);
@@ -1496,7 +1553,7 @@ static void qt_debug_path(const QPainterPath &path, const QString &name)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_path_debugPrint(QRegExp re)
+void PaintCommands::command_path_debugPrint(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     QString name = caps.at(1);
@@ -1504,7 +1561,7 @@ void PaintCommands::command_path_debugPrint(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_region_addRect(QRegExp re)
+void PaintCommands::command_region_addRect(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     QString name = caps.at(1);
@@ -1520,7 +1577,7 @@ void PaintCommands::command_region_addRect(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_region_addEllipse(QRegExp re)
+void PaintCommands::command_region_addEllipse(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     QString name = caps.at(1);
@@ -1536,7 +1593,7 @@ void PaintCommands::command_region_addEllipse(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_region_getClipRegion(QRegExp re)
+void PaintCommands::command_region_getClipRegion(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     QString name = caps.at(1);
@@ -1553,7 +1610,7 @@ void PaintCommands::command_region_getClipRegion(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_resetMatrix(QRegExp)
+void PaintCommands::command_resetMatrix(QRegularExpressionMatch)
 {
     if (m_verboseMode)
         printf(" -(lance) resetMatrix()\n");
@@ -1562,7 +1619,7 @@ void PaintCommands::command_resetMatrix(QRegExp)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_restore(QRegExp)
+void PaintCommands::command_restore(QRegularExpressionMatch)
 {
     if (m_verboseMode)
         printf(" -(lance) restore()\n");
@@ -1571,7 +1628,7 @@ void PaintCommands::command_restore(QRegExp)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_rotate(QRegExp re)
+void PaintCommands::command_rotate(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double angle = convertToDouble(caps.at(1));
@@ -1583,7 +1640,7 @@ void PaintCommands::command_rotate(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_rotate_x(QRegExp re)
+void PaintCommands::command_rotate_x(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double angle = convertToDouble(caps.at(1));
@@ -1597,7 +1654,7 @@ void PaintCommands::command_rotate_x(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_rotate_y(QRegExp re)
+void PaintCommands::command_rotate_y(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double angle = convertToDouble(caps.at(1));
@@ -1611,7 +1668,7 @@ void PaintCommands::command_rotate_y(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_save(QRegExp)
+void PaintCommands::command_save(QRegularExpressionMatch)
 {
     if (m_verboseMode)
         printf(" -(lance) save()\n");
@@ -1620,7 +1677,7 @@ void PaintCommands::command_save(QRegExp)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_mapQuadToQuad(QRegExp re)
+void PaintCommands::command_mapQuadToQuad(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double x1 = convertToDouble(caps.at(1));
@@ -1666,7 +1723,7 @@ void PaintCommands::command_mapQuadToQuad(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_setMatrix(QRegExp re)
+void PaintCommands::command_setMatrix(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double m11 = convertToDouble(caps.at(1));
@@ -1692,7 +1749,7 @@ void PaintCommands::command_setMatrix(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_scale(QRegExp re)
+void PaintCommands::command_scale(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double sx = convertToDouble(caps.at(1));
@@ -1706,7 +1763,7 @@ void PaintCommands::command_scale(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_setBackground(QRegExp re)
+void PaintCommands::command_setBackground(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     QColor color = convertToColor(caps.at(1));
@@ -1723,7 +1780,7 @@ void PaintCommands::command_setBackground(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_setOpacity(QRegExp re)
+void PaintCommands::command_setOpacity(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double opacity = convertToDouble(caps.at(1));
@@ -1735,9 +1792,9 @@ void PaintCommands::command_setOpacity(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_setBgMode(QRegExp re)
+void PaintCommands::command_setBgMode(QRegularExpressionMatch re)
 {
-    QString cap = re.cap(2);
+    QString cap = re.captured(2);
     Qt::BGMode mode = Qt::TransparentMode;
     if (cap.toLower() == QLatin1String("opaquemode") || cap.toLower() == QLatin1String("opaque"))
         mode = Qt::OpaqueMode;
@@ -1749,11 +1806,13 @@ void PaintCommands::command_setBgMode(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_setBrush(QRegExp re)
+void PaintCommands::command_setBrush(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
 
-    QImage img = image_load<QImage>(caps.at(1));
+    QImage img = m_imageMap[caps.at(1)]; // try cache first
+    if (img.isNull())
+        img = image_load<QImage>(caps.at(1));
     if (!img.isNull()) { // Assume image brush
         if (m_verboseMode)
             printf(" -(lance) setBrush(image=%s, width=%d, height=%d)\n",
@@ -1780,10 +1839,10 @@ void PaintCommands::command_setBrush(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_setBrushOrigin(QRegExp re)
+void PaintCommands::command_setBrushOrigin(QRegularExpressionMatch re)
 {
-    int x = convertToInt(re.cap(1));
-    int y = convertToInt(re.cap(2));
+    int x = convertToInt(re.captured(1));
+    int y = convertToInt(re.captured(2));
 
     if (m_verboseMode)
         printf(" -(lance) setBrushOrigin(%d, %d)\n", x, y);
@@ -1792,7 +1851,7 @@ void PaintCommands::command_setBrushOrigin(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_brushTranslate(QRegExp re)
+void PaintCommands::command_brushTranslate(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double dx = convertToDouble(caps.at(1));
@@ -1809,7 +1868,7 @@ void PaintCommands::command_brushTranslate(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_brushScale(QRegExp re)
+void PaintCommands::command_brushScale(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double sx = convertToDouble(caps.at(1));
@@ -1826,7 +1885,7 @@ void PaintCommands::command_brushScale(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_brushRotate(QRegExp re)
+void PaintCommands::command_brushRotate(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double rot = convertToDouble(caps.at(1));
@@ -1842,7 +1901,7 @@ void PaintCommands::command_brushRotate(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_brushShear(QRegExp re)
+void PaintCommands::command_brushShear(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double sx = convertToDouble(caps.at(1));
@@ -1859,9 +1918,9 @@ void PaintCommands::command_brushShear(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_setClipping(QRegExp re)
+void PaintCommands::command_setClipping(QRegularExpressionMatch re)
 {
-    bool clipping = re.cap(1).toLower() == "true";
+    bool clipping = re.captured(1).toLower() == "true";
 
     if (m_verboseMode)
         printf(" -(lance) setClipping(%d)\n", clipping);
@@ -1870,7 +1929,7 @@ void PaintCommands::command_setClipping(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_setClipRect(QRegExp re)
+void PaintCommands::command_setClipRect(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     int x = convertToInt(caps.at(1));
@@ -1889,48 +1948,48 @@ void PaintCommands::command_setClipRect(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_setClipPath(QRegExp re)
+void PaintCommands::command_setClipPath(QRegularExpressionMatch re)
 {
-    int combine = translateEnum(clipOperationTable, re.cap(2), Qt::IntersectClip + 1);
+    int combine = translateEnum(clipOperationTable, re.captured(2), Qt::IntersectClip + 1);
     if (combine == -1)
         combine = Qt::ReplaceClip;
 
     if (m_verboseMode)
-        printf(" -(lance) setClipPath(name=%s), %s\n", qPrintable(re.cap(1)), clipOperationTable[combine]);
+        printf(" -(lance) setClipPath(name=%s), %s\n", qPrintable(re.captured(1)), clipOperationTable[combine]);
 
-    if (!m_pathMap.contains(re.cap(1)))
+    if (!m_pathMap.contains(re.captured(1)))
         fprintf(stderr, " - setClipPath, no such path");
-    m_painter->setClipPath(m_pathMap[re.cap(1)], Qt::ClipOperation(combine));
+    m_painter->setClipPath(m_pathMap[re.captured(1)], Qt::ClipOperation(combine));
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_setClipRegion(QRegExp re)
+void PaintCommands::command_setClipRegion(QRegularExpressionMatch re)
 {
-    int combine = translateEnum(clipOperationTable, re.cap(2), Qt::IntersectClip + 1);
+    int combine = translateEnum(clipOperationTable, re.captured(2), Qt::IntersectClip + 1);
     if (combine == -1)
         combine = Qt::ReplaceClip;
-    QRegion r = m_regionMap[re.cap(1)];
+    QRegion r = m_regionMap[re.captured(1)];
 
     if (m_verboseMode)
         printf(" -(lance) setClipRegion(name=%s), bounds=[%d, %d, %d, %d], %s\n",
-               qPrintable(re.cap(1)),
+               qPrintable(re.captured(1)),
                r.boundingRect().x(),
                r.boundingRect().y(),
                r.boundingRect().width(),
                r.boundingRect().height(),
                clipOperationTable[combine]);
 
-    m_painter->setClipRegion(m_regionMap[re.cap(1)], Qt::ClipOperation(combine));
+    m_painter->setClipRegion(m_regionMap[re.captured(1)], Qt::ClipOperation(combine));
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_setFont(QRegExp re)
+void PaintCommands::command_setFont(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     QString family = caps.at(1);
     int size = convertToInt(caps.at(2));
 
-    int weight = translateEnum(fontWeightTable, re.cap(3).toLower(), 5);
+    int weight = translateEnum(fontWeightTable, re.captured(3).toLower(), 5);
     if (weight != -1) {
         switch (weight) {
         case 0: weight = QFont::Light; break;
@@ -1940,7 +1999,7 @@ void PaintCommands::command_setFont(QRegExp re)
         case 4: weight = QFont::Black; break;
         }
     } else {
-        weight = convertToInt(re.cap(3));
+        weight = convertToInt(re.captured(3));
     }
 
     bool italic = caps.at(4).toLower() == "true" || caps.at(4).toLower() == "italic";
@@ -1960,9 +2019,9 @@ void PaintCommands::command_setFont(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_setPen(QRegExp re)
+void PaintCommands::command_setPen(QRegularExpressionMatch re)
 {
-    QString cap = re.cap(1);
+    QString cap = re.captured(1);
     int style = translateEnum(penStyleTable, cap, Qt::DashDotDotLine + 1);
     if (style >= 0) {
         if (m_verboseMode)
@@ -1986,7 +2045,7 @@ void PaintCommands::command_setPen(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_setPen2(QRegExp re)
+void PaintCommands::command_setPen2(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
 
@@ -2024,10 +2083,10 @@ void PaintCommands::command_setPen2(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_setRenderHint(QRegExp re)
+void PaintCommands::command_setRenderHint(QRegularExpressionMatch re)
 {
-    QString hintString = re.cap(1).toLower();
-    bool on = re.cap(2).isEmpty() || re.cap(2).toLower() == "true";
+    QString hintString = re.captured(1).toLower();
+    bool on = re.captured(2).isEmpty() || re.captured(2).toLower() == "true";
     if (hintString.contains("antialiasing")) {
         if (m_verboseMode)
             printf(" -(lance) setRenderHint Antialiasing\n");
@@ -2043,7 +2102,7 @@ void PaintCommands::command_setRenderHint(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_clearRenderHint(QRegExp /*re*/)
+void PaintCommands::command_clearRenderHint(QRegularExpressionMatch /*re*/)
 {
     m_painter->setRenderHint(QPainter::Antialiasing, false);
     m_painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
@@ -2052,9 +2111,9 @@ void PaintCommands::command_clearRenderHint(QRegExp /*re*/)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_setCompositionMode(QRegExp re)
+void PaintCommands::command_setCompositionMode(QRegularExpressionMatch re)
 {
-    QString modeString = re.cap(1).toLower();
+    QString modeString = re.captured(1).toLower();
     int mode = translateEnum(compositionModeTable, modeString, 33);
 
     if (mode < 0 || mode > QPainter::RasterOp_SourceAndNotDestination) {
@@ -2069,7 +2128,7 @@ void PaintCommands::command_setCompositionMode(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_translate(QRegExp re)
+void PaintCommands::command_translate(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double dx = convertToDouble(caps.at(1));
@@ -2082,7 +2141,7 @@ void PaintCommands::command_translate(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_pixmap_load(QRegExp re)
+void PaintCommands::command_pixmap_load(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
 
@@ -2104,7 +2163,7 @@ void PaintCommands::command_pixmap_load(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_bitmap_load(QRegExp re)
+void PaintCommands::command_bitmap_load(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
 
@@ -2124,8 +2183,22 @@ void PaintCommands::command_bitmap_load(QRegExp re)
     m_pixmapMap[name] = bm;
 }
 
+void PaintCommands::command_pixmap_setDevicePixelRatio(QRegularExpressionMatch re)
+{
+    QStringList caps = re.capturedTexts();
+
+    QString name = caps.at(1);
+    double dpr = convertToDouble(caps.at(2));
+
+    if (m_verboseMode)
+        printf(" -(lance) pixmap_setDevicePixelRatio(%s), %.1f -> %.1f\n",
+               qPrintable(name), m_pixmapMap[name].devicePixelRatioF(), dpr);
+
+    m_pixmapMap[name].setDevicePixelRatio(dpr);
+}
+
 /***************************************************************************************************/
-void PaintCommands::command_pixmap_setMask(QRegExp re)
+void PaintCommands::command_pixmap_setMask(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     QBitmap mask = image_load<QBitmap>(caps.at(2));
@@ -2138,7 +2211,7 @@ void PaintCommands::command_pixmap_setMask(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_image_load(QRegExp re)
+void PaintCommands::command_image_load(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
 
@@ -2159,7 +2232,7 @@ void PaintCommands::command_image_load(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_image_setColorCount(QRegExp re)
+void PaintCommands::command_image_setColorCount(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
 
@@ -2174,7 +2247,7 @@ void PaintCommands::command_image_setColorCount(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_image_setColor(QRegExp re)
+void PaintCommands::command_image_setColor(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
 
@@ -2189,13 +2262,28 @@ void PaintCommands::command_image_setColor(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_abort(QRegExp)
+void PaintCommands::command_image_setDevicePixelRatio(QRegularExpressionMatch re)
+{
+    QStringList caps = re.capturedTexts();
+
+    QString name = caps.at(1);
+    double dpr = convertToDouble(caps.at(2));
+
+    if (m_verboseMode)
+        printf(" -(lance) image_setDevicePixelRatio(%s), %.1f -> %.1f\n",
+               qPrintable(name), m_imageMap[name].devicePixelRatioF(), dpr);
+
+    m_imageMap[name].setDevicePixelRatio(dpr);
+}
+
+/***************************************************************************************************/
+void PaintCommands::command_abort(QRegularExpressionMatch)
 {
     m_abort = true;
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_gradient_clearStops(QRegExp)
+void PaintCommands::command_gradient_clearStops(QRegularExpressionMatch)
 {
     if (m_verboseMode)
         printf(" -(lance) gradient_clearStops\n");
@@ -2203,7 +2291,7 @@ void PaintCommands::command_gradient_clearStops(QRegExp)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_gradient_appendStop(QRegExp re)
+void PaintCommands::command_gradient_appendStop(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double pos = convertToDouble(caps.at(1));
@@ -2216,7 +2304,7 @@ void PaintCommands::command_gradient_appendStop(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_gradient_setLinear(QRegExp re)
+void PaintCommands::command_gradient_setLinear(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double x1 = convertToDouble(caps.at(1));
@@ -2239,7 +2327,7 @@ void PaintCommands::command_gradient_setLinear(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_gradient_setLinearPen(QRegExp re)
+void PaintCommands::command_gradient_setLinearPen(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double x1 = convertToDouble(caps.at(1));
@@ -2261,7 +2349,7 @@ void PaintCommands::command_gradient_setLinearPen(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_gradient_setRadial(QRegExp re)
+void PaintCommands::command_gradient_setRadial(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double cx = convertToDouble(caps.at(1));
@@ -2286,7 +2374,7 @@ void PaintCommands::command_gradient_setRadial(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_gradient_setRadialExtended(QRegExp re)
+void PaintCommands::command_gradient_setRadialExtended(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double cx = convertToDouble(caps.at(1));
@@ -2312,7 +2400,7 @@ void PaintCommands::command_gradient_setRadialExtended(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_gradient_setConical(QRegExp re)
+void PaintCommands::command_gradient_setConical(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double cx = convertToDouble(caps.at(1));
@@ -2335,9 +2423,9 @@ void PaintCommands::command_gradient_setConical(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_gradient_setSpread(QRegExp re)
+void PaintCommands::command_gradient_setSpread(QRegularExpressionMatch re)
 {
-    int spreadMethod = translateEnum(spreadMethodTable, re.cap(1), 3);
+    int spreadMethod = translateEnum(spreadMethodTable, re.captured(1), 3);
 
     if (m_verboseMode)
         printf(" -(lance) gradient_setSpread %d=[%s]\n", spreadMethod, spreadMethodTable[spreadMethod]);
@@ -2345,9 +2433,9 @@ void PaintCommands::command_gradient_setSpread(QRegExp re)
     m_gradientSpread = QGradient::Spread(spreadMethod);
 }
 
-void PaintCommands::command_gradient_setCoordinateMode(QRegExp re)
+void PaintCommands::command_gradient_setCoordinateMode(QRegularExpressionMatch re)
 {
-    int coord = translateEnum(coordinateMethodTable, re.cap(1), 3);
+    int coord = translateEnum(coordinateMethodTable, re.captured(1), 4);
 
     if (m_verboseMode)
         printf(" -(lance) gradient_setCoordinateMode %d=[%s]\n", coord,
@@ -2357,7 +2445,7 @@ void PaintCommands::command_gradient_setCoordinateMode(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_surface_begin(QRegExp re)
+void PaintCommands::command_surface_begin(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double x = convertToDouble(caps.at(1));
@@ -2417,7 +2505,7 @@ void PaintCommands::command_surface_begin(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_surface_end(QRegExp)
+void PaintCommands::command_surface_end(QRegularExpressionMatch)
 {
     if (!m_surface_painter) {
         fprintf(stderr, "ERROR: surface not active");
@@ -2466,7 +2554,7 @@ void PaintCommands::command_surface_end(QRegExp)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_image_convertToFormat(QRegExp re)
+void PaintCommands::command_image_convertToFormat(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
 
@@ -2499,7 +2587,7 @@ void PaintCommands::command_image_convertToFormat(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_textlayout_draw(QRegExp re)
+void PaintCommands::command_textlayout_draw(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
 
@@ -2532,7 +2620,7 @@ void PaintCommands::command_textlayout_draw(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_pen_setDashOffset(QRegExp re)
+void PaintCommands::command_pen_setDashOffset(QRegularExpressionMatch re)
 {
     QStringList caps = re.capturedTexts();
     double offset = convertToDouble(caps.at(1));
@@ -2546,9 +2634,9 @@ void PaintCommands::command_pen_setDashOffset(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_pen_setDashPattern(QRegExp re)
+void PaintCommands::command_pen_setDashPattern(QRegularExpressionMatch re)
 {
-    static QRegExp separators("\\s");
+    static QRegularExpression separators("\\s");
     QStringList caps = re.capturedTexts();
     QString cap = caps.at(1);
     QStringList numbers = cap.split(separators, QString::SkipEmptyParts);
@@ -2566,7 +2654,7 @@ void PaintCommands::command_pen_setDashPattern(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_pen_setCosmetic(QRegExp re)
+void PaintCommands::command_pen_setCosmetic(QRegularExpressionMatch re)
 {
     QString hm = re.capturedTexts().at(1);
     bool on = hm == "true" || hm == "yes" || hm == "on";
@@ -2582,9 +2670,9 @@ void PaintCommands::command_pen_setCosmetic(QRegExp re)
 }
 
 /***************************************************************************************************/
-void PaintCommands::command_drawConvexPolygon(QRegExp re)
+void PaintCommands::command_drawConvexPolygon(QRegularExpressionMatch re)
 {
-    static QRegExp separators("\\s");
+    static QRegularExpression separators("\\s");
     QStringList caps = re.capturedTexts();
     QString cap = caps.at(1);
     QStringList numbers = cap.split(separators, QString::SkipEmptyParts);

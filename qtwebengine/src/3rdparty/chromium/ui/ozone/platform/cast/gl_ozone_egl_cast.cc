@@ -11,7 +11,6 @@
 
 #include "base/command_line.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "chromecast/base/chromecast_switches.h"
 #include "chromecast/public/cast_egl_platform.h"
@@ -58,21 +57,14 @@ GLOzoneEglCast::~GLOzoneEglCast() {
   // eglTerminate must be called first on display before releasing resources
   // and shutting down hardware
   TerminateDisplay();
-  ShutdownHardware();
 }
 
-void GLOzoneEglCast::InitializeHardware() {
-  if (state_ == kInitialized) {
+void GLOzoneEglCast::InitializeHardwareIfNeeded() {
+  if (hardware_initialized_)
     return;
-  }
-  CHECK_EQ(state_, kUninitialized);
 
-  if (egl_platform_->InitializeHardware()) {
-    state_ = kInitialized;
-  } else {
-    ShutdownHardware();
-    state_ = kFailed;
-  }
+  CHECK(egl_platform_->InitializeHardware());
+  hardware_initialized_ = true;
 }
 
 void GLOzoneEglCast::TerminateDisplay() {
@@ -92,42 +84,6 @@ void GLOzoneEglCast::TerminateDisplay() {
 
   EGLBoolean terminate_result = terminate(display);
   DCHECK_EQ(terminate_result, static_cast<EGLBoolean>(EGL_TRUE));
-}
-
-void GLOzoneEglCast::ShutdownHardware() {
-  if (state_ != kInitialized)
-    return;
-
-  DestroyDisplayTypeAndWindow();
-
-  egl_platform_->ShutdownHardware();
-
-  state_ = kUninitialized;
-}
-
-void GLOzoneEglCast::OnSwapBuffers() {
-  DCHECK(overlay_count_ == 0 || overlay_count_ == 1);
-
-  // Logging for overlays to help diagnose bugs when nothing is visible on
-  // screen.  Logging this every frame would be overwhelming, so we just
-  // log on the transitions from 0 overlays -> 1 overlay and vice versa.
-  if (overlay_count_ == 0 && previous_frame_overlay_count_ != 0) {
-    LOG(INFO) << "Overlays deactivated";
-  } else if (overlay_count_ != 0 && previous_frame_overlay_count_ == 0) {
-    LOG(INFO) << "Overlays activated: " << overlay_bounds_.ToString();
-  } else if (overlay_count_ == previous_frame_overlay_count_ &&
-             overlay_bounds_ != previous_frame_overlay_bounds_) {
-    LOG(INFO) << "Overlay geometry changed to " << overlay_bounds_.ToString();
-  }
-
-  previous_frame_overlay_count_ = overlay_count_;
-  previous_frame_overlay_bounds_ = overlay_bounds_;
-  overlay_count_ = 0;
-}
-
-void GLOzoneEglCast::OnOverlayScheduled(const gfx::Rect& display_bounds) {
-  ++overlay_count_;
-  overlay_bounds_ = display_bounds;
 }
 
 scoped_refptr<gl::GLSurface> GLOzoneEglCast::CreateViewGLSurface(
@@ -150,10 +106,8 @@ intptr_t GLOzoneEglCast::GetNativeDisplay() {
 }
 
 void GLOzoneEglCast::CreateDisplayTypeAndWindowIfNeeded() {
-  if (state_ == kUninitialized) {
-    InitializeHardware();
-  }
-  DCHECK_EQ(state_, kInitialized);
+  InitializeHardwareIfNeeded();
+
   if (!have_display_type_) {
     chromecast::Size create_size = FromGfxSize(display_size_);
     display_type_ = egl_platform_->CreateDisplayType(create_size);
@@ -162,12 +116,7 @@ void GLOzoneEglCast::CreateDisplayTypeAndWindowIfNeeded() {
   if (!window_) {
     chromecast::Size create_size = FromGfxSize(display_size_);
     window_ = egl_platform_->CreateWindow(display_type_, create_size);
-    if (!window_) {
-      DestroyDisplayTypeAndWindow();
-      state_ = kFailed;
-      LOG(FATAL) << "Create EGLNativeWindowType(" << display_size_.ToString()
-                 << ") failed.";
-    }
+    CHECK(window_);
   }
 }
 
@@ -182,34 +131,8 @@ bool GLOzoneEglCast::ResizeDisplay(gfx::Size size) {
   return true;
 }
 
-void GLOzoneEglCast::DestroyWindow() {
-  if (window_) {
-    egl_platform_->DestroyWindow(window_);
-    window_ = 0;
-  }
-}
-
-void GLOzoneEglCast::DestroyDisplayTypeAndWindow() {
-  DestroyWindow();
-  if (have_display_type_) {
-    egl_platform_->DestroyDisplayType(display_type_);
-    display_type_ = 0;
-    have_display_type_ = false;
-  }
-}
-
-void GLOzoneEglCast::ChildDestroyed() {
-  if (egl_platform_->MultipleSurfaceUnsupported())
-    DestroyWindow();
-}
-
 bool GLOzoneEglCast::LoadGLES2Bindings(gl::GLImplementation implementation) {
-  if (state_ != kInitialized) {
-    InitializeHardware();
-    if (state_ != kInitialized) {
-      return false;
-    }
-  }
+  InitializeHardwareIfNeeded();
 
   void* lib_egl = egl_platform_->GetEglLibrary();
   void* lib_gles2 = egl_platform_->GetGles2Library();

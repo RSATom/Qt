@@ -47,7 +47,7 @@ class Q_LOCATION_EXPORT QPlaceMatchReply : public QPlaceReply
 {
     Q_OBJECT
 public:
-    explicit QPlaceMatchReply(QObject *parent = Q_NULLPTR);
+    explicit QPlaceMatchReply(QObject *parent = nullptr);
     ~QPlaceMatchReply();
 
     QPlaceReply::Type type() const;

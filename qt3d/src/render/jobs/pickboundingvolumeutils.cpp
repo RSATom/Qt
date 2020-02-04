@@ -51,8 +51,11 @@
 #include <Qt3DRender/private/trianglesvisitor_p.h>
 #include <Qt3DRender/private/segmentsvisitor_p.h>
 #include <Qt3DRender/private/pointsvisitor_p.h>
+#include <Qt3DRender/private/layer_p.h>
 
 #include <vector>
+#include <algorithm>
+#include <functional>
 
 QT_BEGIN_NAMESPACE
 
@@ -72,9 +75,9 @@ void ViewportCameraAreaGatherer::visit(FrameGraphNode *node)
         m_leaves.push_back(node);
 }
 
-ViewportCameraAreaTriplet ViewportCameraAreaGatherer::gatherUpViewportCameraAreas(Render::FrameGraphNode *node) const
+ViewportCameraAreaDetails ViewportCameraAreaGatherer::gatherUpViewportCameraAreas(Render::FrameGraphNode *node) const
 {
-    ViewportCameraAreaTriplet vca;
+    ViewportCameraAreaDetails vca;
     vca.viewport = QRectF(0.0f, 0.0f, 1.0f, 1.0f);
 
     while (node) {
@@ -84,11 +87,14 @@ ViewportCameraAreaTriplet ViewportCameraAreaGatherer::gatherUpViewportCameraArea
                 vca.cameraId = static_cast<const CameraSelector *>(node)->cameraUuid();
                 break;
             case FrameGraphNode::Viewport:
-                vca.viewport = computeViewport(vca.viewport, static_cast<const ViewportNode *>(node));
+                vca.viewport = ViewportNode::computeViewport(vca.viewport, static_cast<const ViewportNode *>(node));
                 break;
-            case FrameGraphNode::Surface:
-                vca.area = static_cast<const RenderSurfaceSelector *>(node)->renderTargetSize();
+            case FrameGraphNode::Surface: {
+                auto selector = static_cast<const RenderSurfaceSelector *>(node);
+                vca.area = selector->renderTargetSize();
+                vca.surface = selector->surface();
                 break;
+            }
             default:
                 break;
             }
@@ -98,62 +104,36 @@ ViewportCameraAreaTriplet ViewportCameraAreaGatherer::gatherUpViewportCameraArea
     return vca;
 }
 
-QVector<ViewportCameraAreaTriplet> ViewportCameraAreaGatherer::gather(FrameGraphNode *root)
+QVector<ViewportCameraAreaDetails> ViewportCameraAreaGatherer::gather(FrameGraphNode *root)
 {
     // Retrieve all leaves
     visit(root);
-    QVector<ViewportCameraAreaTriplet> vcaTriplets;
+    QVector<ViewportCameraAreaDetails> vcaTriplets;
     vcaTriplets.reserve(m_leaves.count());
 
     // Find all viewport/camera pairs by traversing from leaf to root
     for (Render::FrameGraphNode *leaf : qAsConst(m_leaves)) {
-        ViewportCameraAreaTriplet vcaTriplet = gatherUpViewportCameraAreas(leaf);
-        if (!m_targetCamera.isNull() && vcaTriplet.cameraId != m_targetCamera)
+        ViewportCameraAreaDetails vcaDetails = gatherUpViewportCameraAreas(leaf);
+        if (!m_targetCamera.isNull() && vcaDetails.cameraId != m_targetCamera)
             continue;
-        if (!vcaTriplet.cameraId.isNull() && isUnique(vcaTriplets, vcaTriplet))
-            vcaTriplets.push_back(vcaTriplet);
+        if (!vcaDetails.cameraId.isNull() && isUnique(vcaTriplets, vcaDetails))
+            vcaTriplets.push_back(vcaDetails);
     }
     return vcaTriplets;
 }
 
-bool ViewportCameraAreaGatherer::isUnique(const QVector<ViewportCameraAreaTriplet> &vcaTriplets,
-                                          const ViewportCameraAreaTriplet &vca) const
+bool ViewportCameraAreaGatherer::isUnique(const QVector<ViewportCameraAreaDetails> &vcaList,
+                                          const ViewportCameraAreaDetails &vca) const
 {
-    for (const ViewportCameraAreaTriplet &triplet : vcaTriplets) {
-        if (vca.cameraId == triplet.cameraId && vca.viewport == triplet.viewport && vca.area == triplet.area)
+    for (const ViewportCameraAreaDetails &listItem : vcaList) {
+        if (vca.cameraId == listItem.cameraId &&
+                vca.viewport == listItem.viewport &&
+                vca.surface == listItem.surface &&
+                vca.area == listItem.area)
             return false;
     }
     return true;
 }
-
-QVector<Entity *> gatherEntities(Entity *entity, QVector<Entity *> entities)
-{
-    if (entity != nullptr && entity->isEnabled()) {
-        entities.push_back(entity);
-        // Traverse children
-        const auto children = entity->children();
-        for (Entity *child : children)
-            entities = gatherEntities(child, std::move(entities));
-    }
-    return entities;
-}
-
-EntityGatherer::EntityGatherer(Entity *root)
-    : m_root(root)
-    , m_needsRefresh(true)
-{
-}
-
-QVector<Entity *> EntityGatherer::entities() const
-{
-    if (m_needsRefresh) {
-        m_entities.clear();
-        m_entities = gatherEntities(m_root, std::move(m_entities));
-        m_needsRefresh = false;
-    }
-    return m_entities;
-}
-
 
 class TriangleCollisionVisitor : public TrianglesVisitor
 {
@@ -174,20 +154,20 @@ private:
     bool m_frontFaceRequested;
     bool m_backFaceRequested;
 
-    void visit(uint andx, const QVector3D &a,
-               uint bndx, const QVector3D &b,
-               uint cndx, const QVector3D &c) Q_DECL_OVERRIDE;
-    bool intersectsSegmentTriangle(uint andx, const QVector3D &a,
-                                   uint bndx, const QVector3D &b,
-                                   uint cndx, const QVector3D &c);
+    void visit(uint andx, const Vector3D &a,
+               uint bndx, const Vector3D &b,
+               uint cndx, const Vector3D &c) override;
+    bool intersectsSegmentTriangle(uint andx, const Vector3D &a,
+                                   uint bndx, const Vector3D &b,
+                                   uint cndx, const Vector3D &c);
 };
 
-void TriangleCollisionVisitor::visit(uint andx, const QVector3D &a, uint bndx, const QVector3D &b, uint cndx, const QVector3D &c)
+void TriangleCollisionVisitor::visit(uint andx, const Vector3D &a, uint bndx, const Vector3D &b, uint cndx, const Vector3D &c)
 {
-    const QMatrix4x4 &mat = *m_root->worldTransform();
-    const QVector3D tA = mat * a;
-    const QVector3D tB = mat * b;
-    const QVector3D tC = mat * c;
+    const Matrix4x4 &mat = *m_root->worldTransform();
+    const Vector3D tA = mat * a;
+    const Vector3D tB = mat * b;
+    const Vector3D tC = mat * c;
 
     bool intersected = m_frontFaceRequested &&
             intersectsSegmentTriangle(cndx, tC, bndx, tB, andx, tA);    // front facing
@@ -198,10 +178,11 @@ void TriangleCollisionVisitor::visit(uint andx, const QVector3D &a, uint bndx, c
     m_triangleIndex++;
 }
 
-bool TriangleCollisionVisitor::intersectsSegmentTriangle(uint andx, const QVector3D &a, uint bndx, const QVector3D &b, uint cndx, const QVector3D &c)
+
+bool TriangleCollisionVisitor::intersectsSegmentTriangle(uint andx, const Vector3D &a, uint bndx, const Vector3D &b, uint cndx, const Vector3D &c)
 {
     float t = 0.0f;
-    QVector3D uvw;
+    Vector3D uvw;
     bool intersected = Render::intersectsSegmentTriangle(m_ray, a, b, c, uvw, t);
     if (intersected) {
         QCollisionQueryResult::Hit queryResult;
@@ -237,30 +218,30 @@ private:
     uint m_segmentIndex;
     float m_pickWorldSpaceTolerance;
 
-    void visit(uint andx, const QVector3D &a,
-               uint bndx, const QVector3D &b) Q_DECL_OVERRIDE;
-    bool intersectsSegmentSegment(uint andx, const QVector3D &a,
-                                  uint bndx, const QVector3D &b);
-    bool rayToLineSegment(const QVector3D& lineStart,const QVector3D& lineEnd,
-                          float &distance, QVector3D &intersection) const;
+    void visit(uint andx, const Vector3D &a,
+               uint bndx, const Vector3D &b) override;
+    bool intersectsSegmentSegment(uint andx, const Vector3D &a,
+                                  uint bndx, const Vector3D &b);
+    bool rayToLineSegment(const Vector3D& lineStart,const Vector3D& lineEnd,
+                          float &distance, Vector3D &intersection) const;
 };
 
-void LineCollisionVisitor::visit(uint andx, const QVector3D &a, uint bndx, const QVector3D &b)
+void LineCollisionVisitor::visit(uint andx, const Vector3D &a, uint bndx, const Vector3D &b)
 {
-    const QMatrix4x4 &mat = *m_root->worldTransform();
-    const QVector3D tA = mat * a;
-    const QVector3D tB = mat * b;
+    const Matrix4x4 &mat = *m_root->worldTransform();
+    const Vector3D tA = mat * a;
+    const Vector3D tB = mat * b;
 
     intersectsSegmentSegment(andx, tA, bndx, tB);
 
     m_segmentIndex++;
 }
 
-bool LineCollisionVisitor::intersectsSegmentSegment(uint andx, const QVector3D &a,
-                                                    uint bndx, const QVector3D &b)
+bool LineCollisionVisitor::intersectsSegmentSegment(uint andx, const Vector3D &a,
+                                                    uint bndx, const Vector3D &b)
 {
     float distance = 0.f;
-    QVector3D intersection;
+    Vector3D intersection;
     bool res = rayToLineSegment(a, b, distance, intersection);
     if (res) {
         QCollisionQueryResult::Hit queryResult;
@@ -277,19 +258,19 @@ bool LineCollisionVisitor::intersectsSegmentSegment(uint andx, const QVector3D &
     return false;
 }
 
-bool LineCollisionVisitor::rayToLineSegment(const QVector3D& lineStart,const QVector3D& lineEnd,
-                                            float &distance, QVector3D &intersection) const
+bool LineCollisionVisitor::rayToLineSegment(const Vector3D& lineStart,const Vector3D& lineEnd,
+                                            float &distance, Vector3D &intersection) const
 {
     const float epsilon = 0.00000001f;
 
-    const QVector3D u = m_ray.direction() * m_ray.distance();
-    const QVector3D v = lineEnd - lineStart;
-    const QVector3D w = m_ray.origin() - lineStart;
-    const float a = QVector3D::dotProduct(u, u);
-    const float b = QVector3D::dotProduct(u, v);
-    const float c = QVector3D::dotProduct(v, v);
-    const float d = QVector3D::dotProduct(u, w);
-    const float e = QVector3D::dotProduct(v, w);
+    const Vector3D u = m_ray.direction() * m_ray.distance();
+    const Vector3D v = lineEnd - lineStart;
+    const Vector3D w = m_ray.origin() - lineStart;
+    const float a = Vector3D::dotProduct(u, u);
+    const float b = Vector3D::dotProduct(u, v);
+    const float c = Vector3D::dotProduct(v, v);
+    const float d = Vector3D::dotProduct(u, w);
+    const float e = Vector3D::dotProduct(v, w);
     const float D = a * c - b * b;
     float sc, sN, sD = D;
     float tc, tN, tD = D;
@@ -330,7 +311,7 @@ bool LineCollisionVisitor::rayToLineSegment(const QVector3D& lineStart,const QVe
     sc = (qAbs(sN) < epsilon ? 0.0f : sN / sD);
     tc = (qAbs(tN) < epsilon ? 0.0f : tN / tD);
 
-    const QVector3D dP = w + (sc * u) - (tc * v);
+    const Vector3D dP = w + (sc * u) - (tc * v);
     const float f = dP.length();
     if (f < m_pickWorldSpaceTolerance) {
         distance = sc * u.length();
@@ -358,23 +339,23 @@ private:
     uint m_pointIndex;
     float m_pickWorldSpaceTolerance;
 
-    void visit(uint ndx, const QVector3D &p) Q_DECL_OVERRIDE;
+    void visit(uint ndx, const Vector3D &p) override;
 
-    double pointToRayDistance(const QVector3D &a, QVector3D &p)
+    double pointToRayDistance(const Vector3D &a, Vector3D &p)
     {
-        const QVector3D v = a - m_ray.origin();
-        const double t = QVector3D::dotProduct(v, m_ray.direction());
+        const Vector3D v = a - m_ray.origin();
+        const double t = Vector3D::dotProduct(v, m_ray.direction());
         p = m_ray.origin() + t * m_ray.direction();
         return (p - a).length();
     }
 };
 
 
-void PointCollisionVisitor::visit(uint ndx, const QVector3D &p)
+void PointCollisionVisitor::visit(uint ndx, const Vector3D &p)
 {
-    const QMatrix4x4 &mat = *m_root->worldTransform();
-    const QVector3D tP = mat * p;
-    QVector3D intersection;
+    const Matrix4x4 &mat = *m_root->worldTransform();
+    const Vector3D tP = mat * p;
+    Vector3D intersection;
 
     float d = pointToRayDistance(tP, intersection);
     if (d < m_pickWorldSpaceTolerance) {
@@ -410,6 +391,46 @@ HitList reduceToFirstHit(HitList &result, const HitList &intermediate)
     return result;
 }
 
+
+struct HighestPriorityHitReducer
+{
+    // No need to protect this from concurrent access as the table
+    // is read only
+    const QHash<Qt3DCore::QNodeId, int> entityToPriorityTable;
+
+    HitList operator()(HitList &result, const HitList &intermediate)
+    {
+        // Sort by priority first
+        // If we have equal priorities, we then sort by distance
+
+        if (!intermediate.empty()) {
+            if (result.empty())
+                result.push_back(intermediate.front());
+            int currentPriority = entityToPriorityTable.value(result.front().m_entityId, 0);
+            float closest = result.front().m_distance;
+
+            for (const auto &v : intermediate) {
+                const int newEntryPriority = entityToPriorityTable.value(v.m_entityId, 0);
+                if (newEntryPriority > currentPriority) {
+                    result.push_front(v);
+                    currentPriority = newEntryPriority;
+                    closest = v.m_distance;
+                } else if (newEntryPriority == currentPriority) {
+                    if (v.m_distance < closest) {
+                        result.push_front(v);
+                        closest = v.m_distance;
+                        currentPriority = newEntryPriority;
+                    }
+                }
+            }
+
+            while (result.size() > 1)
+                result.pop_back();
+        }
+        return result;
+    }
+};
+
 HitList reduceToAllHits(HitList &results, const HitList &intermediate)
 {
     if (!intermediate.empty())
@@ -426,21 +447,23 @@ AbstractCollisionGathererFunctor::~AbstractCollisionGathererFunctor()
 
 HitList AbstractCollisionGathererFunctor::operator ()(const Entity *entity) const
 {
-    HObjectPicker objectPickerHandle = entity->componentHandle<ObjectPicker>();
+    if (m_objectPickersRequired) {
+        HObjectPicker objectPickerHandle = entity->componentHandle<ObjectPicker>();
 
-    // If the Entity which actually received the hit doesn't have
-    // an object picker component, we need to check the parent if it has one ...
-    auto parentEntity = entity;
-    while (objectPickerHandle.isNull() && parentEntity != nullptr) {
-        parentEntity = parentEntity->parent();
-        if (parentEntity != nullptr)
-            objectPickerHandle = parentEntity->componentHandle<ObjectPicker>();
+        // If the Entity which actually received the hit doesn't have
+        // an object picker component, we need to check the parent if it has one ...
+        auto parentEntity = entity;
+        while (objectPickerHandle.isNull() && parentEntity != nullptr) {
+            parentEntity = parentEntity->parent();
+            if (parentEntity != nullptr)
+                objectPickerHandle = parentEntity->componentHandle<ObjectPicker>();
+        }
+
+        ObjectPicker *objectPicker = m_manager->objectPickerManager()->data(objectPickerHandle);
+        if (objectPicker == nullptr || !objectPicker->isEnabled())
+            return {};   // don't bother picking entities that don't
+                         // have an object picker, or if it's disabled
     }
-
-    ObjectPicker *objectPicker = m_manager->objectPickerManager()->data(objectPickerHandle);
-    if (objectPicker == nullptr || !objectPicker->isEnabled())
-        return {};   // don't bother picking entities that don't
-                     // have an object picker, or if it's disabled
 
     return pick(entity);
 }
@@ -461,10 +484,53 @@ void AbstractCollisionGathererFunctor::sortHits(HitList &results)
     std::sort(results.begin(), results.end(), compareHitsDistance);
 }
 
-HitList EntityCollisionGathererFunctor::computeHits(const QVector<Entity *> &entities, bool allHitsRequested)
+namespace {
+
+// Workaround to avoid passing *this into the blockMappedReduce calls for the
+// mapFunctor which would cause an SSE alignment error on Windows Also note
+// that a lambda doesn't work since we need the typedef result_type defined to
+// work with QtConcurrent
+struct MapFunctorHolder
 {
-    const auto reducerOp = allHitsRequested ? PickingUtils::reduceToAllHits : PickingUtils::reduceToFirstHit;
-    return QtConcurrent::blockingMappedReduced<HitList>(entities, *this, reducerOp);
+    MapFunctorHolder(const AbstractCollisionGathererFunctor *gatherer)
+        : m_gatherer(gatherer)
+    {}
+
+    // This define is required to work with QtConcurrent
+    typedef HitList result_type;
+    HitList operator ()(const Entity *e) const { return m_gatherer->operator ()(e); }
+
+    const AbstractCollisionGathererFunctor *m_gatherer;
+};
+
+} // anonymous
+
+HitList EntityCollisionGathererFunctor::computeHits(const QVector<Entity *> &entities,
+                                                    Qt3DRender::QPickingSettings::PickResultMode mode)
+{
+    std::function<HitList (HitList &, const HitList &)> reducerOp;
+    switch (mode) {
+    case QPickingSettings::AllPicks:
+        reducerOp = PickingUtils::reduceToAllHits;
+        break;
+    case QPickingSettings::NearestPriorityPick:
+        reducerOp = HighestPriorityHitReducer{ m_entityToPriorityTable };
+        break;
+    case QPickingSettings::NearestPick:
+        reducerOp = PickingUtils::reduceToFirstHit;
+        break;
+    }
+
+    const MapFunctorHolder holder(this);
+#if QT_CONFIG(concurrent)
+    return QtConcurrent::blockingMappedReduced<HitList>(entities, holder, reducerOp);
+#else
+    HitList sphereHits;
+    QVector<PickingUtils::EntityCollisionGathererFunctor::result_type> results;
+    for (const Entity *entity : entities)
+        sphereHits = reducerOp(sphereHits, holder(entity));
+    return sphereHits;
+#endif
 }
 
 HitList EntityCollisionGathererFunctor::pick(const Entity *entity) const
@@ -479,10 +545,32 @@ HitList EntityCollisionGathererFunctor::pick(const Entity *entity) const
     return result;
 }
 
-HitList TriangleCollisionGathererFunctor::computeHits(const QVector<Entity *> &entities, bool allHitsRequested)
+HitList TriangleCollisionGathererFunctor::computeHits(const QVector<Entity *> &entities,
+                                                      Qt3DRender::QPickingSettings::PickResultMode mode)
 {
-    const auto reducerOp = allHitsRequested ? PickingUtils::reduceToAllHits : PickingUtils::reduceToFirstHit;
-    return QtConcurrent::blockingMappedReduced<HitList>(entities, *this, reducerOp);
+    std::function<HitList (HitList &, const HitList &)> reducerOp;
+    switch (mode) {
+    case QPickingSettings::AllPicks:
+        reducerOp = PickingUtils::reduceToAllHits;
+        break;
+    case QPickingSettings::NearestPriorityPick:
+        reducerOp = HighestPriorityHitReducer { m_entityToPriorityTable };
+        break;
+    case QPickingSettings::NearestPick:
+        reducerOp = PickingUtils::reduceToFirstHit;
+        break;
+    }
+
+    const MapFunctorHolder holder(this);
+#if QT_CONFIG(concurrent)
+    return QtConcurrent::blockingMappedReduced<HitList>(entities, holder, reducerOp);
+#else
+    HitList sphereHits;
+    QVector<PickingUtils::TriangleCollisionGathererFunctor::result_type> results;
+    for (const Entity *entity : entities)
+        sphereHits = reducerOp(sphereHits, holder(entity));
+        return sphereHits;
+#endif
 }
 
 HitList TriangleCollisionGathererFunctor::pick(const Entity *entity) const
@@ -504,10 +592,32 @@ HitList TriangleCollisionGathererFunctor::pick(const Entity *entity) const
     return result;
 }
 
-HitList LineCollisionGathererFunctor::computeHits(const QVector<Entity *> &entities, bool allHitsRequested)
+HitList LineCollisionGathererFunctor::computeHits(const QVector<Entity *> &entities,
+                                                  Qt3DRender::QPickingSettings::PickResultMode mode)
 {
-    const auto reducerOp = allHitsRequested ? PickingUtils::reduceToAllHits : PickingUtils::reduceToFirstHit;
-    return QtConcurrent::blockingMappedReduced<HitList>(entities, *this, reducerOp);
+    std::function<HitList (HitList &, const HitList &)> reducerOp;
+    switch (mode) {
+    case QPickingSettings::AllPicks:
+        reducerOp = PickingUtils::reduceToAllHits;
+        break;
+    case QPickingSettings::NearestPriorityPick:
+        reducerOp = HighestPriorityHitReducer { m_entityToPriorityTable };
+        break;
+    case QPickingSettings::NearestPick:
+        reducerOp = PickingUtils::reduceToFirstHit;
+        break;
+    }
+
+    const MapFunctorHolder holder(this);
+#if QT_CONFIG(concurrent)
+    return QtConcurrent::blockingMappedReduced<HitList>(entities, holder, reducerOp);
+#else
+    HitList sphereHits;
+    QVector<PickingUtils::LineCollisionGathererFunctor::result_type> results;
+    for (const Entity *entity : entities)
+        sphereHits = reducerOp(sphereHits, holder(entity));
+    return sphereHits;
+#endif
 }
 
 HitList LineCollisionGathererFunctor::pick(const Entity *entity) const
@@ -528,10 +638,32 @@ HitList LineCollisionGathererFunctor::pick(const Entity *entity) const
     return result;
 }
 
-HitList PointCollisionGathererFunctor::computeHits(const QVector<Entity *> &entities, bool allHitsRequested)
+HitList PointCollisionGathererFunctor::computeHits(const QVector<Entity *> &entities,
+                                                   Qt3DRender::QPickingSettings::PickResultMode mode)
 {
-    const auto reducerOp = allHitsRequested ? PickingUtils::reduceToAllHits : PickingUtils::reduceToFirstHit;
-    return QtConcurrent::blockingMappedReduced<HitList>(entities, *this, reducerOp);
+    std::function<HitList (HitList &, const HitList &)> reducerOp;
+    switch (mode) {
+    case QPickingSettings::AllPicks:
+        reducerOp = PickingUtils::reduceToAllHits;
+        break;
+    case QPickingSettings::NearestPriorityPick:
+        reducerOp = HighestPriorityHitReducer { m_entityToPriorityTable };
+        break;
+    case QPickingSettings::NearestPick:
+        reducerOp = PickingUtils::reduceToFirstHit;
+        break;
+    }
+
+    const MapFunctorHolder holder(this);
+#if QT_CONFIG(concurrent)
+    return QtConcurrent::blockingMappedReduced<HitList>(entities, holder, reducerOp);
+#else
+    HitList sphereHits;
+    QVector<PickingUtils::PointCollisionGathererFunctor::result_type> results;
+    for (const Entity *entity : entities)
+        sphereHits = reducerOp(sphereHits, holder(entity));
+    return sphereHits;
+#endif
 }
 
 HitList PointCollisionGathererFunctor::pick(const Entity *entity) const
@@ -555,42 +687,119 @@ HitList PointCollisionGathererFunctor::pick(const Entity *entity) const
     return result;
 }
 
-HierarchicalEntityPicker::HierarchicalEntityPicker(const QRay3D &ray)
+HierarchicalEntityPicker::HierarchicalEntityPicker(const QRay3D &ray, bool requireObjectPicker)
     : m_ray(ray)
+    , m_objectPickersRequired(requireObjectPicker)
+    , m_filterMode(QAbstractRayCaster::AcceptAnyMatchingLayers)
 {
 
 }
 
-bool HierarchicalEntityPicker::collectHits(Entity *root)
+void HierarchicalEntityPicker::setFilterLayers(const Qt3DCore::QNodeIdVector &layerIds, QAbstractRayCaster::FilterMode mode)
+{
+    m_filterMode = mode;
+    m_layerIds = layerIds;
+    std::sort(m_layerIds.begin(), m_layerIds.end());
+}
+
+bool HierarchicalEntityPicker::collectHits(NodeManagers *manager, Entity *root)
 {
     m_hits.clear();
     m_entities.clear();
+    m_entityToPriorityTable.clear();
 
     QRayCastingService rayCasting;
-    std::vector<std::pair<Entity *, bool>> worklist;
-    worklist.push_back({root, !root->componentHandle<ObjectPicker>().isNull()});
+    struct EntityData {
+        Entity* entity;
+        bool hasObjectPicker;
+        Qt3DCore::QNodeIdVector recursiveLayers;
+        int priority;
+    };
+    std::vector<EntityData> worklist;
+    worklist.push_back({root, !root->componentHandle<ObjectPicker>().isNull(), {}, 0});
+
+    LayerManager *layerManager = manager->layerManager();
 
     while (!worklist.empty()) {
-        auto current = worklist.back();
+        EntityData current = worklist.back();
         worklist.pop_back();
+
+        bool accepted = true;
+        if (m_layerIds.size()) {
+            // TODO investigate reusing logic from LayerFilter job
+            Qt3DCore::QNodeIdVector filterLayers = current.recursiveLayers + current.entity->componentsUuid<Layer>();
+
+            // remove disabled layers
+            filterLayers.erase(std::remove_if(filterLayers.begin(), filterLayers.end(),
+                                              [layerManager](const Qt3DCore::QNodeId layerId) {
+                Layer *layer = layerManager->lookupResource(layerId);
+                return !layer || !layer->isEnabled();
+            }), filterLayers.end());
+
+            std::sort(filterLayers.begin(), filterLayers.end());
+
+            Qt3DCore::QNodeIdVector commonIds;
+            std::set_intersection(m_layerIds.cbegin(), m_layerIds.cend(),
+                                  filterLayers.cbegin(), filterLayers.cend(),
+                                  std::back_inserter(commonIds));
+
+            switch (m_filterMode) {
+            case QAbstractRayCaster::AcceptAnyMatchingLayers: {
+                accepted = !commonIds.empty();
+                break;
+            }
+            case QAbstractRayCaster::AcceptAllMatchingLayers: {
+                accepted = commonIds == m_layerIds;
+                break;
+            }
+            case QAbstractRayCaster::DiscardAnyMatchingLayers: {
+                accepted = commonIds.empty();
+                break;
+            }
+            case QAbstractRayCaster::DiscardAllMatchingLayers: {
+                accepted = !(commonIds == m_layerIds);
+                break;
+            }
+            default:
+                Q_UNREACHABLE();
+                break;
+            }
+        }
 
         // first pick entry sub-scene-graph
         QCollisionQueryResult::Hit queryResult =
-                rayCasting.query(m_ray, current.first->worldBoundingVolumeWithChildren());
+                rayCasting.query(m_ray, current.entity->worldBoundingVolumeWithChildren());
         if (queryResult.m_distance < 0.f)
             continue;
 
         // if we get a hit, we check again for this specific entity
-        queryResult = rayCasting.query(m_ray, current.first->worldBoundingVolume());
-        if (queryResult.m_distance >= 0.f && current.second) {
-            m_entities.push_back(current.first);
+        queryResult = rayCasting.query(m_ray, current.entity->worldBoundingVolume());
+        if (accepted && queryResult.m_distance >= 0.f && (current.hasObjectPicker || !m_objectPickersRequired)) {
+            m_entities.push_back(current.entity);
             m_hits.push_back(queryResult);
+            // Record entry for entity/priority
+            m_entityToPriorityTable.insert(current.entity->peerId(), current.priority);
+        }
+
+        Qt3DCore::QNodeIdVector recursiveLayers;
+        const Qt3DCore::QNodeIdVector entityLayers = current.entity->componentsUuid<Layer>();
+        for (const Qt3DCore::QNodeId layerId : entityLayers) {
+            Layer *layer = layerManager->lookupResource(layerId);
+            if (layer->recursive())
+                recursiveLayers << layerId;
         }
 
         // and pick children
-        const auto children = current.first->children();
-        for (auto child: children)
-            worklist.push_back({child, current.second || !child->componentHandle<ObjectPicker>().isNull()});
+        const auto childrenHandles = current.entity->childrenHandles();
+        for (const HEntity &handle : childrenHandles) {
+            Entity *child = manager->renderNodesManager()->data(handle);
+            if (child) {
+                ObjectPicker *childPicker = child->renderComponent<ObjectPicker>();
+                worklist.push_back({child, current.hasObjectPicker || childPicker,
+                                    current.recursiveLayers + recursiveLayers,
+                                    (childPicker ? childPicker->priority() : current.priority)});
+            }
+        }
     }
 
     return !m_hits.empty();

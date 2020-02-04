@@ -21,27 +21,28 @@
 namespace net {
 
 // static
-bool DataURL::Parse(const GURL& url, std::string* mime_type,
-                    std::string* charset, std::string* data) {
-  if (!url.is_valid())
+bool DataURL::Parse(const GURL& url,
+                    std::string* mime_type,
+                    std::string* charset,
+                    std::string* data) {
+  if (!url.is_valid() || !url.has_scheme())
     return false;
 
   DCHECK(mime_type->empty());
   DCHECK(charset->empty());
-  std::string::const_iterator begin = url.spec().begin();
-  std::string::const_iterator end = url.spec().end();
 
-  std::string::const_iterator after_colon = std::find(begin, end, ':');
-  if (after_colon == end)
-    return false;
-  ++after_colon;
+  std::string content = url.GetContent();
 
-  std::string::const_iterator comma = std::find(after_colon, end, ',');
+  std::string::const_iterator begin = content.begin();
+  std::string::const_iterator end = content.end();
+
+  std::string::const_iterator comma = std::find(begin, end, ',');
+
   if (comma == end)
     return false;
 
   std::vector<base::StringPiece> meta_data =
-      base::SplitStringPiece(base::StringPiece(after_colon, comma), ";",
+      base::SplitStringPiece(base::StringPiece(begin, comma), ";",
                              base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
 
   auto iter = meta_data.cbegin();
@@ -50,9 +51,8 @@ bool DataURL::Parse(const GURL& url, std::string* mime_type,
     ++iter;
   }
 
-  static const char kBase64Tag[] = "base64";
-  static const char kCharsetTag[] = "charset=";
-  const size_t kCharsetTagLength = arraysize(kCharsetTag) - 1;
+  static constexpr base::StringPiece kBase64Tag("base64");
+  static constexpr base::StringPiece kCharsetTag("charset=");
 
   bool base64_encoded = false;
   for (; iter != meta_data.cend(); ++iter) {
@@ -61,7 +61,7 @@ bool DataURL::Parse(const GURL& url, std::string* mime_type,
     } else if (charset->empty() &&
                base::StartsWith(*iter, kCharsetTag,
                                 base::CompareCase::SENSITIVE)) {
-      *charset = std::string(iter->substr(kCharsetTagLength));
+      *charset = std::string(iter->substr(kCharsetTag.size()));
       // The grammar for charset is not specially defined in RFC2045 and
       // RFC2397. It just needs to be a token.
       if (!HttpUtil::IsToken(*charset))
@@ -100,12 +100,8 @@ bool DataURL::Parse(const GURL& url, std::string* mime_type,
   // For base64, we may have url-escaped whitespace which is not part
   // of the data, and should be stripped. Otherwise, the escaped whitespace
   // could be part of the payload, so don't strip it.
-  if (base64_encoded) {
-    temp_data = UnescapeURLComponent(
-        temp_data, UnescapeRule::SPACES | UnescapeRule::PATH_SEPARATORS |
-                       UnescapeRule::URL_SPECIAL_CHARS_EXCEPT_PATH_SEPARATORS |
-                       UnescapeRule::SPOOFING_AND_CONTROL_CHARS);
-  }
+  if (base64_encoded)
+    UnescapeBinaryURLComponent(temp_data, &temp_data);
 
   // Strip whitespace.
   if (base64_encoded || !(mime_type->compare(0, 5, "text/") == 0 ||
@@ -113,12 +109,8 @@ bool DataURL::Parse(const GURL& url, std::string* mime_type,
     base::EraseIf(temp_data, base::IsAsciiWhitespace<wchar_t>);
   }
 
-  if (!base64_encoded) {
-    temp_data = UnescapeURLComponent(
-        temp_data, UnescapeRule::SPACES | UnescapeRule::PATH_SEPARATORS |
-                       UnescapeRule::URL_SPECIAL_CHARS_EXCEPT_PATH_SEPARATORS |
-                       UnescapeRule::SPOOFING_AND_CONTROL_CHARS);
-  }
+  if (!base64_encoded)
+    UnescapeBinaryURLComponent(temp_data, &temp_data);
 
   if (base64_encoded) {
     size_t length = temp_data.length();

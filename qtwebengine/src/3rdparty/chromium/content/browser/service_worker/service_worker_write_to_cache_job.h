@@ -15,17 +15,18 @@
 #include "content/browser/service_worker/service_worker_disk_cache.h"
 #include "content/browser/service_worker/service_worker_version.h"
 #include "content/common/content_export.h"
-#include "content/common/service_worker/service_worker_status_code.h"
 #include "content/common/service_worker/service_worker_types.h"
 #include "content/public/common/resource_type.h"
 #include "net/base/net_errors.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_job.h"
+#include "third_party/blink/public/common/service_worker/service_worker_status_code.h"
 
 namespace content {
 
 class ServiceWorkerCacheWriter;
 class ServiceWorkerContextCore;
+class ServiceWorkerContextRequestHandlerTest;
 
 // A URLRequestJob derivative used to cache the main script
 // and its imports during the initial install of a new version.
@@ -60,12 +61,7 @@ class CONTENT_EXPORT ServiceWorkerWriteToCacheJob
   const static net::Error kIdenticalScriptError;
 
  private:
-  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerContextRequestHandlerTest,
-                           UpdateBefore24Hours);
-  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerContextRequestHandlerTest,
-                           UpdateAfter24Hours);
-  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerContextRequestHandlerTest,
-                           UpdateForceBypassCache);
+  friend class ServiceWorkerContextRequestHandlerTest;
   FRIEND_TEST_ALL_PREFIXES(ServiceWorkerContextRequestHandlerTest,
                            ServiceWorkerDataRequestAnnotation);
 
@@ -132,24 +128,29 @@ class CONTENT_EXPORT ServiceWorkerWriteToCacheJob
   net::Error NotifyFinishedCaching(net::Error net_error,
                                    const std::string& status_message);
 
-  std::unique_ptr<ServiceWorkerResponseReader> CreateCacheResponseReader();
-  std::unique_ptr<ServiceWorkerResponseWriter> CreateCacheResponseWriter();
+  // Returns true when the incumbent service worker exists and it's required to
+  // do the byte-for-byte check.
+  bool ShouldByteForByteCheck() const;
 
-  ResourceType resource_type_;  // Differentiate main script and imports
+  // Returns true if this writer is writing the main script for the service
+  // worker.
+  bool IsMainScript() const;
+
+  const ResourceType resource_type_;  // Differentiate main script and imports
   scoped_refptr<net::IOBuffer> io_buffer_;
   int io_buffer_bytes_;
   base::WeakPtr<ServiceWorkerContextCore> context_;
-  GURL url_;
-  int64_t resource_id_;
-  int64_t incumbent_resource_id_;
+  const GURL url_;
+  const int64_t resource_id_;
+  const int64_t incumbent_resource_id_;
   std::unique_ptr<net::URLRequest> net_request_;
   std::unique_ptr<net::HttpResponseInfo> http_info_;
   std::unique_ptr<ServiceWorkerResponseWriter> writer_;
   scoped_refptr<ServiceWorkerVersion> version_;
   std::unique_ptr<ServiceWorkerCacheWriter> cache_writer_;
-  bool has_been_killed_;
-  bool did_notify_started_;
-  bool did_notify_finished_;
+  bool has_been_killed_ = false;
+  bool did_notify_started_ = false;
+  bool did_notify_finished_ = false;
 
   base::WeakPtrFactory<ServiceWorkerWriteToCacheJob> weak_factory_;
 

@@ -21,17 +21,14 @@ static const uint32_t render_target_formats[] = { DRM_FORMAT_ARGB8888, DRM_FORMA
 
 static int vc4_init(struct driver *drv)
 {
-	int ret;
-	ret = drv_add_combinations(drv, render_target_formats, ARRAY_SIZE(render_target_formats),
-				   &LINEAR_METADATA, BO_USE_RENDER_MASK);
-	if (ret)
-		return ret;
+	drv_add_combinations(drv, render_target_formats, ARRAY_SIZE(render_target_formats),
+			     &LINEAR_METADATA, BO_USE_RENDER_MASK);
 
 	return drv_modify_linear_combinations(drv);
 }
 
 static int vc4_bo_create(struct bo *bo, uint32_t width, uint32_t height, uint32_t format,
-			 uint32_t flags)
+			 uint64_t use_flags)
 {
 	int ret;
 	size_t plane;
@@ -51,8 +48,7 @@ static int vc4_bo_create(struct bo *bo, uint32_t width, uint32_t height, uint32_
 
 	ret = drmIoctl(bo->drv->fd, DRM_IOCTL_VC4_CREATE_BO, &bo_create);
 	if (ret) {
-		fprintf(stderr, "drv: DRM_IOCTL_VC4_GEM_CREATE failed (size=%zu)\n",
-			bo->total_size);
+		drv_log("DRM_IOCTL_VC4_GEM_CREATE failed (size=%zu)\n", bo->total_size);
 		return ret;
 	}
 
@@ -62,7 +58,7 @@ static int vc4_bo_create(struct bo *bo, uint32_t width, uint32_t height, uint32_
 	return 0;
 }
 
-static void *vc4_bo_map(struct bo *bo, struct map_info *data, size_t plane)
+static void *vc4_bo_map(struct bo *bo, struct vma *vma, size_t plane, uint32_t map_flags)
 {
 	int ret;
 	struct drm_vc4_mmap_bo bo_map;
@@ -72,23 +68,23 @@ static void *vc4_bo_map(struct bo *bo, struct map_info *data, size_t plane)
 
 	ret = drmCommandWriteRead(bo->drv->fd, DRM_VC4_MMAP_BO, &bo_map, sizeof(bo_map));
 	if (ret) {
-		fprintf(stderr, "drv: DRM_VC4_MMAP_BO failed\n");
+		drv_log("DRM_VC4_MMAP_BO failed\n");
 		return MAP_FAILED;
 	}
 
-	data->length = bo->total_size;
-
-	return mmap(0, bo->total_size, PROT_READ | PROT_WRITE, MAP_SHARED, bo->drv->fd,
+	vma->length = bo->total_size;
+	return mmap(NULL, bo->total_size, drv_get_prot(map_flags), MAP_SHARED, bo->drv->fd,
 		    bo_map.offset);
 }
 
-struct backend backend_vc4 = {
+const struct backend backend_vc4 = {
 	.name = "vc4",
 	.init = vc4_init,
 	.bo_create = vc4_bo_create,
 	.bo_import = drv_prime_bo_import,
 	.bo_destroy = drv_gem_bo_destroy,
 	.bo_map = vc4_bo_map,
+	.bo_unmap = drv_bo_munmap,
 };
 
 #endif

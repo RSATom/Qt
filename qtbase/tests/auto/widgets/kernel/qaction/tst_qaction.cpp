@@ -67,6 +67,7 @@ private slots:
     void keysequence(); // QTBUG-53381
     void disableShortcutsWithBlockedWidgets_data();
     void disableShortcutsWithBlockedWidgets();
+    void shortcutFromKeyEvent(); // QTBUG-48325
 
 private:
     int m_lastEventType;
@@ -240,7 +241,7 @@ void tst_QAction::setStandardKeys()
         expected  << ctrlC << ctrlInsert;
         break;
     default: // X11
-        expected  << ctrlC << QKeySequence(QStringLiteral("F16")) << ctrlInsert;
+        expected  << ctrlC << ctrlInsert << QKeySequence(QStringLiteral("F16"));
         break;
     }
 
@@ -354,7 +355,7 @@ void tst_QAction::enabledVisibleInteraction()
 
 void tst_QAction::task200823_tooltip()
 {
-    const QScopedPointer<QAction> action(new QAction("foo", Q_NULLPTR));
+    const QScopedPointer<QAction> action(new QAction("foo", nullptr));
     QString shortcut("ctrl+o");
     action->setShortcut(shortcut);
 
@@ -368,7 +369,7 @@ void tst_QAction::task200823_tooltip()
 void tst_QAction::task229128TriggeredSignalWithoutActiongroup()
 {
     // test without a group
-    const QScopedPointer<QAction> actionWithoutGroup(new QAction("Test", Q_NULLPTR));
+    const QScopedPointer<QAction> actionWithoutGroup(new QAction("Test", nullptr));
     QSignalSpy spyWithoutGroup(actionWithoutGroup.data(), SIGNAL(triggered(bool)));
     QCOMPARE(spyWithoutGroup.count(), 0);
     actionWithoutGroup->trigger();
@@ -507,6 +508,42 @@ void tst_QAction::disableShortcutsWithBlockedWidgets()
     QSignalSpy spy(&action, &QAction::triggered);
     QTest::keyPress(&window, Qt::Key_1);
     QCOMPARE(spy.count(), 0);
+}
+
+class ShortcutOverrideWidget : public QWidget
+{
+public:
+    ShortcutOverrideWidget(QWidget *parent = 0) : QWidget(parent), shortcutOverrideCount(0) {}
+    int shortcutOverrideCount;
+protected:
+    bool event(QEvent *e)
+    {
+        if (e->type() == QEvent::ShortcutOverride)
+            ++shortcutOverrideCount;
+        return QWidget::event(e);
+    }
+};
+
+// Test that a key press event sent with sendEvent() still gets handled as a possible
+// ShortcutOverride event first before passing it on as a normal KeyEvent.
+void tst_QAction::shortcutFromKeyEvent()
+{
+    ShortcutOverrideWidget testWidget;
+    QAction action;
+    action.setShortcut(Qt::Key_1);
+    testWidget.addAction(&action);
+    testWidget.show();
+    QSignalSpy spy(&action, &QAction::triggered);
+    QVERIFY(spy.isValid());
+    QVERIFY(QTest::qWaitForWindowActive(&testWidget));
+    QCOMPARE(testWidget.shortcutOverrideCount, 0);
+
+    // Don't use the QTest::keyPress approach as this will take the
+    // shortcut route for us
+    QKeyEvent e(QEvent::KeyPress, Qt::Key_1, Qt::NoModifier);
+    QApplication::sendEvent(&testWidget, &e);
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(testWidget.shortcutOverrideCount, 1);
 }
 
 QTEST_MAIN(tst_QAction)

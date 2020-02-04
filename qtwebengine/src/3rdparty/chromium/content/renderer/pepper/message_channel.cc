@@ -25,8 +25,8 @@
 #include "ppapi/shared_impl/scoped_pp_var.h"
 #include "ppapi/shared_impl/var.h"
 #include "ppapi/shared_impl/var_tracker.h"
-#include "third_party/WebKit/public/web/WebDOMMessageEvent.h"
-#include "third_party/WebKit/public/web/WebPluginContainer.h"
+#include "third_party/blink/public/web/web_dom_message_event.h"
+#include "third_party/blink/public/web/web_plugin_container.h"
 #include "v8/include/v8.h"
 
 using ppapi::PpapiGlobals;
@@ -80,11 +80,13 @@ MessageChannel* MessageChannel::Create(PepperPluginInstanceImpl* instance,
                                        v8::Persistent<v8::Object>* result) {
   MessageChannel* message_channel = new MessageChannel(instance);
   v8::HandleScope handle_scope(instance->GetIsolate());
-  v8::Context::Scope context_scope(instance->GetMainWorldContext());
+  v8::Local<v8::Context> context = instance->GetMainWorldContext();
+  v8::Context::Scope context_scope(context);
   gin::Handle<MessageChannel> handle =
       gin::CreateHandle(instance->GetIsolate(), message_channel);
+  v8::MaybeLocal<v8::Object> object = handle.ToV8()->ToObject(context);
   result->Reset(instance->GetIsolate(),
-                handle.ToV8()->ToObject(instance->GetIsolate()));
+                object.FromMaybe(v8::Local<v8::Object>()));
   return message_channel;
 }
 
@@ -98,7 +100,7 @@ MessageChannel::~MessageChannel() {
 
 void MessageChannel::InstanceDeleted() {
   UnregisterSyncMessageStatusObserver();
-  instance_ = NULL;
+  instance_ = nullptr;
 }
 
 void MessageChannel::PostMessageToJavaScript(PP_Var message_data) {
@@ -211,13 +213,17 @@ v8::Local<v8::Value> MessageChannel::GetNamedProperty(
 
   PepperTryCatchV8 try_catch(instance_, &var_converter_, isolate);
   if (identifier == kPostMessage) {
+    v8::Local<v8::Context> context = isolate->GetCurrentContext();
     return GetFunctionTemplate(isolate, identifier,
                                &MessageChannel::PostMessageToNative)
-        ->GetFunction();
+        ->GetFunction(context)
+        .ToLocalChecked();
   } else if (identifier == kPostMessageAndAwaitResponse) {
+    v8::Local<v8::Context> context = isolate->GetCurrentContext();
     return GetFunctionTemplate(isolate, identifier,
                                &MessageChannel::PostBlockingMessageToNative)
-        ->GetFunction();
+        ->GetFunction(context)
+        .ToLocalChecked();
   }
 
   std::map<std::string, ScopedPPVar>::const_iterator it =
@@ -447,8 +453,8 @@ void MessageChannel::DrainJSMessageQueueSoon() {
     return;
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&MessageChannel::DrainJSMessageQueue,
-                            weak_ptr_factory_.GetWeakPtr()));
+      FROM_HERE, base::BindOnce(&MessageChannel::DrainJSMessageQueue,
+                                weak_ptr_factory_.GetWeakPtr()));
   drain_js_message_queue_scheduled_ = true;
 }
 

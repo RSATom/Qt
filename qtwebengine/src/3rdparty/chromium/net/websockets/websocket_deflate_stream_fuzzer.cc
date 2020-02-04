@@ -5,16 +5,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <memory>
 #include <string>
 #include <vector>
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/test/fuzzed_data_provider.h"
-#include "net/base/completion_callback.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/websockets/websocket_deflate_parameters.h"
@@ -49,7 +47,7 @@ class WebSocketFuzzedStream final : public WebSocketStream {
       : fuzzed_data_provider_(fuzzed_data_provider) {}
 
   int ReadFrames(std::vector<std::unique_ptr<WebSocketFrame>>* frames,
-                 const CompletionCallback& callback) override {
+                 CompletionOnceCallback callback) override {
     if (fuzzed_data_provider_->remaining_bytes() < MIN_BYTES_TO_CREATE_A_FRAME)
       return ERR_CONNECTION_CLOSED;
     while (fuzzed_data_provider_->remaining_bytes() > 0)
@@ -58,7 +56,7 @@ class WebSocketFuzzedStream final : public WebSocketStream {
   }
 
   int WriteFrames(std::vector<std::unique_ptr<WebSocketFrame>>* frames,
-                  const CompletionCallback& callback) override {
+                  CompletionOnceCallback callback) override {
     return ERR_FILE_NOT_FOUND;
   }
 
@@ -69,22 +67,25 @@ class WebSocketFuzzedStream final : public WebSocketStream {
  private:
   std::unique_ptr<WebSocketFrame> CreateFrame() {
     WebSocketFrameHeader::OpCode opcode =
-        fuzzed_data_provider_->ConsumeUint32InRange(
-            WebSocketFrameHeader::kOpCodeContinuation,
-            WebSocketFrameHeader::kOpCodeControlUnused);
-    auto frame = base::MakeUnique<WebSocketFrame>(opcode);
+        fuzzed_data_provider_
+            ->ConsumeIntegralInRange<WebSocketFrameHeader::OpCode>(
+                WebSocketFrameHeader::kOpCodeContinuation,
+                WebSocketFrameHeader::kOpCodeControlUnused);
+    auto frame = std::make_unique<WebSocketFrame>(opcode);
     // Bad news: ConsumeBool actually consumes a whole byte per call, so do
     // something hacky to conserve precious bits.
-    uint8_t flags = fuzzed_data_provider_->ConsumeUint8();
+    uint8_t flags = fuzzed_data_provider_->ConsumeIntegral<uint8_t>();
     frame->header.final = flags & 0x1;
     frame->header.reserved1 = (flags >> 1) & 0x1;
     frame->header.reserved2 = (flags >> 2) & 0x1;
     frame->header.reserved3 = (flags >> 3) & 0x1;
     frame->header.masked = (flags >> 4) & 0x1;
     uint64_t payload_length =
-        fuzzed_data_provider_->ConsumeUint32InRange(0, 64);
-    std::string payload = fuzzed_data_provider_->ConsumeBytes(payload_length);
-    frame->data = new StringIOBuffer(payload);
+        fuzzed_data_provider_->ConsumeIntegralInRange(0, 64);
+    std::vector<char> payload =
+        fuzzed_data_provider_->ConsumeBytes<char>(payload_length);
+    frame->data = base::MakeRefCounted<IOBufferWithSize>(payload.size());
+    memcpy(frame->data->data(), payload.data(), payload.size());
     frame->header.payload_length = payload.size();
     return frame;
   }
@@ -94,10 +95,10 @@ class WebSocketFuzzedStream final : public WebSocketStream {
 
 void WebSocketDeflateStreamFuzz(const uint8_t* data, size_t size) {
   base::FuzzedDataProvider fuzzed_data_provider(data, size);
-  uint8_t flags = fuzzed_data_provider.ConsumeUint8();
+  uint8_t flags = fuzzed_data_provider.ConsumeIntegral<uint8_t>();
   bool server_no_context_takeover = flags & 0x1;
   bool client_no_context_takeover = (flags >> 1) & 0x1;
-  uint8_t window_bits = fuzzed_data_provider.ConsumeUint8();
+  uint8_t window_bits = fuzzed_data_provider.ConsumeIntegral<uint8_t>();
   int server_max_window_bits = (window_bits & 0x7) + 8;
   int client_max_window_bits = ((window_bits >> 3) & 0x7) + 8;
   // WebSocketDeflateStream needs to be constructed on each call because it
@@ -115,10 +116,10 @@ void WebSocketDeflateStreamFuzz(const uint8_t* data, size_t size) {
   WebSocketDeflateParameters parameters;
   DCHECK(parameters.Initialize(params, &failure_message)) << failure_message;
   WebSocketDeflateStream deflate_stream(
-      base::MakeUnique<WebSocketFuzzedStream>(&fuzzed_data_provider),
-      parameters, base::MakeUnique<WebSocketDeflatePredictorImpl>());
+      std::make_unique<WebSocketFuzzedStream>(&fuzzed_data_provider),
+      parameters, std::make_unique<WebSocketDeflatePredictorImpl>());
   std::vector<std::unique_ptr<net::WebSocketFrame>> frames;
-  deflate_stream.ReadFrames(&frames, CompletionCallback());
+  deflate_stream.ReadFrames(&frames, CompletionOnceCallback());
 }
 
 }  // namespace

@@ -9,7 +9,8 @@
 
 #include "base/files/file.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
+#include "base/memory/weak_ptr.h"
+#include "base/message_loop/message_loop_current.h"
 #include "base/sequence_checker.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread.h"
@@ -17,8 +18,8 @@
 #include "content/renderer/media/webrtc/stun_field_trial.h"
 #include "content/renderer/p2p/socket_dispatcher.h"
 #include "ipc/ipc_platform_file.h"
-#include "third_party/webrtc/api/peerconnectioninterface.h"
-#include "third_party/webrtc/p2p/stunprober/stunprober.h"
+#include "third_party/webrtc/api/peer_connection_interface.h"
+#include "third_party/webrtc/p2p/stunprober/stun_prober.h"
 
 namespace base {
 class WaitableEvent;
@@ -42,21 +43,22 @@ namespace content {
 
 class IpcNetworkManager;
 class IpcPacketSocketFactory;
+class P2PPortAllocator;
 class WebRtcAudioDeviceImpl;
 
 // Object factory for RTC PeerConnections.
 class CONTENT_EXPORT PeerConnectionDependencyFactory
-    : NON_EXPORTED_BASE(base::MessageLoop::DestructionObserver) {
+    : base::MessageLoopCurrent::DestructionObserver {
  public:
-  PeerConnectionDependencyFactory(
-      P2PSocketDispatcher* p2p_socket_dispatcher);
+  PeerConnectionDependencyFactory(P2PSocketDispatcher* p2p_socket_dispatcher);
   ~PeerConnectionDependencyFactory() override;
 
   // Create a RTCPeerConnectionHandler object that implements the
   // WebKit WebRTCPeerConnectionHandler interface.
   std::unique_ptr<blink::WebRTCPeerConnectionHandler>
   CreateRTCPeerConnectionHandler(
-      blink::WebRTCPeerConnectionHandlerClient* client);
+      blink::WebRTCPeerConnectionHandlerClient* client,
+      scoped_refptr<base::SingleThreadTaskRunner> task_runner);
 
   // Create a proxy object for a VideoTrackSource that makes sure it's called on
   // the correct threads.
@@ -80,6 +82,15 @@ class CONTENT_EXPORT PeerConnectionDependencyFactory
       blink::WebLocalFrame* web_frame,
       webrtc::PeerConnectionObserver* observer);
 
+  // Creates a PortAllocator that uses Chrome IPC sockets and enforces privacy
+  // controls according to the permissions granted on the page.
+  virtual std::unique_ptr<P2PPortAllocator> CreatePortAllocator(
+      blink::WebLocalFrame* web_frame);
+
+  // Creates an AsyncResolverFactory that uses the networking Mojo service.
+  virtual std::unique_ptr<webrtc::AsyncResolverFactory>
+  CreateAsyncResolverFactory();
+
   // Creates a libjingle representation of a Session description. Used by a
   // RTCPeerConnectionHandler instance.
   virtual webrtc::SessionDescriptionInterface* CreateSessionDescription(
@@ -93,10 +104,19 @@ class CONTENT_EXPORT PeerConnectionDependencyFactory
       int sdp_mline_index,
       const std::string& sdp);
 
+  // Returns the most optimistic view of the capabilities of the system for
+  // sending or receiving media of the given kind ("audio" or "video").
+  virtual std::unique_ptr<webrtc::RtpCapabilities> GetSenderCapabilities(
+      const std::string& kind);
+  virtual std::unique_ptr<webrtc::RtpCapabilities> GetReceiverCapabilities(
+      const std::string& kind);
+
   WebRtcAudioDeviceImpl* GetWebRtcAudioDevice();
 
   void EnsureInitialized();
   scoped_refptr<base::SingleThreadTaskRunner> GetWebRtcWorkerThread() const;
+  // TODO(bugs.webrtc.org/9419): Remove once WebRTC can be built as a component.
+  rtc::Thread* GetWebRtcWorkerThreadRtcThread() const;
   virtual scoped_refptr<base::SingleThreadTaskRunner> GetWebRtcSignalingThread()
       const;
 
@@ -109,7 +129,7 @@ class CONTENT_EXPORT PeerConnectionDependencyFactory
   void EnsureWebRtcAudioDeviceImpl();
 
  private:
-  // Implement base::MessageLoop::DestructionObserver.
+  // Implement base::MessageLoopCurrent::DestructionObserver.
   // This makes sure the libjingle PeerConnectionFactory is released before
   // the renderer message loop is destroyed.
   void WillDestroyCurrentMessageLoop() override;
@@ -134,9 +154,12 @@ class CONTENT_EXPORT PeerConnectionDependencyFactory
   void DeleteIpcNetworkManager();
   void CleanupPeerConnectionFactory();
 
-  // We own network_manager_, must be deleted on the worker thread.
-  // The network manager uses |p2p_socket_dispatcher_|.
-  IpcNetworkManager* network_manager_;
+  void OnEnumeratePermissionChanged(
+      rtc::NetworkManager::EnumerationPermission new_state);
+
+  // network_manager_ must be deleted on the worker thread. The network manager
+  // uses |p2p_socket_dispatcher_|.
+  std::unique_ptr<IpcNetworkManager> network_manager_;
   std::unique_ptr<IpcPacketSocketFactory> socket_factory_;
 
   scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory_;
@@ -154,6 +177,9 @@ class CONTENT_EXPORT PeerConnectionDependencyFactory
   base::Thread chrome_worker_thread_;
 
   SEQUENCE_CHECKER(sequence_checker_);
+
+  // The weak pointer MUST only be dereferenced on the main thread.
+  base::WeakPtrFactory<PeerConnectionDependencyFactory> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(PeerConnectionDependencyFactory);
 };

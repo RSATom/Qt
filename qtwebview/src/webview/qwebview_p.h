@@ -48,7 +48,7 @@
 // We mean it.
 //
 
-#include "qwebview_p_p.h"
+#include "qabstractwebview_p.h"
 #include "qwebviewinterface_p.h"
 #include "qnativeviewcontroller_p.h"
 #include <QtCore/qobject.h>
@@ -122,8 +122,7 @@ private:
     friend class QQuickViewController;
     friend class QQuickWebView;
 
-    Q_DECLARE_PRIVATE(QWebView)
-    QWebViewPrivate *d_ptr;
+    QAbstractWebView *d;
 
     // provisional data
     int m_progress;

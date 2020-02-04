@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2017 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,11 +9,10 @@
 
 #include "xfa/fxfa/parser/cxfa_stroke.h"
 
-class CXFA_Node;
-
-class CXFA_Corner : public CXFA_Stroke {
+class CXFA_Corner final : public CXFA_Stroke {
  public:
-  explicit CXFA_Corner(CXFA_Node* pNode) : CXFA_Stroke(pNode) {}
+  CXFA_Corner(CXFA_Document* doc, XFA_PacketType packet);
+  ~CXFA_Corner() override;
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_CORNER_H_

@@ -75,7 +75,7 @@ QPlaceManagerEngine::QPlaceManagerEngine(const QVariantMap &parameters,
 {
     qRegisterMetaType<QPlaceReply::Error>();
     qRegisterMetaType<QPlaceReply *>();
-    Q_UNUSED(parameters)
+    Q_UNUSED(parameters);
 }
 
 /*!
@@ -140,7 +140,7 @@ int QPlaceManagerEngine::managerVersion() const
 */
 QPlaceDetailsReply *QPlaceManagerEngine::getPlaceDetails(const QString &placeId)
 {
-    Q_UNUSED(placeId)
+    Q_UNUSED(placeId);
 
     return new QPlaceDetailsReplyUnsupported(this);
 }
@@ -150,7 +150,7 @@ QPlaceDetailsReply *QPlaceManagerEngine::getPlaceDetails(const QString &placeId)
 */
 QPlaceContentReply *QPlaceManagerEngine::getPlaceContent(const QPlaceContentRequest &request)
 {
-    Q_UNUSED(request)
+    Q_UNUSED(request);
 
     return new QPlaceContentReplyUnsupported(this);
 }
@@ -160,7 +160,7 @@ QPlaceContentReply *QPlaceManagerEngine::getPlaceContent(const QPlaceContentRequ
 */
 QPlaceSearchReply *QPlaceManagerEngine::search(const QPlaceSearchRequest &request)
 {
-    Q_UNUSED(request)
+    Q_UNUSED(request);
 
     return new QPlaceSearchReplyUnsupported(QPlaceReply::UnsupportedError,
                                             QStringLiteral("Place search is not supported."), this);
@@ -172,7 +172,7 @@ QPlaceSearchReply *QPlaceManagerEngine::search(const QPlaceSearchRequest &reques
 QPlaceSearchSuggestionReply *QPlaceManagerEngine::searchSuggestions(
         const QPlaceSearchRequest &request)
 {
-    Q_UNUSED(request)
+    Q_UNUSED(request);
 
     return new QPlaceSearchSuggestionReplyUnsupported(this);
 }
@@ -182,7 +182,7 @@ QPlaceSearchSuggestionReply *QPlaceManagerEngine::searchSuggestions(
 */
 QPlaceIdReply *QPlaceManagerEngine::savePlace(const QPlace &place)
 {
-    Q_UNUSED(place)
+    Q_UNUSED(place);
 
     return new QPlaceIdReplyUnsupported(QStringLiteral("Save place is not supported"),
                                         QPlaceIdReply::SavePlace, this);
@@ -193,7 +193,7 @@ QPlaceIdReply *QPlaceManagerEngine::savePlace(const QPlace &place)
 */
 QPlaceIdReply *QPlaceManagerEngine::removePlace(const QString &placeId)
 {
-    Q_UNUSED(placeId)
+    Q_UNUSED(placeId);
 
     return new QPlaceIdReplyUnsupported(QStringLiteral("Remove place is not supported"),
                                         QPlaceIdReply::RemovePlace, this);
@@ -206,8 +206,8 @@ QPlaceIdReply *QPlaceManagerEngine::removePlace(const QString &placeId)
 QPlaceIdReply *QPlaceManagerEngine::saveCategory(const QPlaceCategory &category,
                                                  const QString &parentId)
 {
-    Q_UNUSED(category)
-    Q_UNUSED(parentId)
+    Q_UNUSED(category);
+    Q_UNUSED(parentId);
 
     return new QPlaceIdReplyUnsupported(QStringLiteral("Save category is not supported"),
                                         QPlaceIdReply::SaveCategory, this);
@@ -219,7 +219,7 @@ QPlaceIdReply *QPlaceManagerEngine::saveCategory(const QPlaceCategory &category,
 
 QPlaceIdReply *QPlaceManagerEngine::removeCategory(const QString &categoryId)
 {
-    Q_UNUSED(categoryId)
+    Q_UNUSED(categoryId);
 
     return new QPlaceIdReplyUnsupported(QStringLiteral("Remove category is not supported"),
                                         QPlaceIdReply::RemoveCategory, this);
@@ -238,7 +238,7 @@ QPlaceReply *QPlaceManagerEngine::initializeCategories()
 */
 QString QPlaceManagerEngine::parentCategoryId(const QString &categoryId) const
 {
-    Q_UNUSED(categoryId)
+    Q_UNUSED(categoryId);
 
     return QString();
 }
@@ -249,7 +249,7 @@ QString QPlaceManagerEngine::parentCategoryId(const QString &categoryId) const
 */
 QStringList QPlaceManagerEngine::childCategoryIds(const QString &categoryId) const
 {
-    Q_UNUSED(categoryId)
+    Q_UNUSED(categoryId);
 
     return QStringList();
 }
@@ -259,7 +259,7 @@ QStringList QPlaceManagerEngine::childCategoryIds(const QString &categoryId) con
 */
 QPlaceCategory QPlaceManagerEngine::category(const QString &categoryId) const
 {
-    Q_UNUSED(categoryId)
+    Q_UNUSED(categoryId);
 
     return QPlaceCategory();
 }
@@ -270,7 +270,7 @@ QPlaceCategory QPlaceManagerEngine::category(const QString &categoryId) const
 */
 QList<QPlaceCategory> QPlaceManagerEngine::childCategories(const QString &parentId) const
 {
-    Q_UNUSED(parentId)
+    Q_UNUSED(parentId);
 
     return QList<QPlaceCategory>();
 }
@@ -297,7 +297,7 @@ QList<QLocale> QPlaceManagerEngine::locales() const
 */
 void QPlaceManagerEngine::setLocales(const QList<QLocale> &locales)
 {
-    Q_UNUSED(locales)
+    Q_UNUSED(locales);
 }
 
 /*!
@@ -328,7 +328,7 @@ QPlace QPlaceManagerEngine::compatiblePlace(const QPlace &original) const
 */
 QPlaceMatchReply * QPlaceManagerEngine::matchingPlaces(const QPlaceMatchRequest &request)
 {
-    Q_UNUSED(request)
+    Q_UNUSED(request);
 
     return new QPlaceMatchReplyUnsupported(this);
 }

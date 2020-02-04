@@ -9,12 +9,13 @@
 
 #include "fxbarcode/datamatrix/BC_SymbolInfo.h"
 
-class CBC_DataMatrixSymbolInfo144 : public CBC_SymbolInfo {
+class CBC_DataMatrixSymbolInfo144 final : public CBC_SymbolInfo {
  public:
   CBC_DataMatrixSymbolInfo144();
   ~CBC_DataMatrixSymbolInfo144() override;
 
-  int32_t getInterleavedBlockCount() const override;
+  // CBC_SymbolInfo:
+  size_t getInterleavedBlockCount() const override;
 };
 
 #endif  // FXBARCODE_DATAMATRIX_BC_DATAMATRIXSYMBOLINFO144_H_

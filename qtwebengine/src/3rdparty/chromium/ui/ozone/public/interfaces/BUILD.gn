@@ -7,11 +7,16 @@ import("//mojo/public/tools/bindings/mojom.gni")
 mojom("interfaces") {
   sources = [
     "device_cursor.mojom",
+    "drm_device.mojom",
     "overlay_surface_candidate.mojom",
+    "scenic_gpu_host.mojom",
+    "scenic_gpu_service.mojom",
   ]
 
   public_deps = [
+    "//mojo/public/mojom/base",
     "//skia/public/interfaces:interfaces",
+    "//ui/display/mojo:interfaces",
     "//ui/gfx/geometry/mojo",
     "//ui/gfx/mojo",
   ]
@@ -41,6 +46,7 @@ source_set("struct_trait_unit_test") {
 
   deps = [
     ":interfaces",
+    ":struct_traits",
     "//testing/gtest",
     "//ui/gfx/geometry",
   ]

@@ -134,7 +134,7 @@ namespace QPatternist
         friend class DeduplicateIterator;
 
     public:
-        virtual OutputType next()
+        OutputType next() override
         {
             if(m_position == -1)
                 return OutputType();
@@ -151,22 +151,22 @@ namespace QPatternist
             return m_current;
         }
 
-        virtual OutputType current() const
+        OutputType current() const override
         {
             return m_current;
         }
 
-        virtual qint64 position() const
+        qint64 position() const override
         {
             return m_position;
         }
 
-        virtual qint64 count()
+        qint64 count() override
         {
             return m_list.count();
         }
 
-        virtual typename QAbstractXmlForwardIterator<OutputType>::Ptr copy() const
+        typename QAbstractXmlForwardIterator<OutputType>::Ptr copy() const override
         {
             return QExplicitlySharedDataPointer<QAbstractXmlForwardIterator<OutputType> >(new ListIteratorPlatform<InputType, OutputType, Derived, ListType>(m_list));
         }
@@ -218,7 +218,7 @@ namespace QPatternist
         {
         }
 
-        virtual QList<T> toList()
+        QList<T> toList() override
         {
             return toList(m_list);
         }

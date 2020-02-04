@@ -8,10 +8,10 @@
 #include "cc/input/touch_action.h"
 #include "content/browser/renderer_host/event_with_latency_info.h"
 #include "content/common/content_export.h"
-#include "content/common/input/input_event_ack_source.h"
-#include "content/common/input/input_event_ack_state.h"
 #include "content/public/browser/native_web_keyboard_event.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
+#include "content/public/common/input_event_ack_source.h"
+#include "content/public/common/input_event_ack_state.h"
+#include "third_party/blink/public/platform/web_input_event.h"
 
 namespace ui {
 class LatencyInfo;
@@ -35,13 +35,10 @@ class CONTENT_EXPORT InputRouterClient {
       const ui::LatencyInfo& latency_info) = 0;
 
   // Called each time a WebInputEvent IPC is sent.
-  virtual void IncrementInFlightEventCount(blink::WebInputEvent::Type type) = 0;
+  virtual void IncrementInFlightEventCount() = 0;
 
   // Called each time a WebInputEvent ACK IPC is received.
   virtual void DecrementInFlightEventCount(InputEventAckSource ack_source) = 0;
-
-  // Called when the renderer notifies that it has touch event handlers.
-  virtual void OnHasTouchEventHandlers(bool has_handlers) = 0;
 
   // Called when the router has received an overscroll notification from the
   // renderer.
@@ -51,8 +48,8 @@ class CONTENT_EXPORT InputRouterClient {
   // from the renderer.
   virtual void OnSetWhiteListedTouchAction(cc::TouchAction touch_action) = 0;
 
-  // Called when a renderer fling has terminated.
-  virtual void DidStopFlinging() = 0;
+  // Called when a GSB has started scrolling a viewport.
+  virtual void DidStartScrollingViewport() = 0;
 
   // Called when the input router generates an event. It is intended that the
   // client will do some processing on |gesture_event| and then send it back
@@ -60,6 +57,20 @@ class CONTENT_EXPORT InputRouterClient {
   virtual void ForwardGestureEventWithLatencyInfo(
       const blink::WebGestureEvent& gesture_event,
       const ui::LatencyInfo& latency_info) = 0;
+
+  // Called when the input router generates a wheel event. It is intended that
+  // the client will do some processing on |wheel_event| and then send it back
+  // to the InputRouter via SendWheelEvent.
+  virtual void ForwardWheelEventWithLatencyInfo(
+      const blink::WebMouseWheelEvent& wheel_event,
+      const ui::LatencyInfo& latency_info) = 0;
+
+  // Called to see if there is an ongoing wheel scroll sequence on the client.
+  virtual bool IsWheelScrollInProgress() = 0;
+
+  // Called to toggle whether the RenderWidgetHost should capture all mouse
+  // input.
+  virtual void SetMouseCapture(bool capture) = 0;
 };
 
 } // namespace content

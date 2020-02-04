@@ -13,12 +13,10 @@
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_path_watcher.h"
-#include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequenced_task_runner.h"
 #include "base/stl_util.h"
-#include "base/threading/thread_restrictions.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 
@@ -52,17 +50,16 @@ namespace {
 class TimeZoneMonitorLinuxImpl
     : public base::RefCountedThreadSafe<TimeZoneMonitorLinuxImpl> {
  public:
-  explicit TimeZoneMonitorLinuxImpl(
+  static scoped_refptr<TimeZoneMonitorLinuxImpl> Create(
       TimeZoneMonitorLinux* owner,
-      scoped_refptr<base::SequencedTaskRunner> file_task_runner)
-      : base::RefCountedThreadSafe<TimeZoneMonitorLinuxImpl>(),
-        main_task_runner_(base::ThreadTaskRunnerHandle::Get()),
-        file_task_runner_(file_task_runner),
-        owner_(owner) {
-    DCHECK(main_task_runner_->RunsTasksInCurrentSequence());
-    file_task_runner_->PostTask(
+      scoped_refptr<base::SequencedTaskRunner> file_task_runner) {
+    auto impl = base::WrapRefCounted(
+        new TimeZoneMonitorLinuxImpl(owner, file_task_runner));
+    file_task_runner->PostTask(
         FROM_HERE,
-        base::Bind(&TimeZoneMonitorLinuxImpl::StartWatchingOnFileThread, this));
+        base::BindOnce(&TimeZoneMonitorLinuxImpl::StartWatchingOnFileThread,
+                       impl));
+    return impl;
   }
 
   void StopWatching() {
@@ -70,17 +67,34 @@ class TimeZoneMonitorLinuxImpl
     owner_ = NULL;
     file_task_runner_->PostTask(
         FROM_HERE,
-        base::Bind(&TimeZoneMonitorLinuxImpl::StopWatchingOnFileThread, this));
+        base::BindOnce(&TimeZoneMonitorLinuxImpl::StopWatchingOnFileThread,
+                       base::RetainedRef(this)));
   }
 
  private:
   friend class base::RefCountedThreadSafe<TimeZoneMonitorLinuxImpl>;
 
+  TimeZoneMonitorLinuxImpl(
+      TimeZoneMonitorLinux* owner,
+      scoped_refptr<base::SequencedTaskRunner> file_task_runner)
+      : base::RefCountedThreadSafe<TimeZoneMonitorLinuxImpl>(),
+        main_task_runner_(base::ThreadTaskRunnerHandle::Get()),
+        file_task_runner_(file_task_runner),
+        owner_(owner) {
+    DCHECK(main_task_runner_->RunsTasksInCurrentSequence());
+  }
+
   ~TimeZoneMonitorLinuxImpl() { DCHECK(!owner_); }
 
   void StartWatchingOnFileThread() {
-    base::ThreadRestrictions::AssertIOAllowed();
     DCHECK(file_task_runner_->RunsTasksInCurrentSequence());
+
+    auto callback =
+        base::BindRepeating(&TimeZoneMonitorLinuxImpl::OnTimeZoneFileChanged,
+                            base::RetainedRef(this));
+
+    base::ScopedBlockingCall scoped_blocking_call(
+        base::BlockingType::MAY_BLOCK);
 
     // There is no true standard for where time zone information is actually
     // stored. glibc uses /etc/localtime, uClibc uses /etc/TZ, and some older
@@ -92,12 +106,10 @@ class TimeZoneMonitorLinuxImpl
     const char* const kFilesToWatch[] = {
         "/etc/localtime", "/etc/timezone", "/etc/TZ",
     };
-
-    for (size_t index = 0; index < arraysize(kFilesToWatch); ++index) {
-      file_path_watchers_.push_back(base::MakeUnique<base::FilePathWatcher>());
-      file_path_watchers_.back()->Watch(
-          base::FilePath(kFilesToWatch[index]), false,
-          base::Bind(&TimeZoneMonitorLinuxImpl::OnTimeZoneFileChanged, this));
+    for (size_t index = 0; index < base::size(kFilesToWatch); ++index) {
+      file_path_watchers_.push_back(std::make_unique<base::FilePathWatcher>());
+      file_path_watchers_.back()->Watch(base::FilePath(kFilesToWatch[index]),
+                                        false, callback);
     }
   }
 
@@ -110,8 +122,9 @@ class TimeZoneMonitorLinuxImpl
     DCHECK(file_task_runner_->RunsTasksInCurrentSequence());
     main_task_runner_->PostTask(
         FROM_HERE,
-        base::Bind(&TimeZoneMonitorLinuxImpl::OnTimeZoneFileChangedOnUIThread,
-                   this));
+        base::BindOnce(
+            &TimeZoneMonitorLinuxImpl::OnTimeZoneFileChangedOnUIThread,
+            base::RetainedRef(this)));
   }
 
   void OnTimeZoneFileChangedOnUIThread() {
@@ -149,7 +162,7 @@ TimeZoneMonitorLinux::TimeZoneMonitorLinux(
   // it changes, so it's pointless to respond to a notification that it has
   // changed.
   if (!getenv("TZ")) {
-    impl_ = new TimeZoneMonitorLinuxImpl(this, file_task_runner);
+    impl_ = TimeZoneMonitorLinuxImpl::Create(this, file_task_runner);
   }
 }
 

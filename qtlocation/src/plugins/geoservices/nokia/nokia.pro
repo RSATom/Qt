@@ -2,6 +2,9 @@ TARGET = qtgeoservices_nokia
 
 QT += location-private positioning-private network
 
+QT_FOR_CONFIG += location-private
+qtConfig(location-labs-plugin): DEFINES += LOCATIONLABS
+
 HEADERS += \
             qgeocodereply_nokia.h \
             qgeocodejsonparser.h \

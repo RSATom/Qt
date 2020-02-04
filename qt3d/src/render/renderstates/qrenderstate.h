@@ -50,7 +50,7 @@ namespace Qt3DRender {
 
 class QRenderStatePrivate;
 
-class QT3DRENDERSHARED_EXPORT QRenderState : public Qt3DCore::QNode
+class Q_3DRENDERSHARED_EXPORT QRenderState : public Qt3DCore::QNode
 {
     Q_OBJECT
 public:
@@ -61,7 +61,7 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QRenderState)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

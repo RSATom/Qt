@@ -31,9 +31,9 @@
 #include "designerpropertymanager.h"
 #include "qtpropertybrowserutils_p.h"
 
-#include <QtCore/QCoreApplication>
-#include <QtCore/QVariant>
-#include <QtCore/QString>
+#include <QtCore/qcoreapplication.h>
+#include <QtCore/qvariant.h>
+#include <QtCore/qstring.h>
 
 static const char *brushStyles[] = {
 QT_TRANSLATE_NOOP("BrushPropertyManager", "No brush"),
@@ -57,9 +57,7 @@ QT_BEGIN_NAMESPACE
 
 namespace qdesigner_internal {
 
-BrushPropertyManager::BrushPropertyManager()
-{
-}
+BrushPropertyManager::BrushPropertyManager() = default;
 
 int BrushPropertyManager::brushStyleToIndex(Qt::BrushStyle st)
 {
@@ -154,9 +152,8 @@ void BrushPropertyManager::initializeProperty(QtVariantPropertyManager *vm, QtPr
     QtVariantProperty *styleSubProperty = vm->addProperty(enumTypeId, QCoreApplication::translate("BrushPropertyManager", "Style"));
     property->addSubProperty(styleSubProperty);
     QStringList styles;
-    const int brushStyleCount = sizeof(brushStyles)/sizeof(const char *);
-    for (int i = 0; i < brushStyleCount; i++)
-        styles.push_back(QCoreApplication::translate("BrushPropertyManager", brushStyles[i]));
+    for (const char *brushStyle : brushStyles)
+        styles.push_back(QCoreApplication::translate("BrushPropertyManager", brushStyle));
     styleSubProperty->setAttribute(QStringLiteral("enumNames"), styles);
     styleSubProperty->setAttribute(QStringLiteral("enumIcons"), QVariant::fromValue(brushStyleIcons()));
     m_brushPropertyToStyleSubProperty.insert(property, styleSubProperty);
@@ -267,7 +264,8 @@ bool BrushPropertyManager::valueText(const QtProperty *property, QString *text) 
         return false;
     const QBrush &brush = brit.value();
     const QString styleName = brushStyleIndexToString(brushStyleToIndex(brush.style()));
-    *text = QCoreApplication::translate("BrushPropertyManager", "[%1, %2]").arg(styleName).arg(QtPropertyBrowserUtils::colorValueText(brush.color()));
+    *text = QCoreApplication::translate("BrushPropertyManager", "[%1, %2]")
+            .arg(styleName, QtPropertyBrowserUtils::colorValueText(brush.color()));
     return true;
 }
 

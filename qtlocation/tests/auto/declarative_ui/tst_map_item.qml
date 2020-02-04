@@ -443,7 +443,7 @@ Item {
             map.center = preMapCircle.center
             verify(LocationTestHelper.waitForPolished(map))
             point = map.fromCoordinate(preMapCircle.center)
-            targetCoordinate = map.toCoordinate(51, 51)
+            targetCoordinate = map.toCoordinate(Qt.point(51, 51))
             mousePress(map, point.x, point.y)
             for (i = 0; i < 50; i += 1) {
                 wait(1)

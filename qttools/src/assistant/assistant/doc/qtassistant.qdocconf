@@ -1,8 +1,10 @@
 include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
+include($QT_INSTALL_DOCS/config/exampleurl-qttools.qdocconf)
 
 project                 = QtAssistant
 description             = Qt Assistant Manual
 examplesinstallpath     = assistant
+moduleheader            =
 
 qhp.projects            = QtAssistant
 

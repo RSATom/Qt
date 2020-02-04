@@ -14,6 +14,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/threading/thread_checker.h"
 #include "base/timer/timer.h"
@@ -25,39 +26,36 @@
 #include "net/base/io_buffer.h"
 #include "net/base/ip_endpoint.h"
 #include "net/log/net_log_source.h"
+#include "services/network/public/mojom/network_context.mojom.h"
 
 namespace net {
-class CertVerifier;
-class CTPolicyEnforcer;
-class CTVerifier;
-class NetLog;
-class SSLClientSocket;
-class StreamSocket;
-class TCPClientSocket;
-class TransportSecurityState;
 class X509Certificate;
 }
 
 namespace cast_channel {
 class CastMessage;
 class Logger;
+class MojoDataPump;
 struct LastError;
 
 // Cast device capabilities.
-enum CastDeviceCapability {
+enum CastDeviceCapability : int {
   NONE = 0,
   VIDEO_OUT = 1 << 0,
   VIDEO_IN = 1 << 1,
   AUDIO_OUT = 1 << 2,
   AUDIO_IN = 1 << 3,
-  DEV_MODE = 1 << 4
+  DEV_MODE = 1 << 4,
+  MULTIZONE_GROUP = 1 << 5
 };
 
 // Public interface of the CastSocket class.
 class CastSocket {
  public:
-  using OnOpenCallback =
-      base::OnceCallback<void(int channel_id, ChannelError error_state)>;
+  // Invoked when CastSocket opens.
+  // |socket|: raw pointer of opened socket (this pointer). Guaranteed to be
+  // valid in callback function. Do not pass |socket| around.
+  using OnOpenCallback = base::OnceCallback<void(CastSocket* socket)>;
 
   class Observer {
    public:
@@ -70,6 +68,8 @@ class CastSocket {
     // Invoked when |socket| receives a message.
     virtual void OnMessage(const CastSocket& socket,
                            const CastMessage& message) = 0;
+
+    virtual void OnReadyStateChanged(const CastSocket& socket);
   };
 
   virtual ~CastSocket() {}
@@ -134,6 +134,42 @@ class CastSocket {
   virtual void RemoveObserver(Observer* observer) = 0;
 };
 
+// Holds parameters necessary to open a Cast channel (CastSocket) to a Cast
+// device.
+struct CastSocketOpenParams {
+  // IP endpoint of the Cast device.
+  net::IPEndPoint ip_endpoint;
+
+  // Connection timeout interval. If this value is not set, Cast socket will not
+  // report CONNECT_TIMEOUT error and may hang when connecting to a Cast device.
+  base::TimeDelta connect_timeout;
+
+  // Amount of idle time to wait before disconnecting. Cast socket will ping
+  // Cast device periodically at |ping_interval| to check liveness. If it does
+  // not receive response in |liveness_timeout|, it reports PING_TIMEOUT error.
+  // |liveness_timeout| should always be larger than or equal to
+  // |ping_interval|.
+  // If this value is not set, there is not periodic ping and Cast socket is
+  // always assumed alive.
+  base::TimeDelta liveness_timeout;
+
+  // Amount of idle time to wait before pinging the Cast device. See comments
+  // for |liveness_timeout|.
+  base::TimeDelta ping_interval;
+
+  // A bit vector representing the capabilities of the sink. The values are
+  // defined in components/cast_channel/cast_socket.h.
+  uint64_t device_capabilities;
+
+  CastSocketOpenParams(const net::IPEndPoint& ip_endpoint,
+                       base::TimeDelta connect_timeout);
+  CastSocketOpenParams(const net::IPEndPoint& ip_endpoint,
+                       base::TimeDelta connect_timeout,
+                       base::TimeDelta liveness_timeout,
+                       base::TimeDelta ping_interval,
+                       uint64_t device_capabilities);
+};
+
 // This class implements a channel between Chrome and a Cast device using a TCP
 // socket with SSL.  The channel may authenticate that the receiver is a genuine
 // Cast device.  All CastSocketImpl objects must be used only on the IO thread.
@@ -142,31 +178,15 @@ class CastSocket {
 // code.
 class CastSocketImpl : public CastSocket {
  public:
-  // Creates a new CastSocket that connects to |ip_endpoint|.
-  // Parameters:
-  // |ip_endpoint|: IP address of the remote host.
-  // |net_log|: Log of socket events.
-  // |connect_timeout|: Connection timeout interval.
-  // |liveness_timeout|: Amount of idle time to wait before disconnecting.
-  // |ping_interval|: Amount of idle time to wait before pinging the receiver.
-  // |logger|: Log of cast channel events.
-  CastSocketImpl(const net::IPEndPoint& ip_endpoint,
-                 net::NetLog* net_log,
-                 base::TimeDelta connect_timeout,
-                 base::TimeDelta liveness_timeout,
-                 base::TimeDelta ping_interval,
-                 const scoped_refptr<Logger>& logger,
-                 uint64_t device_capabilities);
+  using NetworkContextGetter =
+      base::RepeatingCallback<network::mojom::NetworkContext*()>;
+  CastSocketImpl(NetworkContextGetter network_context_getter,
+                 const CastSocketOpenParams& open_params,
+                 const scoped_refptr<Logger>& logger);
 
-  // For test-only.
-  // This constructor allows for setting a custom AuthContext.
-  CastSocketImpl(const net::IPEndPoint& ip_endpoint,
-                 net::NetLog* net_log,
-                 base::TimeDelta connect_timeout,
-                 base::TimeDelta liveness_timeout,
-                 base::TimeDelta ping_interval,
+  CastSocketImpl(NetworkContextGetter network_context_getter,
+                 const CastSocketOpenParams& open_params,
                  const scoped_refptr<Logger>& logger,
-                 uint64_t device_capabilities,
                  const AuthContext& auth_context);
 
   // Ensures that the socket is closed.
@@ -185,6 +205,8 @@ class CastSocketImpl : public CastSocket {
   bool audio_only() const override;
   void AddObserver(Observer* observer) override;
   void RemoveObserver(Observer* observer) override;
+
+  static net::NetworkTrafficAnnotationTag GetNetworkTrafficAnnotationTag();
 
  protected:
   // CastTransport::Delegate methods for receiving handshake messages.
@@ -230,6 +252,8 @@ class CastSocketImpl : public CastSocket {
   // by the caller (e.g. a mock).
   void SetTransportForTesting(std::unique_ptr<CastTransport> transport);
 
+  void SetPeerCertForTesting(scoped_refptr<net::X509Certificate> peer_cert);
+
   // Verifies whether the socket complies with cast channel policy.
   // Audio only channel policy mandates that a device declaring a video out
   // capability must not have a certificate with audio only policy.
@@ -248,17 +272,6 @@ class CastSocketImpl : public CastSocket {
   // READY_STATE_CLOSED.
   void CloseInternal();
 
-  // Creates an instance of TCPClientSocket.
-  virtual std::unique_ptr<net::TCPClientSocket> CreateTcpSocket();
-  // Creates an instance of SSLClientSocket with the given underlying |socket|.
-  virtual std::unique_ptr<net::SSLClientSocket> CreateSslSocket(
-      std::unique_ptr<net::StreamSocket> socket);
-  // Extracts peer certificate from SSLClientSocket instance when the socket
-  // is in cert error state.
-  // Returns null if the certificate could not be extracted.
-  // TODO(kmarshall): Use MockSSLClientSocket for tests instead of overriding
-  // this function.
-  virtual scoped_refptr<net::X509Certificate> ExtractPeerCert();
   // Verifies whether the challenge reply received from the peer is valid:
   // 1. Signature in the reply is valid.
   // 2. Certificate is rooted to a trusted CA.
@@ -291,6 +304,17 @@ class CastSocketImpl : public CastSocket {
   int DoAuthChallengeSend();
   int DoAuthChallengeSendComplete(int result);
   int DoAuthChallengeReplyComplete(int result);
+
+  // Callback from network::mojom::NetworkContext::CreateTCPConnectedSocket.
+  void OnConnect(int result,
+                 const base::Optional<net::IPEndPoint>& local_addr,
+                 const base::Optional<net::IPEndPoint>& peer_addr,
+                 mojo::ScopedDataPipeConsumerHandle receive_stream,
+                 mojo::ScopedDataPipeProducerHandle send_stream);
+  void OnUpgradeToTLS(int result,
+                      mojo::ScopedDataPipeConsumerHandle receive_stream,
+                      mojo::ScopedDataPipeProducerHandle send_stream,
+                      const base::Optional<net::SSLInfo>& ssl_info);
   /////////////////////////////////////////////////////////////////////////////
 
   // Resets the cancellable callback used for async invocations of
@@ -304,7 +328,7 @@ class CastSocketImpl : public CastSocket {
   // Runs the external connection callback and resets it.
   void DoConnectCallback();
 
-  virtual base::Timer* GetTimer();
+  virtual base::OneShotTimer* GetTimer();
 
   void SetConnectState(ConnectionState connect_state);
   void SetReadyState(ReadyState ready_state);
@@ -313,37 +337,23 @@ class CastSocketImpl : public CastSocket {
 
   // The id of the channel.
   int channel_id_;
-  // The IP endpoint that the the channel is connected to.
-  net::IPEndPoint ip_endpoint_;
-  // The NetLog for this service.
-  net::NetLog* net_log_;
-  // The NetLog source for this service.
-  net::NetLogSource net_log_source_;
 
-  // Amount of idle time to wait before disconnecting. If |liveness_timeout_| is
-  // set, wraps |delegate_| with a KeepAliveDelegate.
-  base::TimeDelta liveness_timeout_;
-
-  // Amount of idle time to wait before pinging the receiver, used to create
-  // KeepAliveDelegate.
-  base::TimeDelta ping_interval_;
+  // Cast socket related settings.
+  CastSocketOpenParams open_params_;
 
   // Shared logging object, used to log CastSocket events for diagnostics.
   scoped_refptr<Logger> logger_;
 
-  // CertVerifier is owned by us but should be deleted AFTER SSLClientSocket
-  // since in some cases the destructor of SSLClientSocket may call a method
-  // to cancel a cert verification request.
-  std::unique_ptr<net::CertVerifier> cert_verifier_;
-  std::unique_ptr<net::TransportSecurityState> transport_security_state_;
-  std::unique_ptr<net::CTVerifier> cert_transparency_verifier_;
-  std::unique_ptr<net::CTPolicyEnforcer> ct_policy_enforcer_;
+  NetworkContextGetter network_context_getter_;
 
   // Owned ptr to the underlying TCP socket.
-  std::unique_ptr<net::TCPClientSocket> tcp_socket_;
+  network::mojom::TCPConnectedSocketPtr tcp_socket_;
 
   // Owned ptr to the underlying SSL socket.
-  std::unique_ptr<net::SSLClientSocket> socket_;
+  network::mojom::TLSClientSocketPtr socket_;
+
+  // Helper class to write to the SSL socket.
+  std::unique_ptr<MojoDataPump> mojo_data_pump_;
 
   // Certificate of the peer. This field may be empty if the peer
   // certificate is not yet fetched.
@@ -361,18 +371,12 @@ class CastSocketImpl : public CastSocket {
   // Callback invoked by |connect_timeout_timer_| to cancel the connection.
   base::CancelableClosure connect_timeout_callback_;
 
-  // Duration to wait before timing out.
-  base::TimeDelta connect_timeout_;
-
   // Timer invoked when the connection has timed out.
-  std::unique_ptr<base::Timer> connect_timeout_timer_;
+  std::unique_ptr<base::OneShotTimer> connect_timeout_timer_;
 
   // Set when a timeout is triggered and the connection process has
   // canceled.
   bool is_canceled_;
-
-  // Capabilities declared by the cast device.
-  uint64_t device_capabilities_;
 
   // Whether the channel is audio only as identified by the device
   // certificate during channel authentication.
@@ -411,7 +415,9 @@ class CastSocketImpl : public CastSocket {
   AuthTransportDelegate* auth_delegate_;
 
   // List of socket observers.
-  base::ObserverList<Observer> observers_;
+  base::ObserverList<Observer>::Unchecked observers_;
+
+  base::WeakPtrFactory<CastSocketImpl> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(CastSocketImpl);
 };

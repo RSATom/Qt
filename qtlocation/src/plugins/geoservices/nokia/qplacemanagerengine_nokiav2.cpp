@@ -52,6 +52,7 @@
 #include <QtCore/QJsonArray>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
+#include <QtCore/QRegularExpression>
 #include <QtCore/QStandardPaths>
 #include <QtCore/QUrlQuery>
 #include <QtNetwork/QNetworkProxy>
@@ -313,6 +314,7 @@ QPlaceContentReply *QPlaceManagerEngineNokiaV2::getPlaceContent(const QPlaceCont
             networkReply = sendRequest(requestUrl);
             break;
         case QPlaceContent::NoType:
+        default:
             ;
         }
     }
@@ -554,7 +556,7 @@ QPlaceIdReply *QPlaceManagerEngineNokiaV2::removePlace(const QString &placeId)
 
 QPlaceIdReply *QPlaceManagerEngineNokiaV2::saveCategory(const QPlaceCategory &category, const QString &parentId)
 {
-    Q_UNUSED(parentId)
+    Q_UNUSED(parentId);
 
     QPlaceIdReplyImpl *reply = new QPlaceIdReplyImpl(QPlaceIdReply::SaveCategory, this);
     reply->setId(category.categoryId());
@@ -689,13 +691,14 @@ QPlaceIcon QPlaceManagerEngineNokiaV2::icon(const QString &remotePath,
     QPlaceIcon icon;
     QVariantMap params;
 
-    QRegExp rx("(.*)(/icons/categories/.*)");
+    QRegularExpression rx("(.*)(/icons/categories/.*)");
+    QRegularExpressionMatch match = rx.match(remotePath);
 
     QString iconPrefix;
     QString nokiaIcon;
-    if (rx.indexIn(remotePath) != -1 && !rx.cap(1).isEmpty() && !rx.cap(2).isEmpty()) {
-            iconPrefix = rx.cap(1);
-            nokiaIcon = rx.cap(2);
+    if (match.hasMatch() && !match.capturedRef(1).isEmpty() && !match.capturedRef(2).isEmpty()) {
+            iconPrefix = match.captured(1);
+            nokiaIcon = match.captured(2);
 
         if (QFile::exists(m_localDataPath + nokiaIcon))
             iconPrefix = QString::fromLatin1("file://") + m_localDataPath;
@@ -732,7 +735,7 @@ QPlaceIcon QPlaceManagerEngineNokiaV2::icon(const QString &remotePath,
 QUrl QPlaceManagerEngineNokiaV2::constructIconUrl(const QPlaceIcon &icon,
                                                         const QSize &size) const
 {
-    Q_UNUSED(size)
+    Q_UNUSED(size);
     QVariantMap params = icon.parameters();
     QString nokiaIcon = params.value(NokiaIcon).toString();
 

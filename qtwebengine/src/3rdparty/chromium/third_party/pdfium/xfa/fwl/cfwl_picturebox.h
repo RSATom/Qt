@@ -7,15 +7,13 @@
 #ifndef XFA_FWL_CFWL_PICTUREBOX_H_
 #define XFA_FWL_CFWL_PICTUREBOX_H_
 
-#include <memory>
-
 #include "xfa/fwl/cfwl_widget.h"
 #include "xfa/fwl/cfwl_widgetproperties.h"
 
 class CFX_DIBitmap;
 class CFWL_Widget;
 
-class CFWL_PictureBox : public CFWL_Widget {
+class CFWL_PictureBox final : public CFWL_Widget {
  public:
   explicit CFWL_PictureBox(const CFWL_App* pApp);
   ~CFWL_PictureBox() override;
@@ -23,9 +21,9 @@ class CFWL_PictureBox : public CFWL_Widget {
   // CFWL_Widget
   FWL_Type GetClassID() const override;
   void Update() override;
-  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix* pMatrix) override;
+  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix& matrix) override;
   void OnDrawWidget(CXFA_Graphics* pGraphics,
-                    const CFX_Matrix* pMatrix) override;
+                    const CFX_Matrix& matrix) override;
 
  private:
   CFX_RectF m_rtClient;

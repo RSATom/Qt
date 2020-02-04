@@ -9,12 +9,6 @@
 
 #include <limits.h>
 
-#include <list>
-#include <map>
-#include <memory>
-#include <vector>
-
-#include "core/fxcodec/fx_codec.h"
 #include "core/fxcodec/jbig2/JBig2_Context.h"
 #include "third_party/libopenjpeg20/openjpeg.h"
 

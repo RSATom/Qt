@@ -10,13 +10,11 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
-#include "base/run_loop.h"
 #include "base/stl_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/scoped_task_environment.h"
 #include "build/build_config.h"
 #include "components/autofill/core/common/password_form.h"
 #include "components/password_manager/core/browser/mock_password_store.h"
@@ -151,7 +149,7 @@ PasswordForm CreateFederated() {
   PasswordForm form = CreateNonFederated();
   form.signon_realm = kTestFederatedRealm;
   form.password_value.clear();
-  form.federation_origin = url::Origin(GURL(kTestFederationURL));
+  form.federation_origin = url::Origin::Create(GURL(kTestFederationURL));
   return form;
 }
 
@@ -159,7 +157,7 @@ PasswordForm CreateFederated() {
 PasswordForm CreateAndroidFederated() {
   PasswordForm form =
       CreateHTMLForm("android://hash@com.example.android/", "user", "");
-  form.federation_origin = url::Origin(GURL(kTestFederationURL));
+  form.federation_origin = url::Origin::Create(GURL(kTestFederationURL));
   form.is_affiliation_based_match = true;
   return form;
 }
@@ -170,7 +168,7 @@ std::vector<std::unique_ptr<PasswordForm>> MakeResults(
   std::vector<std::unique_ptr<PasswordForm>> results;
   results.reserve(forms.size());
   for (const auto& form : forms)
-    results.push_back(base::MakeUnique<PasswordForm>(form));
+    results.push_back(std::make_unique<PasswordForm>(form));
   return results;
 }
 
@@ -195,10 +193,11 @@ class FormFetcherImplTest : public testing::Test {
       : form_digest_(PasswordForm::SCHEME_HTML,
                      kTestHttpURL,
                      GURL(kTestHttpURL)) {
-    mock_store_ = new MockPasswordStore();
+    mock_store_ = new MockPasswordStore;
+    mock_store_->Init(syncer::SyncableService::StartSyncFlare(), nullptr);
     client_.set_store(mock_store_.get());
 
-    form_fetcher_ = base::MakeUnique<FormFetcherImpl>(
+    form_fetcher_ = std::make_unique<FormFetcherImpl>(
         form_digest_, &client_, false /* should_migrate_http_passwords */,
         false /* should_query_suppressed_https_forms */);
   }
@@ -214,12 +213,12 @@ class FormFetcherImplTest : public testing::Test {
 #endif
     EXPECT_CALL(*mock_store_, GetLogins(form_digest_, form_fetcher_.get()));
     form_fetcher_->Fetch();
-    base::RunLoop().RunUntilIdle();
+    scoped_task_environment_.RunUntilIdle();
     testing::Mock::VerifyAndClearExpectations(mock_store_.get());
   }
 
   void RecreateFormFetcherWithQueryingSuppressedForms() {
-    form_fetcher_ = base::MakeUnique<FormFetcherImpl>(
+    form_fetcher_ = std::make_unique<FormFetcherImpl>(
         form_digest_, &client_, false /* should_migrate_http_passwords */,
         true /* should_query_suppressed_https_forms */);
     EXPECT_CALL(consumer_, ProcessMatches(IsEmpty(), 0u));
@@ -267,7 +266,7 @@ class FormFetcherImplTest : public testing::Test {
     ASSERT_EQ(FormFetcher::State::NOT_WAITING, form_fetcher_->GetState());
   }
 
-  base::MessageLoop message_loop_;  // Used by mock_store_.
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   PasswordStore::FormDigest form_digest_;
   std::unique_ptr<FormFetcherImpl> form_fetcher_;
   MockConsumer consumer_;
@@ -303,7 +302,7 @@ TEST_F(FormFetcherImplTest, NonFederated) {
   PasswordForm non_federated = CreateNonFederated();
   form_fetcher_->AddConsumer(&consumer_);
   std::vector<std::unique_ptr<PasswordForm>> results;
-  results.push_back(base::MakeUnique<PasswordForm>(non_federated));
+  results.push_back(std::make_unique<PasswordForm>(non_federated));
   EXPECT_CALL(consumer_,
               ProcessMatches(UnorderedElementsAre(Pointee(non_federated)), 0u));
   form_fetcher_->OnGetPasswordStoreResults(std::move(results));
@@ -318,8 +317,8 @@ TEST_F(FormFetcherImplTest, Federated) {
   PasswordForm android_federated = CreateAndroidFederated();
   form_fetcher_->AddConsumer(&consumer_);
   std::vector<std::unique_ptr<PasswordForm>> results;
-  results.push_back(base::MakeUnique<PasswordForm>(federated));
-  results.push_back(base::MakeUnique<PasswordForm>(android_federated));
+  results.push_back(std::make_unique<PasswordForm>(federated));
+  results.push_back(std::make_unique<PasswordForm>(android_federated));
   EXPECT_CALL(consumer_, ProcessMatches(IsEmpty(), 0u));
   form_fetcher_->OnGetPasswordStoreResults(std::move(results));
   EXPECT_EQ(FormFetcher::State::NOT_WAITING, form_fetcher_->GetState());
@@ -346,12 +345,12 @@ TEST_F(FormFetcherImplTest, Mixed) {
 
   form_fetcher_->AddConsumer(&consumer_);
   std::vector<std::unique_ptr<PasswordForm>> results;
-  results.push_back(base::MakeUnique<PasswordForm>(federated1));
-  results.push_back(base::MakeUnique<PasswordForm>(federated2));
-  results.push_back(base::MakeUnique<PasswordForm>(federated3));
-  results.push_back(base::MakeUnique<PasswordForm>(non_federated1));
-  results.push_back(base::MakeUnique<PasswordForm>(non_federated2));
-  results.push_back(base::MakeUnique<PasswordForm>(non_federated3));
+  results.push_back(std::make_unique<PasswordForm>(federated1));
+  results.push_back(std::make_unique<PasswordForm>(federated2));
+  results.push_back(std::make_unique<PasswordForm>(federated3));
+  results.push_back(std::make_unique<PasswordForm>(non_federated1));
+  results.push_back(std::make_unique<PasswordForm>(non_federated2));
+  results.push_back(std::make_unique<PasswordForm>(non_federated3));
   EXPECT_CALL(consumer_,
               ProcessMatches(UnorderedElementsAre(Pointee(non_federated1),
                                                   Pointee(non_federated2),
@@ -375,13 +374,13 @@ TEST_F(FormFetcherImplTest, Filtered) {
   non_federated2.username_value = ASCIIToUTF16("user_C");
 
   // Set up a filter to remove all credentials with the username "user".
-  client_.set_filter(base::MakeUnique<NameFilter>("user"));
+  client_.set_filter(std::make_unique<NameFilter>("user"));
 
   form_fetcher_->AddConsumer(&consumer_);
   std::vector<std::unique_ptr<PasswordForm>> results;
-  results.push_back(base::MakeUnique<PasswordForm>(federated));
-  results.push_back(base::MakeUnique<PasswordForm>(non_federated1));
-  results.push_back(base::MakeUnique<PasswordForm>(non_federated2));
+  results.push_back(std::make_unique<PasswordForm>(federated));
+  results.push_back(std::make_unique<PasswordForm>(non_federated1));
+  results.push_back(std::make_unique<PasswordForm>(non_federated2));
   // Non-federated results should have been filtered: no "user" here.
   constexpr size_t kNumFiltered = 1u;
   EXPECT_CALL(consumer_,
@@ -419,7 +418,7 @@ TEST_F(FormFetcherImplTest, Update_Reentrance) {
   PasswordForm form_a = CreateNonFederated();
   form_a.username_value = ASCIIToUTF16("a@gmail.com");
   std::vector<std::unique_ptr<PasswordForm>> old_results;
-  old_results.push_back(base::MakeUnique<PasswordForm>(form_a));
+  old_results.push_back(std::make_unique<PasswordForm>(form_a));
   // Because of the pending updates, the old PasswordStore results are not
   // forwarded to the consumers.
   EXPECT_CALL(consumer_, ProcessMatches(_, _)).Times(0);
@@ -439,8 +438,8 @@ TEST_F(FormFetcherImplTest, Update_Reentrance) {
               ProcessMatches(
                   UnorderedElementsAre(Pointee(form_b), Pointee(form_c)), 0u));
   std::vector<std::unique_ptr<PasswordForm>> results;
-  results.push_back(base::MakeUnique<PasswordForm>(form_b));
-  results.push_back(base::MakeUnique<PasswordForm>(form_c));
+  results.push_back(std::make_unique<PasswordForm>(form_b));
+  results.push_back(std::make_unique<PasswordForm>(form_c));
   form_fetcher_->OnGetPasswordStoreResults(std::move(results));
 }
 
@@ -455,7 +454,7 @@ TEST_F(FormFetcherImplTest, FetchStatistics) {
   EXPECT_CALL(*mock_store_, GetSiteStatsImpl(stats.origin_domain))
       .WillOnce(Return(db_stats));
   form_fetcher_->Fetch();
-  base::RunLoop().RunUntilIdle();
+  scoped_task_environment_.RunUntilIdle();
 
   EXPECT_THAT(form_fetcher_->GetInteractionsStats(),
               UnorderedElementsAre(stats));
@@ -465,7 +464,7 @@ TEST_F(FormFetcherImplTest, DontFetchStatistics) {
   EXPECT_CALL(*mock_store_, GetLogins(form_digest_, form_fetcher_.get()));
   EXPECT_CALL(*mock_store_, GetSiteStatsImpl(_)).Times(0);
   form_fetcher_->Fetch();
-  base::RunLoop().RunUntilIdle();
+  scoped_task_environment_.RunUntilIdle();
 }
 #endif
 
@@ -479,7 +478,7 @@ TEST_F(FormFetcherImplTest, DoNotTryToMigrateHTTPPasswordsOnHTTPSites) {
 
   // A new form fetcher is created to be able to set the form digest and
   // migration flag.
-  form_fetcher_ = base::MakeUnique<FormFetcherImpl>(
+  form_fetcher_ = std::make_unique<FormFetcherImpl>(
       form_digest_, &client_, true /* should_migrate_http_passwords */,
       false /* should_query_suppressed_https_forms */);
   EXPECT_CALL(consumer_, ProcessMatches(IsEmpty(), 0u));
@@ -522,7 +521,7 @@ TEST_F(FormFetcherImplTest, TryToMigrateHTTPPasswordsOnHTTPSSites) {
 
   // A new form fetcher is created to be able to set the form digest and
   // migration flag.
-  form_fetcher_ = base::MakeUnique<FormFetcherImpl>(
+  form_fetcher_ = std::make_unique<FormFetcherImpl>(
       form_digest_, &client_, true /* should_migrate_http_passwords */,
       false /* should_query_suppressed_https_forms */);
   EXPECT_CALL(consumer_, ProcessMatches(IsEmpty(), 0u));
@@ -592,7 +591,7 @@ TEST_F(FormFetcherImplTest, StateIsWaitingDuringMigration) {
 
   // A new form fetcher is created to be able to set the form digest and
   // migration flag.
-  form_fetcher_ = base::MakeUnique<FormFetcherImpl>(
+  form_fetcher_ = std::make_unique<FormFetcherImpl>(
       form_digest_, &client_, true /* should_migrate_http_passwords */,
       false /* should_query_suppressed_https_forms */);
 
@@ -872,9 +871,9 @@ TEST_F(FormFetcherImplTest, Clone_NonEmptyResults) {
   PasswordForm federated = CreateFederated();
   PasswordForm android_federated = CreateAndroidFederated();
   std::vector<std::unique_ptr<PasswordForm>> results;
-  results.push_back(base::MakeUnique<PasswordForm>(non_federated));
-  results.push_back(base::MakeUnique<PasswordForm>(federated));
-  results.push_back(base::MakeUnique<PasswordForm>(android_federated));
+  results.push_back(std::make_unique<PasswordForm>(non_federated));
+  results.push_back(std::make_unique<PasswordForm>(federated));
+  results.push_back(std::make_unique<PasswordForm>(android_federated));
 
   EXPECT_CALL(consumer_, ProcessMatches(::testing::SizeIs(1), 0u));
   EXPECT_CALL(*mock_store_, GetLoginsForSameOrganizationName(_, _));

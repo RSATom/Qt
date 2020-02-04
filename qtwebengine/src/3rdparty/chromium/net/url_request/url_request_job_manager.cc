@@ -7,12 +7,13 @@
 #include <algorithm>
 
 #include "base/memory/singleton.h"
-#include "build/build_config.h"
+#include "base/stl_util.h"
 #include "base/strings/string_util.h"
+#include "build/build_config.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
 #include "net/base/network_delegate.h"
-#include "net/net_features.h"
+#include "net/net_buildflags.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_error_job.h"
 #include "net/url_request/url_request_http_job.h"
@@ -75,7 +76,7 @@ URLRequestJob* URLRequestJobManager::CreateJob(
     return job;
 
   // See if the request should be handled by a built-in protocol factory.
-  for (size_t i = 0; i < arraysize(kBuiltinFactories); ++i) {
+  for (size_t i = 0; i < base::size(kBuiltinFactories); ++i) {
     if (scheme == kBuiltinFactories[i].scheme) {
       URLRequestJob* new_job =
           (kBuiltinFactories[i].factory)(request, network_delegate, scheme);
@@ -143,7 +144,7 @@ URLRequestJob* URLRequestJobManager::MaybeInterceptResponse(
 
 // static
 bool URLRequestJobManager::SupportsScheme(const std::string& scheme) {
-  for (size_t i = 0; i < arraysize(kBuiltinFactories); ++i) {
+  for (size_t i = 0; i < base::size(kBuiltinFactories); ++i) {
     if (base::LowerCaseEqualsASCII(scheme, kBuiltinFactories[i].scheme))
       return true;
   }
@@ -151,9 +152,8 @@ bool URLRequestJobManager::SupportsScheme(const std::string& scheme) {
   return false;
 }
 
-URLRequestJobManager::URLRequestJobManager() {
-}
+URLRequestJobManager::URLRequestJobManager() = default;
 
-URLRequestJobManager::~URLRequestJobManager() {}
+URLRequestJobManager::~URLRequestJobManager() = default;
 
 }  // namespace net

@@ -9,6 +9,7 @@
 #include <string>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
@@ -32,6 +33,8 @@ class AudioOutputDispatcher;
 // AudioManagerBase provides AudioManager functions common for all platforms.
 class MEDIA_EXPORT AudioManagerBase : public AudioManager {
  public:
+  enum class VoiceProcessingMode { kDisabled = 0, kEnabled = 1 };
+
   ~AudioManagerBase() override;
 
   AudioOutputStream* MakeAudioOutputStream(
@@ -51,11 +54,8 @@ class MEDIA_EXPORT AudioManagerBase : public AudioManager {
   void RemoveOutputDeviceChangeListener(AudioDeviceListener* listener) override;
 
   std::unique_ptr<AudioLog> CreateAudioLog(
-      AudioLogFactory::AudioComponent component) override;
-  void EnableOutputDebugRecording(const base::FilePath& base_file_name) final;
-  void DisableOutputDebugRecording() final;
-
-  void SetMaxStreamCountForTesting(int max_input, int max_output) final;
+      AudioLogFactory::AudioComponent component,
+      int component_id) override;
 
   // AudioManagerBase:
 
@@ -106,8 +106,6 @@ class MEDIA_EXPORT AudioManagerBase : public AudioManager {
 
   // AudioManager:
   void ShutdownOnAudioThread() override;
-  base::string16 GetAudioInputDeviceModel() override;
-  void ShowAudioInputSettings() override;
 
   void GetAudioInputDeviceDescriptions(
       AudioDeviceDescriptions* device_descriptions) final;
@@ -152,13 +150,26 @@ class MEDIA_EXPORT AudioManagerBase : public AudioManager {
   // which must initially be empty.
   virtual void GetAudioOutputDeviceNames(AudioDeviceNames* device_names);
 
-  // Returns the ID of the default audio output device.
-  // Implementations that don't yet support this should return an empty string.
-  virtual std::string GetDefaultOutputDeviceID();
+  std::string GetDefaultInputDeviceID() override;
+  std::string GetDefaultOutputDeviceID() override;
+  std::string GetCommunicationsInputDeviceID() override;
+  std::string GetCommunicationsOutputDeviceID() override;
 
   virtual std::unique_ptr<AudioDebugRecordingManager>
   CreateAudioDebugRecordingManager(
       scoped_refptr<base::SingleThreadTaskRunner> task_runner);
+  AudioDebugRecordingManager* GetAudioDebugRecordingManager() final;
+
+  // These functions assign group ids to devices based on their device ids. The
+  // default implementation is an attempt to do this based on
+  // GetAssociatedOutputDeviceID. They may be overridden by subclasses that want
+  // a different logic for assigning group ids. Must be called on the audio
+  // worker thread (see GetTaskRunner()).
+  virtual std::string GetGroupIDOutput(const std::string& output_device_id);
+  virtual std::string GetGroupIDInput(const std::string& input_device_id);
+
+  // Closes all currently open input streams.
+  void CloseAllInputStreams();
 
  private:
   FRIEND_TEST_ALL_PREFIXES(AudioManagerTest, AudioDebugRecording);
@@ -169,27 +180,24 @@ class MEDIA_EXPORT AudioManagerBase : public AudioManager {
   class CompareByParams;
 
   // AudioManager:
-  void InitializeOutputDebugRecording() final;
+  void InitializeDebugRecording() final;
 
-  // These functions assign group ids to devices based on their device ids.
-  // The default implementation is an attempt to do this based on
-  // GetAssociatedOutputDeviceID. Must be called on the audio worker thread
-  // (see GetTaskRunner()).
-  std::string GetGroupIDOutput(const std::string& output_device_id);
-  std::string GetGroupIDInput(const std::string& input_device_id);
+  void GetAudioDeviceDescriptions(
+      AudioDeviceDescriptions* descriptions,
+      void (AudioManagerBase::*get_device_names)(AudioDeviceNames*),
+      std::string (AudioManagerBase::*get_default_device_id)(),
+      std::string (AudioManagerBase::*get_communications_device_id)(),
+      std::string (AudioManagerBase::*get_group_id)(const std::string&));
 
   // Max number of open output streams, modified by
   // SetMaxOutputStreamsAllowed().
   int max_num_output_streams_;
 
-  // Max number of open input streams.
-  int max_num_input_streams_;
-
   // Number of currently open output streams.
   int num_output_streams_;
 
   // Track output state change listeners.
-  base::ObserverList<AudioDeviceListener> output_listeners_;
+  base::ObserverList<AudioDeviceListener>::Unchecked output_listeners_;
 
   // Contains currently open input streams.
   std::unordered_set<AudioInputStream*> input_streams_;

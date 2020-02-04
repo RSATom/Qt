@@ -101,17 +101,22 @@ void RenderSurfaceSelector::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e)
     qCDebug(Render::Framegraph) << Q_FUNC_INFO;
     if (e->type() == PropertyUpdated) {
         QPropertyUpdatedChangePtr propertyChange = qSharedPointerCast<QPropertyUpdatedChange>(e);
-        if (propertyChange->propertyName() == QByteArrayLiteral("surface"))
+        if (propertyChange->propertyName() == QByteArrayLiteral("surface")) {
             m_surface = surfaceFromQObject(propertyChange->value().value<QObject *>());
-        else if (propertyChange->propertyName() == QByteArrayLiteral("externalRenderTargetSize"))
+            markDirty(AbstractRenderer::FrameGraphDirty);
+        } else if (propertyChange->propertyName() == QByteArrayLiteral("externalRenderTargetSize")) {
             setRenderTargetSize(propertyChange->value().toSize());
-        else if (propertyChange->propertyName() == QByteArrayLiteral("width"))
+            markDirty(AbstractRenderer::FrameGraphDirty);
+        } else if (propertyChange->propertyName() == QByteArrayLiteral("width")) {
             m_width = propertyChange->value().toInt();
-        else if (propertyChange->propertyName() == QByteArrayLiteral("height"))
+            markDirty(AbstractRenderer::FrameGraphDirty);
+        } else if (propertyChange->propertyName() == QByteArrayLiteral("height")) {
             m_height = propertyChange->value().toInt();
-        else if (propertyChange->propertyName() == QByteArrayLiteral("surfacePixelRatio"))
+            markDirty(AbstractRenderer::FrameGraphDirty);
+        } else if (propertyChange->propertyName() == QByteArrayLiteral("surfacePixelRatio")) {
             m_devicePixelRatio = propertyChange->value().toFloat();
-        markDirty(AbstractRenderer::AllDirty);
+            markDirty(AbstractRenderer::FrameGraphDirty);
+        }
     }
     FrameGraphNode::sceneChangeEvent(e);
 }
@@ -120,8 +125,11 @@ QSize RenderSurfaceSelector::renderTargetSize() const
 {
     if (m_renderTargetSize.isValid())
         return m_renderTargetSize;
-    if (m_surface && m_surface->size().isValid())
-        return m_surface->size();
+    {
+        SurfaceLocker lock(m_surface);
+        if (lock.isSurfaceValid() && m_surface && m_surface->size().isValid())
+            return m_surface->size();
+    }
     return QSize();
 }
 

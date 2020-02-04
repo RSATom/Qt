@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//extensions/features/features.gni")
+import("//extensions/buildflags/buildflags.gni")
 
 if (!is_android) {
   import("//build/config/features.gni")
@@ -10,48 +10,83 @@ if (!is_android) {
   import("//tools/grit/grit_rule.gni")
 }
 
-action("devtools_protocol_constants") {
-  script = "devtools_protocol_constants_generator.py"
-  deps = [
-    "//third_party/WebKit/Source/core/inspector:protocol_version",
-  ]
-  blink_protocol = "$root_gen_dir/blink/core/inspector/protocol.json"
-  inputs = [
-    blink_protocol,
-  ]
-  outputs = [
-    "$target_gen_dir/devtools_protocol_constants.cc",
-    "$target_gen_dir/devtools_protocol_constants.h",
+if (!is_android) {
+  _inspector_protocol = "//third_party/inspector_protocol"
+  import("$_inspector_protocol/inspector_protocol.gni")
+
+  _protocol_generated = [
+    "protocol/browser.cc",
+    "protocol/browser.h",
+    "protocol/cast.cc",
+    "protocol/cast.h",
+    "protocol/forward.h",
+    "protocol/page.cc",
+    "protocol/page.h",
+    "protocol/protocol.cc",
+    "protocol/protocol.h",
+    "protocol/target.cc",
+    "protocol/target.h",
   ]
 
-  args = [ "chrome" ]
-  args += rebase_path(outputs, root_build_dir)
-  args += [ rebase_path(blink_protocol, root_build_dir) ]
+  if (is_chromeos) {
+    _protocol_generated += [
+      "protocol/window_manager.cc",
+      "protocol/window_manager.h",
+    ]
+  }
+
+  _concatenated_protocol_path =
+      "$root_gen_dir/chrome/browser/devtools/protocol.json"
+  action("concatenate_protocols") {
+    script = _inspector_protocol + "/concatenate_protocols.py"
+
+    deps = [
+      "//third_party/blink/renderer/core/inspector:protocol_version",
+    ]
+
+    _blink_protocol_path =
+        "$root_gen_dir/third_party/blink/renderer/core/inspector/protocol.json"
+    inputs = [
+      _blink_protocol_path,
+    ]
+    output_file = _concatenated_protocol_path
+    outputs = [
+      output_file,
+    ]
+
+    args = [ rebase_path(_blink_protocol_path, root_build_dir) ]
+    if (is_chromeos) {
+      inputs += [ "cros_protocol.pdl" ]
+      args += [ rebase_path("cros_protocol.pdl", root_build_dir) ]
+    }
+
+    args += [ rebase_path(output_file, root_build_dir) ]
+  }
+
+  inspector_protocol_generate("protocol_generated_sources") {
+    inspector_protocol_dir = _inspector_protocol
+    visibility = [ ":*" ]  # Only targets in this file can depend on this.
+    deps = [
+      ":concatenate_protocols",
+    ]
+    out_dir = target_gen_dir
+    config_file = "inspector_protocol_config.json"
+
+    protocol_path = rebase_path(_concatenated_protocol_path, root_build_dir)
+    config_values = [ "protocol.path=$protocol_path" ]
+
+    inputs = [
+      _concatenated_protocol_path,
+      "inspector_protocol_config.json",
+    ]
+
+    outputs = _protocol_generated
+  }
 }
 
 static_library("devtools") {
   # Note: new sources and deps should be generally added in (!is_android) below.
-  sources = [
-    "devtools_network_conditions.cc",
-    "devtools_network_conditions.h",
-    "devtools_network_controller.cc",
-    "devtools_network_controller.h",
-    "devtools_network_controller_handle.cc",
-    "devtools_network_controller_handle.h",
-    "devtools_network_interceptor.cc",
-    "devtools_network_interceptor.h",
-    "devtools_network_protocol_handler.cc",
-    "devtools_network_protocol_handler.h",
-    "devtools_network_transaction.cc",
-    "devtools_network_transaction.h",
-    "devtools_network_transaction_factory.cc",
-    "devtools_network_transaction_factory.h",
-    "devtools_network_upload_data_stream.cc",
-    "devtools_network_upload_data_stream.h",
-    "devtools_protocol.cc",
-    "devtools_protocol.h",
-  ]
-  sources += get_target_outputs(":devtools_protocol_constants")
+  sources = []
 
   configs += [
     "//build/config/compiler:no_size_t_to_int_warning",
@@ -60,11 +95,11 @@ static_library("devtools") {
   ]
 
   deps = [
-    ":devtools_protocol_constants",
     "//base",
     "//content/public/browser",
     "//net",
-    "//third_party/WebKit/public:features",
+    "//services/viz/privileged/interfaces/compositing",
+    "//third_party/blink/public:buildflags",
     "//ui/events:dom_keycode_converter",
   ]
 
@@ -75,7 +110,8 @@ static_library("devtools") {
       "//chrome:strings",
       "//chrome/app/theme:theme_resources",
       "//chrome/common",
-      "//net:http_server",
+      "//components/viz/host",
+      "//net/server:http_server",
       "//skia",
       "//third_party/icu",
       "//third_party/leveldatabase",
@@ -83,6 +119,8 @@ static_library("devtools") {
     sources += [
       "chrome_devtools_manager_delegate.cc",
       "chrome_devtools_manager_delegate.h",
+      "chrome_devtools_session.cc",
+      "chrome_devtools_session.h",
       "device/adb/adb_client_socket.cc",
       "device/adb/adb_client_socket.h",
       "device/adb/adb_device_provider.cc",
@@ -105,12 +143,17 @@ static_library("devtools") {
       "device/usb/android_usb_device.h",
       "device/usb/android_usb_socket.cc",
       "device/usb/android_usb_socket.h",
+      "device/usb/usb_device_manager_helper.cc",
+      "device/usb/usb_device_manager_helper.h",
       "device/usb/usb_device_provider.cc",
       "device/usb/usb_device_provider.h",
       "devtools_auto_opener.cc",
       "devtools_auto_opener.h",
+      "devtools_browser_context_manager.cc",
+      "devtools_browser_context_manager.h",
       "devtools_contents_resizing_strategy.cc",
       "devtools_contents_resizing_strategy.h",
+      "devtools_dock_tile.h",
       "devtools_embedder_message_dispatcher.cc",
       "devtools_embedder_message_dispatcher.h",
       "devtools_eye_dropper.cc",
@@ -121,6 +164,8 @@ static_library("devtools") {
       "devtools_file_system_indexer.h",
       "devtools_file_watcher.cc",
       "devtools_file_watcher.h",
+      "devtools_infobar_delegate.cc",
+      "devtools_infobar_delegate.h",
       "devtools_targets_ui.cc",
       "devtools_targets_ui.h",
       "devtools_toggle_action.cc",
@@ -145,8 +190,53 @@ static_library("devtools") {
       ]
     }
   }
+  if (is_mac) {
+    sources += [ "devtools_dock_tile_mac.mm" ]
+  } else {
+    sources += [ "devtools_dock_tile.cc" ]
+  }
+  if (!is_android) {
+    deps += [ ":protocol_generated_sources" ]
+    sources += [
+      "protocol/browser_handler.cc",
+      "protocol/browser_handler.h",
+      "protocol/cast_handler.cc",
+      "protocol/cast_handler.h",
+      "protocol/page_handler.cc",
+      "protocol/page_handler.h",
+      "protocol/target_handler.cc",
+      "protocol/target_handler.h",
+      "protocol_string.cc",
+      "protocol_string.h",
+    ]
+    if (is_chromeos) {
+      sources += [
+        "protocol/window_manager_handler.cc",
+        "protocol/window_manager_handler.h",
+      ]
+    }
+    sources += rebase_path(_protocol_generated, ".", target_gen_dir)
+  }
 
   if (enable_extensions) {
     deps += [ "//chrome/common/extensions/api" ]
+  }
+}
+
+static_library("test_support") {
+  sources = []
+  deps = []
+
+  if (!is_android) {
+    deps += [
+      "//base",
+      "//chrome/browser/ui",
+      "//content/public/browser",
+    ]
+
+    sources += [
+      "devtools_window_testing.cc",
+      "devtools_window_testing.h",
+    ]
   }
 }

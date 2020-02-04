@@ -3,7 +3,7 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the test suite of the Qt Toolkit.
+** This file is part of the QtGui module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
@@ -39,6 +39,7 @@
 
 #include "qstatictext.h"
 #include "qstatictext_p.h"
+#include <qmath.h>
 #include <private/qtextengine_p.h>
 #include <private/qfontengine_p.h>
 #include <qabstracttextdocumentlayout.h>
@@ -435,11 +436,11 @@ namespace {
     public:
         DrawTextItemRecorder(bool untransformedCoordinates, bool useBackendOptimizations)
                 : m_dirtyPen(false), m_useBackendOptimizations(useBackendOptimizations),
-                  m_untransformedCoordinates(untransformedCoordinates), m_currentColor(Qt::black)
+                  m_untransformedCoordinates(untransformedCoordinates), m_currentColor(0, 0, 0, 0)
         {
         }
 
-        virtual void updateState(const QPaintEngineState &newState) Q_DECL_OVERRIDE
+        virtual void updateState(const QPaintEngineState &newState) override
         {
             if (newState.state() & QPaintEngine::DirtyPen
                 && newState.pen().color() != m_currentColor) {
@@ -448,7 +449,7 @@ namespace {
             }
         }
 
-        virtual void drawTextItem(const QPointF &position, const QTextItem &textItem) Q_DECL_OVERRIDE
+        virtual void drawTextItem(const QPointF &position, const QTextItem &textItem) override
         {
             const QTextItemInt &ti = static_cast<const QTextItemInt &>(textItem);
 
@@ -484,15 +485,15 @@ namespace {
             m_items.append(currentItem);
         }
 
-        virtual void drawPolygon(const QPointF *, int , PolygonDrawMode ) Q_DECL_OVERRIDE
+        virtual void drawPolygon(const QPointF *, int , PolygonDrawMode ) override
         {
             /* intentionally empty */
         }
 
-        virtual bool begin(QPaintDevice *) Q_DECL_OVERRIDE  { return true; }
-        virtual bool end() Q_DECL_OVERRIDE { return true; }
-        virtual void drawPixmap(const QRectF &, const QPixmap &, const QRectF &) Q_DECL_OVERRIDE {}
-        virtual Type type() const Q_DECL_OVERRIDE
+        virtual bool begin(QPaintDevice *) override  { return true; }
+        virtual bool end() override { return true; }
+        virtual void drawPixmap(const QRectF &, const QPixmap &, const QRectF &) override {}
+        virtual Type type() const override
         {
             return User;
         }
@@ -537,7 +538,7 @@ namespace {
             delete m_paintEngine;
         }
 
-        int metric(PaintDeviceMetric m) const Q_DECL_OVERRIDE
+        int metric(PaintDeviceMetric m) const override
         {
             int val;
             switch (m) {
@@ -574,7 +575,7 @@ namespace {
             return val;
         }
 
-        virtual QPaintEngine *paintEngine() const Q_DECL_OVERRIDE
+        virtual QPaintEngine *paintEngine() const override
         {
             return m_paintEngine;
         }
@@ -599,7 +600,7 @@ namespace {
     };
 }
 
-void QStaticTextPrivate::paintText(const QPointF &topLeftPosition, QPainter *p)
+void QStaticTextPrivate::paintText(const QPointF &topLeftPosition, QPainter *p, const QColor &pen)
 {
     bool preferRichText = textFormat == Qt::RichText
                           || (textFormat == Qt::AutoText && Qt::mightBeRichText(text));
@@ -611,35 +612,36 @@ void QStaticTextPrivate::paintText(const QPointF &topLeftPosition, QPainter *p)
         textLayout.setTextOption(textOption);
         textLayout.setCacheEnabled(true);
 
-        qreal leading = QFontMetricsF(font).leading();
-        qreal height = -leading;
-
+        qreal height = 0;
         textLayout.beginLayout();
         while (1) {
             QTextLine line = textLayout.createLine();
             if (!line.isValid())
                 break;
+            line.setLeadingIncluded(true);
 
             if (textWidth >= 0.0)
                 line.setLineWidth(textWidth);
             else
                 line.setLineWidth(QFIXED_MAX);
-            height += leading;
             line.setPosition(QPointF(0.0, height));
             height += line.height();
+            if (line.leading() < 0)
+                height += qCeil(line.leading());
         }
         textLayout.endLayout();
 
         actualSize = textLayout.boundingRect().size();
+        p->setPen(pen);
         textLayout.draw(p, topLeftPosition);
     } else {
         QTextDocument document;
 #ifndef QT_NO_CSSPARSER
-        QColor color = p->pen().color();
-        document.setDefaultStyleSheet(QString::fromLatin1("body { color: #%1%2%3 }")
-                                      .arg(QString::number(color.red(), 16), 2, QLatin1Char('0'))
-                                      .arg(QString::number(color.green(), 16), 2, QLatin1Char('0'))
-                                      .arg(QString::number(color.blue(), 16), 2, QLatin1Char('0')));
+        document.setDefaultStyleSheet(QString::fromLatin1("body { color: rgba(%1, %2, %3, %4%) }")
+                                      .arg(QString::number(pen.red()))
+                                      .arg(QString::number(pen.green()))
+                                      .arg(QString::number(pen.blue()))
+                                      .arg(QString::number(pen.alpha())));
 #endif
         document.setDefaultFont(font);
         document.setDocumentMargin(0.0);
@@ -657,12 +659,9 @@ void QStaticTextPrivate::paintText(const QPointF &topLeftPosition, QPainter *p)
         p->save();
         p->translate(topLeftPosition);
         QAbstractTextDocumentLayout::PaintContext ctx;
-        ctx.palette.setColor(QPalette::Text, p->pen().color());
+        ctx.palette.setColor(QPalette::Text, pen);
         document.documentLayout()->draw(p, ctx);
         p->restore();
-
-        if (textWidth >= 0.0)
-            document.adjustSize(); // Find optimal size
 
         actualSize = document.size();
     }
@@ -682,7 +681,7 @@ void QStaticTextPrivate::init()
         painter.setFont(font);
         painter.setTransform(matrix);
 
-        paintText(QPointF(0, 0), &painter);
+        paintText(QPointF(0, 0), &painter, QColor(0, 0, 0, 0));
     }
 
     QVector<QStaticTextItem> deviceItems = device.items();

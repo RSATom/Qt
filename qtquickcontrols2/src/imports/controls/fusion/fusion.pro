@@ -1,6 +1,8 @@
 TARGET = qtquickcontrols2fusionstyleplugin
 TARGETPATH = QtQuick/Controls.2/Fusion
-IMPORT_VERSION = 2.3
+
+IMPORT_NAME = QtQuick.Controls.Fusion
+IMPORT_VERSION = 2.$$QT_MINOR_VERSION
 
 QT += qml quick
 QT_PRIVATE += core-private gui-private qml-private quick-private quicktemplates2-private quickcontrols2-private
@@ -19,7 +21,7 @@ SOURCES += \
 RESOURCES += \
     $$PWD/qtquickcontrols2fusionstyle.qrc
 
-CONFIG += no_cxx_module
+CONFIG += no_cxx_module install_qml_files builtin_resources qtquickcompiler
 load(qml_plugin)
 
 requires(qtConfig(quickcontrols2-fusion))

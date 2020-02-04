@@ -36,29 +36,29 @@
 
 #include <deviceskin.h>
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowManagerInterface>
-#include <QtDesigner/QDesignerSettingsInterface>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindowmanager.h>
+#include <QtDesigner/abstractsettings.h>
 
-#include <QtWidgets/QWidget>
+#include <QtWidgets/qwidget.h>
 #include <QtGui/qevent.h>
-#include <QtWidgets/QDesktopWidget>
-#include <QtWidgets/QMainWindow>
-#include <QtWidgets/QDockWidget>
-#include <QtWidgets/QApplication>
-#include <QtGui/QPixmap>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QDialog>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QActionGroup>
-#include <QtGui/QCursor>
-#include <QtGui/QMatrix>
+#include <QtWidgets/qdesktopwidget.h>
+#include <QtWidgets/qmainwindow.h>
+#include <QtWidgets/qdockwidget.h>
+#include <QtWidgets/qapplication.h>
+#include <QtGui/qpixmap.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtWidgets/qdialog.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qactiongroup.h>
+#include <QtGui/qcursor.h>
+#include <QtGui/qmatrix.h>
 
-#include <QtCore/QMap>
-#include <QtCore/QDebug>
-#include <QtCore/QSharedData>
+#include <QtCore/qmap.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qshareddata.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -103,7 +103,7 @@ class DesignerZoomProxyWidget : public ZoomProxyWidget  {
 public:
     DesignerZoomProxyWidget(QGraphicsItem *parent = 0, Qt::WindowFlags wFlags = 0);
 protected:
-    QSizeF sizeHint(Qt::SizeHint which, const QSizeF & constraint = QSizeF() ) const Q_DECL_OVERRIDE;
+    QSizeF sizeHint(Qt::SizeHint which, const QSizeF & constraint = QSizeF() ) const override;
 };
 
 DesignerZoomProxyWidget::DesignerZoomProxyWidget(QGraphicsItem *parent, Qt::WindowFlags wFlags) :
@@ -124,7 +124,7 @@ class DesignerZoomWidget : public ZoomWidget {
 public:
     DesignerZoomWidget(QWidget *parent = 0);
 private:
-    QGraphicsProxyWidget *createProxyWidget(QGraphicsItem *parent = 0, Qt::WindowFlags wFlags = 0) const Q_DECL_OVERRIDE;
+    QGraphicsProxyWidget *createProxyWidget(QGraphicsItem *parent = 0, Qt::WindowFlags wFlags = 0) const override;
 };
 
 DesignerZoomWidget::DesignerZoomWidget(QWidget *parent) :
@@ -328,7 +328,7 @@ class ZoomablePreviewDeviceSkin : public PreviewDeviceSkin
     Q_OBJECT
 public:
     explicit ZoomablePreviewDeviceSkin(const DeviceSkinParameters &parameters, QWidget *parent);
-    void setPreview(QWidget *w) Q_DECL_OVERRIDE;
+    void setPreview(QWidget *w) override;
 
     int zoomPercent() const; // Device Skins have a double 'zoom' property
 
@@ -339,9 +339,9 @@ signals:
     void zoomPercentChanged(int);
 
 protected:
-    void populateContextMenu(QMenu *m) Q_DECL_OVERRIDE;
-    QMatrix skinTransform() const Q_DECL_OVERRIDE;
-    void fitWidget(const QSize &size) Q_DECL_OVERRIDE;
+    void populateContextMenu(QMenu *m) override;
+    QMatrix skinTransform() const override;
+    void fitWidget(const QSize &size) override;
 
 private:
     ZoomMenu *m_zoomMenu;
@@ -457,9 +457,7 @@ PreviewConfiguration &PreviewConfiguration::operator=(const PreviewConfiguration
     return *this;
 }
 
-PreviewConfiguration::~PreviewConfiguration()
-{
-}
+PreviewConfiguration::~PreviewConfiguration() = default;
 
 void PreviewConfiguration::clear()
 {
@@ -595,7 +593,7 @@ Qt::WindowFlags PreviewManager::previewWindowFlags(const QWidget *widget) const
                                   Qt::Window | Qt::WindowMaximizeButtonHint | Qt::WindowCloseButtonHint :
                                   Qt::WindowFlags(Qt::Dialog);
 #else
-    Q_UNUSED(widget)
+    Q_UNUSED(widget);
     // Only Dialogs have close buttons on Mac.
     // On Linux, we don't want an additional task bar item and we don't want a minimize button;
     // we want the preview to be on top.
@@ -781,7 +779,7 @@ QWidget *PreviewManager::showPreview(const QDesignerFormWindowInterface *fw,
         if (QWidget *lastPreview = d->m_previews.back().m_widget) {
             QDesktopWidget *desktop = qApp->desktop();
             const QRect lastPreviewGeometry = lastPreview->frameGeometry();
-            const QRect availGeometry = desktop->availableGeometry(desktop->screenNumber(lastPreview));
+            const QRect availGeometry = desktop->availableGeometry(lastPreview);
             const QPoint newPos = lastPreviewGeometry.topRight() + QPoint(Spacing, 0);
             if (newPos.x() +  size.width() < availGeometry.right())
                 widget->move(newPos);

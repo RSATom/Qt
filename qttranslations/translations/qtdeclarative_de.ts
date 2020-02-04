@@ -4,18 +4,6 @@
 <context>
     <name>Object</name>
     <message>
-        <source>Duplicate method name</source>
-        <translation>Mehrfaches Auftreten eines Methodennamens</translation>
-    </message>
-    <message>
-        <source>Method names cannot begin with an upper case letter</source>
-        <translation>Methodennamen dürfen nicht mit einem Großbuchstaben beginnen</translation>
-    </message>
-    <message>
-        <source>Illegal method name</source>
-        <translation>Ungültiger Methodenname</translation>
-    </message>
-    <message>
         <source>Duplicate scoped enum name</source>
         <translation>Mehrfaches Auftreten eines bereichsgebundenen Aufzählungsnamens</translation>
     </message>
@@ -53,6 +41,13 @@
     <message>
         <source>InputMethod is an abstract class</source>
         <translation>InputMethod ist eine abstrakte Klasse</translation>
+    </message>
+</context>
+<context>
+    <name>QQmlAbstractDelegateComponent</name>
+    <message>
+        <source>Cannot create instance of abstract class AbstractDelegateComponent.</source>
+        <translation>Es kann keine Instanz der abstrakten Klasse AbstractDelegateComponent erstellt werden.</translation>
     </message>
 </context>
 <context>
@@ -119,6 +114,18 @@
     <message>
         <source>Invalid alias reference. An alias reference must be specified as &lt;id&gt;, &lt;id&gt;.&lt;property&gt; or &lt;id&gt;.&lt;value property&gt;.&lt;property&gt;</source>
         <translation>Ungültige Alias-Referenz. Eine Alias-Referenz muss in der Form &lt;id&gt;, &lt;id&gt;.&lt;property&gt; oder &lt;id&gt;.&lt;value property&gt;.&lt;property&gt; angegeben werden</translation>
+    </message>
+    <message>
+        <source>Duplicate method name</source>
+        <translation>Mehrfaches Auftreten eines Methodennamens</translation>
+    </message>
+    <message>
+        <source>Method names cannot begin with an upper case letter</source>
+        <translation>Methodennamen dürfen nicht mit einem Großbuchstaben beginnen</translation>
+    </message>
+    <message>
+        <source>Illegal method name</source>
+        <translation>Ungültiger Methodenname</translation>
     </message>
     <message>
         <source>Scoped enum names must begin with an upper case letter</source>
@@ -188,8 +195,8 @@
         <translation>createObject: Der Wert ist kein Objekt</translation>
     </message>
     <message>
-        <source>Object destroyed during incubation</source>
-        <translation>Ein Objekt wurde während der Inkubation zerstört</translation>
+        <source>Object or context destroyed during incubation</source>
+        <translation>Ein Objekt oder ein Kontext wurde während der Inkubation zerstört</translation>
     </message>
 </context>
 <context>
@@ -295,6 +302,10 @@
     <message>
         <source>The group of a DelegateModel cannot be changed within onChanged</source>
         <translation>Die Gruppe eines DelegateModel kann nicht in onChanged geändert werden</translation>
+    </message>
+    <message>
+        <source>The delegates of a DelegateModel cannot be changed within onUpdated.</source>
+        <translation>Die Delegates eines DelegateModel können nicht in onUpdated geändert werden.</translation>
     </message>
 </context>
 <context>
@@ -693,6 +704,10 @@
         <translation>Ungültiger Modifikator &apos;%0&apos; bei regulärem Ausdruck</translation>
     </message>
     <message>
+        <source>Unexpected token &apos;.&apos;</source>
+        <translation>Unerwartetes Zeichen &apos;.&apos;</translation>
+    </message>
+    <message>
         <source>Stray newline in string literal</source>
         <translation>Freistehendes Zeilenendezeichen in Zeichenkettenliteral</translation>
     </message>
@@ -709,12 +724,20 @@
         <translation>Oktale Escape-Sequenzen sind nicht zulässig</translation>
     </message>
     <message>
+        <source>At least one octal digit is required after &apos;0%1&apos;</source>
+        <translation>Auf &apos;0%1&apos; muss mindestens eine oktale Ziffer folgen</translation>
+    </message>
+    <message>
+        <source>At least one binary digit is required after &apos;0%1&apos;</source>
+        <translation>Auf &apos;0%1&apos; muss mindestens eine binäre Ziffer folgen</translation>
+    </message>
+    <message>
         <source>Decimal numbers can&apos;t start with &apos;0&apos;</source>
         <translation>Dezimalzahlen können nicht mit &apos;0&apos; beginnen</translation>
     </message>
     <message>
         <source>At least one hexadecimal digit is required after &apos;0%1&apos;</source>
-        <translation>Nach &apos;0%1&apos; ist mindestens eine hexadezimale Stelle erforderlich</translation>
+        <translation>Auf &apos;0%1&apos; muss mindestens eine hexadezimale Ziffer folgen</translation>
     </message>
     <message>
         <source>Unterminated regular expression backslash sequence</source>
@@ -727,14 +750,6 @@
     <message>
         <source>Syntax error</source>
         <translation>Syntaxfehler</translation>
-    </message>
-    <message>
-        <source>Unexpected token `%1&apos;</source>
-        <translation>Unerwartetes Element &apos;%1&apos;</translation>
-    </message>
-    <message>
-        <source>Expected token `%1&apos;</source>
-        <translation>Es wird das Element &apos;%1&apos; erwartet</translation>
     </message>
     <message>
         <source>Unexpected object definition</source>
@@ -862,6 +877,10 @@
         <source>Invalid property type</source>
         <translation>Ungültiger Typ der Eigenschaft</translation>
     </message>
+    <message>
+        <source>Invalid alias target</source>
+        <translation>Ungültiges Alias-Ziel</translation>
+    </message>
 </context>
 <context>
     <name>QQmlPropertyValidator</name>
@@ -914,6 +933,10 @@
         <translation>Falscher Zugriff auf gruppierte Eigenschaft</translation>
     </message>
     <message>
+        <source>Invalid grouped property access: Property &quot;%1&quot; with type &quot;%2&quot;, which is not a value type</source>
+        <translation>Falscher Zugriff auf gruppierte Eigenschaft &quot;%1&quot; des Typs &quot;%2&quot;, der kein Wert-Typ ist</translation>
+    </message>
+    <message>
         <source>Cannot assign to non-existent default property</source>
         <translation>Es kann keine Zuweisung an eine nicht existierende Vorgabe-Eigenschaft erfolgen</translation>
     </message>
@@ -922,12 +945,20 @@
         <translation>Es kann keine Zuweisung erfolgen, da keine Eigenschaft des Namens &quot;%1&quot; existiert</translation>
     </message>
     <message>
+        <source>Invalid use of id property with a value type</source>
+        <translation>Die Id-Eigenschaft kann nicht für einen Wert-Typ verwendet werden</translation>
+    </message>
+    <message>
         <source>Cannot assign primitives to lists</source>
         <translation>Zuweisung eines einfachen Werts (primitive) an eine Liste nicht zulässig</translation>
     </message>
     <message>
         <source>Invalid property assignment: unknown enumeration</source>
         <translation>Ungültige Zuweisung bei Eigenschaft: Unbekannter Aufzählungswert</translation>
+    </message>
+    <message>
+        <source> - Assigning null to incompatible properties in QML is deprecated. This will become a compile error in future versions of Qt.</source>
+        <translation> - Die Zuweisung von null zu inkompatiblen Eigenschaften in QML ist überholt (deprecated). In zukünftigen Versionen von Qt wird dies einen Compile-Fehler verursachen.</translation>
     </message>
     <message>
         <source>Invalid property assignment: string expected</source>
@@ -1042,16 +1073,16 @@
         <translation>Der Listeneigenschaft &quot;%1&quot; kann kein Objekt zugewiesen werden</translation>
     </message>
     <message>
-        <source>Unexpected object assignment</source>
-        <translation>Unerwartete Zuweisung des Objekts</translation>
+        <source>Unexpected object assignment for property &quot;%1&quot;</source>
+        <translation>Ungültige Objektzuweisung für Eigenschaft &quot;%1&quot;</translation>
+    </message>
+    <message>
+        <source>Cannot assign object of type &quot;%1&quot; to property of type &quot;%2&quot; as the former is neither the same as the latter nor a sub-class of it.</source>
+        <translation>Das Objekt des Typs &quot;%1&quot; kann nicht einer Eigenschaft des Typs &quot;%2&quot; zugewiesen werden, da sein Typ weder dem Typ der Eigenschaft entspricht noch eine davon abgeleitete Klasse ist.</translation>
     </message>
     <message>
         <source>Invalid property assignment: script expected</source>
         <translation>Ungültige Zuweisung bei Eigenschaft: Es wird ein Skript erwartet</translation>
-    </message>
-    <message>
-        <source>Cannot assign object to property</source>
-        <translation>Zuweisung eines Objekts an eine Eigenschaft nicht zulässig</translation>
     </message>
 </context>
 <context>
@@ -1103,8 +1134,16 @@
         <translation>qmldir definiert den Typ als Singleton, aber der Typ %1 enthält kein pragma Singleton.</translation>
     </message>
     <message>
+        <source>File was compiled ahead of time with an incompatible version of Qt and the original file cannot be found. Please recompile</source>
+        <translation>Die Datei wurde mit einer inkompatiblen Qt-Version vorkompiliert und die dazugehörige Originaldatei kann nicht gefunden werden. Bitte kompilieren Sie erneut</translation>
+    </message>
+    <message>
         <source>No such file or directory</source>
         <translation>Die Datei oder das Verzeichnis konnte nicht gefunden werden</translation>
+    </message>
+    <message>
+        <source>File is empty</source>
+        <translation>Die Datei ist leer</translation>
     </message>
     <message>
         <source>module &quot;%1&quot; is not installed</source>
@@ -1317,6 +1356,10 @@
 <context>
     <name>QQuickMouseEvent</name>
     <message>
+        <source>GestureEvent is only available in the context of handling the gestureStarted signal from MultiPointTouchArea</source>
+        <translation>GestureEvent ist nur im Kontext der Behandlung des gestureStarted-Signals von MultiPointTouchArea verfügbar</translation>
+    </message>
+    <message>
         <source>MouseEvent is only available within handlers in MouseArea</source>
         <translation>MouseEvent ist nur in Handler-Funktionen von MouseArea verfügbar</translation>
     </message>
@@ -1420,6 +1463,14 @@
         <translation>PointerEvent ist nur als Parameter einiger Signale von PointerHandler verfügbar</translation>
     </message>
     <message>
+        <source>PointerMouseEvent is only available as a parameter of several signals in PointerHandler</source>
+        <translation>PointerMouseEvent ist nur als Parameter einiger Signale in PointerHandler verfügbar</translation>
+    </message>
+    <message>
+        <source>PointerTouchEvent is only available as a parameter of several signals in PointerHandler</source>
+        <translation>PointerTouchEvent ist nur als Parameter einiger Signale in PointerHandler verfügbar</translation>
+    </message>
+    <message>
         <source>EventPoint is only available as a member of PointerEvent</source>
         <translation>EventPoint ist nur als Member von PointerEvent verfügbar</translation>
     </message>
@@ -1430,10 +1481,6 @@
     <message>
         <source>PointerDevice is only available as a property of PointerEvent</source>
         <translation>PointerDevice ist nur als Eigenschaft von PointerEvent verfügbar</translation>
-    </message>
-    <message>
-        <source>PointingDeviceUniqueId is only available as a property of PointerEvent</source>
-        <translation>PointingDeviceUniqueId ist nur als Eigenschaft von PointerEvent verfügbar</translation>
     </message>
     <message>
         <source>PointerHandler is an abstract base class</source>
@@ -1539,31 +1586,6 @@ Installieren Sie einen Treiber, der OpenGL 2.0 oder neuer bereitstellt, oder ste
     </message>
 </context>
 <context>
-    <name>QQuickXmlListModel</name>
-    <message>
-        <source>&quot;%1&quot; duplicates a previous role name and will be disabled.</source>
-        <translation>&quot;%1&quot; ist bereits als Name einer Rolle vergeben und wird daher deaktiviert.</translation>
-    </message>
-    <message>
-        <source>invalid query: &quot;%1&quot;</source>
-        <translation>Ungültige Abfrage: &quot;%1&quot;</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickXmlListModelRole</name>
-    <message>
-        <source>An XmlRole query must not start with &apos;/&apos;</source>
-        <translation>Eine XmlRole-Abfrage darf nicht mit &apos;/&apos; beginnen</translation>
-    </message>
-</context>
-<context>
-    <name>QQuickXmlRoleList</name>
-    <message>
-        <source>An XmlListModel query must start with &apos;/&apos; or &quot;//&quot;</source>
-        <translation>Eine XmlListModel-Abfrage muss mit &apos;/&apos; oder &quot;//&quot; beginnen</translation>
-    </message>
-</context>
-<context>
     <name>SignalHandlerConverter</name>
     <message>
         <source>Non-existent attached object</source>
@@ -1616,8 +1638,8 @@ Installieren Sie einen Treiber, der OpenGL 2.0 oder neuer bereitstellt, oder ste
         <translation>Ungültiger QML %1-Name: &quot;%2&quot;</translation>
     </message>
     <message>
-        <source>Cannot install %1 &apos;%2&apos; into unregistered namespace &apos;%3&apos;</source>
-        <translation>%1 &apos;%2&apos; kann nicht in einen nicht registrierten Namensraum &apos;%3&apos; installiert werden</translation>
+        <source>Invalid QML %1 name &quot;%2&quot;; type names must begin with an uppercase letter</source>
+        <translation>Ungültiger QML %1-Name &quot;%2&quot;; Typnamen müssen mit einem Großbuchstaben beginnen</translation>
     </message>
     <message>
         <source>Cannot install %1 &apos;%2&apos; into protected namespace &apos;%3&apos;</source>

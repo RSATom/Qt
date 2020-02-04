@@ -1,6 +1,6 @@
 ############################################################################
 ##
-## Copyright (C) 2017 The Qt Company Ltd.
+## Copyright (C) 2018 The Qt Company Ltd.
 ## Contact: http://www.qt.io/licensing/
 ##
 ## This file is part of the provisioning scripts of the Qt Toolkit.
@@ -35,35 +35,40 @@
 
 . "$PSScriptRoot\helpers.ps1"
 
+if (Is64BitWinHost) {
+    $msys_bash = "C:\Utils\msys64\usr\bin\bash"
+} else {
+    $msys_bash = "C:\Utils\msys32\usr\bin\bash"
+}
+
 # OpenSSL need to be configured from sources for Android build in windows 7
 # Msys need to be installed to target machine
 # More info and building instructions can be found from http://doc.qt.io/qt-5/opensslsupport.html
 
-$version = "1.0.2j"
-$zip = "c:\users\qt\downloads\openssl-$version.tar.gz"
-$sha1 = "bdfbdb416942f666865fa48fe13c2d0e588df54f"
+$version = "1.1.1b"
+$zip = Get-DownloadLocation ("openssl-$version.tar.gz")
+$sha1 = "e9710abf5e95c48ebf47991b10cbb48c09dae102"
 $destination = "C:\Utils\openssl-android-master"
 
+# msys unix style paths
+$ndkPath = "/c/Utils/Android/android-ndk-r19c"
+$openssl_path = "/c/Utils/openssl-android-master"
+$cc_path = "$ndkPath/toolchains/llvm/prebuilt/windows-x86_64/bin"
 Download https://www.openssl.org/source/openssl-$version.tar.gz \\ci-files01-hki.intra.qt.io\provisioning\openssl\openssl-$version.tar.gz $zip
 Verify-Checksum $zip $sha1
 
-C:\Utils\sevenzip\7z.exe x $zip -oC:\Utils
-C:\Utils\sevenzip\7z.exe x C:\Utils\openssl-$version.tar -oC:\Utils
-Rename-Item C:\Utils\openssl-$version $destination
-Remove-Item $zip
-Remove-Item C:\Utils\openssl-$version.tar
+Extract-7Zip $zip C:\Utils\tmp
+Extract-7Zip C:\Utils\tmp\openssl-$version.tar C:\Utils\tmp
+Move-Item C:\Utils\tmp\openssl-${version} $destination
+Remove-Item -Path $zip
 
-set CC=C:\utils\android-ndk-r10e\toolchains\arm-linux-androideabi-4.9\prebuilt\windows\bin\arm-linux-androideabi-gcc
-set AR=C:\utils\android-ndk-r10e\toolchains\arm-linux-androideabi-4.9\prebuilt\windows\bin\arm-linux-androideabi-ar
-set ANDROID_DEV=C:\utils\android-ndk-r10e\platforms\android-18\arch-arm\usr
+Write-Host "Configuring OpenSSL $version for Android..."
+Push-Location $destination
+# $ must be escaped in powershell...
+Start-Process -NoNewWindow -Wait -ErrorAction Stop -FilePath "$msys_bash" -ArgumentList ("-lc", "`"pushd $openssl_path; ANDROID_NDK_HOME=$ndkPath PATH=${cc_path}:`$PATH CC=clang $openssl_path/Configure shared android-arm`"")
+Start-Process -NoNewWindow -Wait -ErrorAction Stop -FilePath "$msys_bash" -ArgumentList ("-lc", "`"pushd $openssl_path; ANDROID_NDK_HOME=$ndkPath PATH=${cc_path}:`$PATH CC=clang make -f $openssl_path/Makefile build_generated`"")
+Pop-Location
 
-# Make sure configure for openssl has a "make" and "perl" available
-$env:PATH = $env:PATH + ";C:\msys\1.0\bin;C:\strawberry\perl\bin"
-
-echo "Configuring OpenSSL $version for Android..."
-pushd $destination
-C:\msys\1.0\bin\bash.exe -c "c:/strawberry/perl/bin/perl Configure shared android"
-popd
-
-# Following command is needed when using version 1.1.0. With version 1.1.0 msys is not needed.
-# C:\mingw530\bin\mingw32-make.exe include\openssl\opensslconf.h
+Set-EnvironmentVariable "OPENSSL_ANDROID_HOME" "$destination"
+Remove-item C:\Utils\tmp -Recurse -Confirm:$false
+Write-Output "Android OpenSSL = $version" >> ~/versions.txt

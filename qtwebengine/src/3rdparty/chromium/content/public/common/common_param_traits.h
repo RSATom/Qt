@@ -23,10 +23,10 @@
 #include "content/common/content_export.h"
 #include "content/public/common/common_param_traits_macros.h"
 #include "ipc/ipc_message_utils.h"
+#include "ui/accessibility/ax_tree_id.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/surface/transport_dib.h"
 #include "url/ipc/url_param_traits.h"
-#include "url/origin.h"
 
 #if defined(OS_WIN)
 #include "base/win/win_util.h"
@@ -36,62 +36,11 @@ namespace content {
 class PageState;
 }
 
-namespace net {
-class HostPortPair;
-class IPAddress;
-class IPEndPoint;
-}
-
 namespace IPC {
-
-template <>
-struct CONTENT_EXPORT ParamTraits<url::Origin> {
-  typedef url::Origin param_type;
-  static void GetSize(base::PickleSizer* s, const param_type& p);
-  static void Write(base::Pickle* m, const param_type& p);
-  static bool Read(const base::Pickle* m,
-                   base::PickleIterator* iter,
-                   param_type* p);
-  static void Log(const param_type& p, std::string* l);
-};
-
-template<>
-struct CONTENT_EXPORT ParamTraits<net::HostPortPair> {
-  typedef net::HostPortPair param_type;
-  static void GetSize(base::PickleSizer* s, const param_type& p);
-  static void Write(base::Pickle* m, const param_type& p);
-  static bool Read(const base::Pickle* m,
-                   base::PickleIterator* iter,
-                   param_type* r);
-  static void Log(const param_type& p, std::string* l);
-};
-
-template <>
-struct CONTENT_EXPORT ParamTraits<net::IPEndPoint> {
-  typedef net::IPEndPoint param_type;
-  static void GetSize(base::PickleSizer* s, const param_type& p);
-  static void Write(base::Pickle* m, const param_type& p);
-  static bool Read(const base::Pickle* m,
-                   base::PickleIterator* iter,
-                   param_type* p);
-  static void Log(const param_type& p, std::string* l);
-};
-
-template <>
-struct CONTENT_EXPORT ParamTraits<net::IPAddress> {
-  typedef net::IPAddress param_type;
-  static void GetSize(base::PickleSizer* s, const param_type& p);
-  static void Write(base::Pickle* m, const param_type& p);
-  static bool Read(const base::Pickle* m,
-                   base::PickleIterator* iter,
-                   param_type* p);
-  static void Log(const param_type& p, std::string* l);
-};
 
 template <>
 struct CONTENT_EXPORT ParamTraits<content::PageState> {
   typedef content::PageState param_type;
-  static void GetSize(base::PickleSizer* s, const param_type& p);
   static void Write(base::Pickle* m, const param_type& p);
   static bool Read(const base::Pickle* m,
                    base::PickleIterator* iter,
@@ -130,6 +79,16 @@ struct ParamTraits<gfx::NativeWindow> {
   static void Log(const param_type& p, std::string* l) {
     l->append("<gfx::NativeWindow>");
   }
+};
+
+template <>
+struct CONTENT_EXPORT ParamTraits<ui::AXTreeID> {
+  typedef ui::AXTreeID param_type;
+  static void Write(base::Pickle* m, const param_type& p);
+  static bool Read(const base::Pickle* m,
+                   base::PickleIterator* iter,
+                   param_type* r);
+  static void Log(const param_type& p, std::string* l);
 };
 
 }  // namespace IPC

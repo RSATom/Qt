@@ -19,9 +19,11 @@ enum WindowsPrintMode {
   kModeTextOnly = 1,
   kModePostScript2 = 2,
   kModePostScript3 = 3,
+  kModePostScript2PassThrough = 4,
+  kModePostScript3PassThrough = 5,
 };
 
-class IFX_RenderDeviceDriver;
+class RenderDeviceDriverIface;
 
 #if defined(PDFIUM_PRINT_TEXT_WITH_GDI)
 typedef void (*PDFiumEnsureTypefaceCharactersAccessible)(const LOGFONT* font,
@@ -32,11 +34,11 @@ extern bool g_pdfium_print_text_with_gdi;
 extern PDFiumEnsureTypefaceCharactersAccessible
     g_pdfium_typeface_accessible_func;
 #endif
-extern int g_pdfium_print_mode;
+extern WindowsPrintMode g_pdfium_print_mode;
 
-class CFX_WindowsRenderDevice : public CFX_RenderDevice {
+class CFX_WindowsRenderDevice final : public CFX_RenderDevice {
  public:
-  static IFX_RenderDeviceDriver* CreateDriver(HDC hDC);
+  static RenderDeviceDriverIface* CreateDriver(HDC hDC);
 
   explicit CFX_WindowsRenderDevice(HDC hDC);
   ~CFX_WindowsRenderDevice() override;

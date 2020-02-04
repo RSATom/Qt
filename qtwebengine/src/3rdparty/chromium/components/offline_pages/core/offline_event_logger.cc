@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/strings/stringprintf.h"
-#include "base/time/time.h"
 #include "components/offline_pages/core/offline_event_logger.h"
 
-namespace offline_pages {
+#include "base/strings/stringprintf.h"
+#include "base/time/time.h"
+#include "components/offline_pages/core/offline_clock.h"
 
-extern const size_t kMaxLogCount = 50;
+namespace offline_pages {
 
 OfflineEventLogger::OfflineEventLogger()
     : activities_(0), is_logging_(false), client_(nullptr) {}
@@ -33,11 +33,12 @@ void OfflineEventLogger::GetLogs(std::vector<std::string>* records) {
 }
 
 void OfflineEventLogger::RecordActivity(const std::string& activity) {
+  DVLOG(1) << activity;
   if (!is_logging_ || activity.empty())
     return;
 
   base::Time::Exploded current_time;
-  base::Time::Now().LocalExplode(&current_time);
+  OfflineTimeNow().LocalExplode(&current_time);
 
   std::string date_string = base::StringPrintf(
       "%d %02d %02d %02d:%02d:%02d", current_time.year, current_time.month,

@@ -43,10 +43,13 @@
 #include <QtCore/qdebug.h>
 #include <QtCore/qdatastream.h>
 #include <QtCore/qeventloop.h>
+#include <QtCore/qloggingcategory.h>
 #include <QtCore/qscopedvaluerollback.h>
 #include <QtCore/qtimer.h>
 
 QT_BEGIN_NAMESPACE
+
+Q_LOGGING_CATEGORY(QT_CANBUS, "qt.canbus")
 
 /*!
     \class QCanBusDevice
@@ -113,6 +116,7 @@ QT_BEGIN_NAMESPACE
                             CAN FD allows to transmit the payload of frames with
                             \l QCanBusFrame::hasBitrateSwitch() flag at a higher data bitrate,
                             after the arbitration phase at the nominal bitrate is finished.
+                            This enum value was introduced in Qt 5.9.
                             See also \c QCanBusDevice::BitRateKey
     \value UserKey          This key defines the range where custom keys start. Its most
                             common purpose is to permit platform-specific configuration
@@ -206,9 +210,9 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn QCanBusDevice::errorOccurred(CanBusError error)
+    \fn void QCanBusDevice::errorOccurred(CanBusError)
 
-    This signal is emitted when an error of the type \a error occurs.
+    This signal is emitted when an error occurs.
 */
 
 /*!
@@ -401,7 +405,7 @@ QString QCanBusDevice::errorString() const
     Returns the number of available frames. If no frames are available,
     this function returns 0.
 
-    \sa readFrame()
+    \sa clear(), readFrame(), readAllFrames()
 */
 qint64 QCanBusDevice::framesAvailable() const
 {
@@ -416,11 +420,50 @@ qint64 QCanBusDevice::framesAvailable() const
     Therefore, if this function returns zero, that does not mean all CAN frames are
     already written to the CAN bus.
 
-    \sa writeFrame()
+    \sa clear(), writeFrame()
 */
 qint64 QCanBusDevice::framesToWrite() const
 {
     return d_func()->outgoingFrames.size();
+}
+
+/*!
+    \since 5.12
+    \enum QCanBusDevice::Direction
+
+    This enum describes possible data transmission directions.
+
+    \value Input            Input direction.
+    \value Output           Output direction.
+    \value AllDirections    Both directions, input and output.
+*/
+
+/*!
+    \since 5.12
+    Clears the devices input or output buffers, depending on \a direction.
+
+    This function only operates on QCanBusDevice buffers. Frames that are
+    already written to the CAN driver or CAN hardware layer, or that are
+    not yet read from these layers, are not cleared by this function.
+
+    \note Clearing the output buffers is only possible for buffered devices.
+
+    \sa framesAvailable(), readFrame(), framesToWrite(), writeFrame(),
+*/
+void QCanBusDevice::clear(QCanBusDevice::Directions direction)
+{
+    Q_D(QCanBusDevice);
+
+    if (Q_UNLIKELY(d->state != ConnectedState))
+        return;
+
+    if (direction & Direction::Input) {
+        QMutexLocker(&d->incomingFramesGuard);
+        d->incomingFrames.clear();
+    }
+
+    if (direction & Direction::Output)
+        d->outgoingFrames.clear();
 }
 
 /*!
@@ -445,10 +488,10 @@ bool QCanBusDevice::waitForFramesWritten(int msecs)
 {
     // do not enter this function recursively
     if (Q_UNLIKELY(d_func()->waitForWrittenEntered)) {
-        qWarning("QCanBusDevice::waitForFramesWritten() must not be called "
-                 "recursively. Check that no slot containing waitForFramesReceived() "
-                 "is called in response to framesWritten(qint64) or errorOccurred(CanBusError)"
-                 "signals\n");
+        qCWarning(QT_CANBUS, "QCanBusDevice::waitForFramesWritten() must not be called "
+                             "recursively. Check that no slot containing waitForFramesReceived() "
+                             "is called in response to framesWritten(qint64) or "
+                             "errorOccurred(CanBusError) signals.");
         return false;
     }
 
@@ -498,10 +541,10 @@ bool QCanBusDevice::waitForFramesReceived(int msecs)
 {
     // do not enter this function recursively
     if (Q_UNLIKELY(d_func()->waitForReceivedEntered)) {
-        qWarning("QCanBusDevice::waitForFramesReceived() must not be called "
-                 "recursively. Check that no slot containing waitForFramesReceived() "
-                 "is called in response to framesReceived() or errorOccurred(CanBusError) "
-                 "signals\n");
+        qCWarning(QT_CANBUS, "QCanBusDevice::waitForFramesReceived() must not be called "
+                             "recursively. Check that no slot containing waitForFramesReceived() "
+                             "is called in response to framesReceived() or "
+                             "errorOccurred(CanBusError) signals.");
         return false;
     }
 
@@ -570,7 +613,7 @@ bool QCanBusDevice::waitForFramesReceived(int msecs)
 
     The queue operates according to the FIFO principle.
 
-    \sa framesAvailable()
+    \sa clear(), framesAvailable(), readAllFrames()
 */
 QCanBusFrame QCanBusDevice::readFrame()
 {
@@ -585,6 +628,29 @@ QCanBusFrame QCanBusDevice::readFrame()
         return QCanBusFrame(QCanBusFrame::InvalidFrame);
 
     return d->incomingFrames.takeFirst();
+}
+
+/*!
+    \since 5.12
+    Returns all \l{QCanBusFrame}s from the queue; otherwise returns
+    an empty QVector. The returned frames are removed from the queue.
+
+    The queue operates according to the FIFO principle.
+
+    \sa clear(), framesAvailable(), readFrame()
+*/
+QVector<QCanBusFrame> QCanBusDevice::readAllFrames()
+{
+    Q_D(QCanBusDevice);
+
+    if (Q_UNLIKELY(d->state != ConnectedState))
+        return QVector<QCanBusFrame>();
+
+    QMutexLocker locker(&d->incomingFramesGuard);
+
+    QVector<QCanBusFrame> result;
+    result.swap(d->incomingFrames);
+    return result;
 }
 
 /*!
@@ -618,7 +684,7 @@ QCanBusFrame QCanBusDevice::readFrame()
 */
 
 /*!
-    \fn QString interpretErrorFrame(const QCanBusFrame &frame)
+    \fn QString QCanBusDevice::interpretErrorFrame(const QCanBusFrame &frame)
 
     Interprets \a frame as error frame and returns a human readable
     description of the error.
@@ -672,7 +738,7 @@ void QCanBusDevice::disconnectDevice()
 
     if (Q_UNLIKELY(d->state == QCanBusDevice::UnconnectedState
             || d->state == QCanBusDevice::ClosingState)) {
-        qWarning("Can not disconnect an unconnected device");
+        qCWarning(QT_CANBUS, "Can not disconnect an unconnected device.");
         return;
     }
 
@@ -724,10 +790,27 @@ void QCanBusDevice::setState(QCanBusDevice::CanBusDeviceState newState)
 QCanBusDeviceInfo QCanBusDevice::createDeviceInfo(const QString &name, bool isVirtual,
                                                   bool isFlexibleDataRateCapable)
 {
+    return createDeviceInfo(name, QString(), QString(), 0, isVirtual, isFlexibleDataRateCapable);
+}
+
+/*!
+    \since 5.11
+    Returns a QCanBusDeviceInfo created from the given parameters \a name,
+    \a serialNumber, \a description, \a channel, \a isVirtual, and \a
+    isFlexibleDataRateCapable.
+    \internal
+ */
+QCanBusDeviceInfo QCanBusDevice::createDeviceInfo(const QString &name, const QString &serialNumber,
+                                                  const QString &description, int channel,
+                                                  bool isVirtual, bool isFlexibleDataRateCapable)
+{
     QScopedPointer<QCanBusDeviceInfoPrivate> info(new QCanBusDeviceInfoPrivate);
     info->name = name;
-    info->isVirtual = isVirtual;
+    info->serialNumber = serialNumber;
+    info->description = description;
+    info->channel = channel;
     info->hasFlexibleDataRate = isFlexibleDataRateCapable;
+    info->isVirtual = isVirtual;
     return QCanBusDeviceInfo(*info.take());
 }
 

@@ -79,8 +79,8 @@ public:
     };
     Q_ENUM(Error)
 
-    explicit QBluetoothLocalDevice(QObject *parent = Q_NULLPTR);
-    explicit QBluetoothLocalDevice(const QBluetoothAddress &address, QObject *parent = Q_NULLPTR);
+    explicit QBluetoothLocalDevice(QObject *parent = nullptr);
+    explicit QBluetoothLocalDevice(const QBluetoothAddress &address, QObject *parent = nullptr);
     virtual ~QBluetoothLocalDevice();
 
     bool isValid() const;

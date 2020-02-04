@@ -926,6 +926,9 @@ private Q_SLOTS:
         SUPPORTS_FEATURE(GraphicsHelperInterface::DrawBuffersBlend, false);
         SUPPORTS_FEATURE(GraphicsHelperInterface::Tessellation, false);
         SUPPORTS_FEATURE(GraphicsHelperInterface::BlitFramebuffer, false);
+        SUPPORTS_FEATURE(GraphicsHelperInterface::IndirectDrawing, false);
+        SUPPORTS_FEATURE(GraphicsHelperInterface::MapBuffer, true);
+        SUPPORTS_FEATURE(GraphicsHelperInterface::Fences, false);
     }
 
 
@@ -1524,6 +1527,36 @@ private Q_SLOTS:
         // Not supported by GL2
     }
 
+    void fenceSync()
+    {
+        QSKIP("Initialization failed, OpenGL 2.0 functions not supported");
+        // Not supported by GL2
+    }
+
+    void clientWaitSync()
+    {
+        QSKIP("Initialization failed, OpenGL 2.0 functions not supported");
+        // Not supported by GL2
+    }
+
+    void waitSync()
+    {
+        QSKIP("Initialization failed, OpenGL 2.0 functions not supported");
+        // Not supported by GL2
+    }
+
+    void wasSyncSignaled()
+    {
+        QSKIP("Initialization failed, OpenGL 2.0 functions not supported");
+        // Not supported by GL2
+    }
+
+    void deleteSync()
+    {
+        QSKIP("Initialization failed, OpenGL 2.0 functions not supported");
+        // Not supported by GL2
+    }
+
 private:
     QScopedPointer<QWindow> m_window;
     QOpenGLContext m_glContext;
@@ -1537,17 +1570,11 @@ QT_END_NAMESPACE
 
 #endif
 
-
-QT_BEGIN_NAMESPACE
-QTEST_ADD_GPU_BLACKLIST_SUPPORT_DEFS
-QT_END_NAMESPACE
-
 int main(int argc, char *argv[])
 {
 #ifdef TEST_SHOULD_BE_PERFORMED
     QGuiApplication app(argc, argv);
     app.setAttribute(Qt::AA_Use96Dpi, true);
-    QTEST_ADD_GPU_BLACKLIST_SUPPORT
     tst_GraphicsHelperGL2 tc;
     QTEST_SET_MAIN_SOURCE_PATH
     return QTest::qExec(&tc, argc, argv);

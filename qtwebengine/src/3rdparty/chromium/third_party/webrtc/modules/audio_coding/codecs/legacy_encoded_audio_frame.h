@@ -8,13 +8,17 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_CODING_CODECS_LEGACY_ENCODED_AUDIO_FRAME_H_
-#define WEBRTC_MODULES_AUDIO_CODING_CODECS_LEGACY_ENCODED_AUDIO_FRAME_H_
+#ifndef MODULES_AUDIO_CODING_CODECS_LEGACY_ENCODED_AUDIO_FRAME_H_
+#define MODULES_AUDIO_CODING_CODECS_LEGACY_ENCODED_AUDIO_FRAME_H_
 
+#include <stddef.h>
+#include <stdint.h>
 #include <vector>
 
-#include "webrtc/api/audio_codecs/audio_decoder.h"
-#include "webrtc/rtc_base/array_view.h"
+#include "absl/types/optional.h"
+#include "api/array_view.h"
+#include "api/audio_codecs/audio_decoder.h"
+#include "rtc_base/buffer.h"
 
 namespace webrtc {
 
@@ -32,7 +36,7 @@ class LegacyEncodedAudioFrame final : public AudioDecoder::EncodedAudioFrame {
 
   size_t Duration() const override;
 
-  rtc::Optional<DecodeResult> Decode(
+  absl::optional<DecodeResult> Decode(
       rtc::ArrayView<int16_t> decoded) const override;
 
   // For testing:
@@ -45,4 +49,4 @@ class LegacyEncodedAudioFrame final : public AudioDecoder::EncodedAudioFrame {
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_AUDIO_CODING_CODECS_LEGACY_ENCODED_AUDIO_FRAME_H_
+#endif  // MODULES_AUDIO_CODING_CODECS_LEGACY_ENCODED_AUDIO_FRAME_H_

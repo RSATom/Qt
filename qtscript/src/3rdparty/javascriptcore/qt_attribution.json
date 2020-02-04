@@ -5,7 +5,8 @@
     "Description": "JavaScriptCore is the built-in JavaScript engine, originally developed for WebKit.",
     "QtUsage": "Used as JavaScript engine in Qt Script.",
 
-    "Version": "This is a snapshot of JavaScriptCore from git://code.qt.io/qt/qtwebkit.git",
+    "Homepage": "https://trac.webkit.org/wiki/JavaScriptCore",
+    "Version": "Snapshot from 2011-01-27",
     "License": "GNU Library General Public License v2 or later",
     "LicenseId": "LGPL-2.0+",
     "LicenseFile": "JavaScriptCore/COPYING.LIB",

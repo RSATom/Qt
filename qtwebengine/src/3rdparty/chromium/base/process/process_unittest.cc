@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/at_exit.h"
+#include "base/debug/invalid_access_win.h"
 #include "base/process/kill.h"
 #include "base/test/multiprocess_test.h"
 #include "base/test/test_timeouts.h"
@@ -19,10 +20,12 @@
 namespace {
 
 #if defined(OS_WIN)
-const int kExpectedStillRunningExitCode = 0x102;
+constexpr int kExpectedStillRunningExitCode = 0x102;
 #else
-const int kExpectedStillRunningExitCode = 0;
+constexpr int kExpectedStillRunningExitCode = 0;
 #endif
+
+constexpr int kDummyExitCode = 42;
 
 #if defined(OS_MACOSX)
 // Fake port provider that returns the calling process's
@@ -42,24 +45,25 @@ class ProcessTest : public MultiProcessTest {
 };
 
 TEST_F(ProcessTest, Create) {
-  SpawnChildResult spawn_child = SpawnChild("SimpleChildProcess");
-  ASSERT_TRUE(spawn_child.process.IsValid());
-  ASSERT_FALSE(spawn_child.process.is_current());
-  spawn_child.process.Close();
-  ASSERT_FALSE(spawn_child.process.IsValid());
+  Process process(SpawnChild("SimpleChildProcess"));
+  ASSERT_TRUE(process.IsValid());
+  ASSERT_FALSE(process.is_current());
+  EXPECT_NE(process.Pid(), kNullProcessId);
+  process.Close();
+  ASSERT_FALSE(process.IsValid());
 }
 
 TEST_F(ProcessTest, CreateCurrent) {
   Process process = Process::Current();
   ASSERT_TRUE(process.IsValid());
   ASSERT_TRUE(process.is_current());
+  EXPECT_NE(process.Pid(), kNullProcessId);
   process.Close();
   ASSERT_FALSE(process.IsValid());
 }
 
 TEST_F(ProcessTest, Move) {
-  SpawnChildResult spawn_result = SpawnChild("SimpleChildProcess");
-  Process& process1 = spawn_result.process;
+  Process process1(SpawnChild("SimpleChildProcess"));
   EXPECT_TRUE(process1.IsValid());
 
   Process process2;
@@ -78,8 +82,7 @@ TEST_F(ProcessTest, Move) {
 }
 
 TEST_F(ProcessTest, Duplicate) {
-  SpawnChildResult spawn_result = SpawnChild("SimpleChildProcess");
-  Process& process1 = spawn_result.process;
+  Process process1(SpawnChild("SimpleChildProcess"));
   ASSERT_TRUE(process1.IsValid());
 
   Process process2 = process1.Duplicate();
@@ -109,8 +112,7 @@ TEST_F(ProcessTest, DuplicateCurrent) {
 }
 
 TEST_F(ProcessTest, DeprecatedGetProcessFromHandle) {
-  SpawnChildResult spawn_result = SpawnChild("SimpleChildProcess");
-  Process& process1 = spawn_result.process;
+  Process process1(SpawnChild("SimpleChildProcess"));
   ASSERT_TRUE(process1.IsValid());
 
   Process process2 = Process::DeprecatedGetProcessFromHandle(process1.Handle());
@@ -129,12 +131,53 @@ MULTIPROCESS_TEST_MAIN(SleepyChildProcess) {
   return 0;
 }
 
+// TODO(https://crbug.com/726484): Enable these tests on Fuchsia when
+// CreationTime() is implemented.
+//
+// Disabled on Android because Process::CreationTime() is not supported.
+// https://issuetracker.google.com/issues/37140047
+#if !defined(OS_FUCHSIA) && !defined(OS_ANDROID)
+TEST_F(ProcessTest, CreationTimeCurrentProcess) {
+  // The current process creation time should be less than or equal to the
+  // current time.
+  EXPECT_LE(Process::Current().CreationTime(), Time::Now());
+}
+
+TEST_F(ProcessTest, CreationTimeOtherProcess) {
+  // The creation time of a process should be between a time recorded before it
+  // was spawned and a time recorded after it was spawned. However, since the
+  // base::Time and process creation clocks don't match, tolerate some error.
+  constexpr base::TimeDelta kTolerance =
+#if defined(OS_LINUX)
+      // On Linux, process creation time is relative to boot time which has a
+      // 1-second resolution. Tolerate 1 second for the imprecise boot time and
+      // 100 ms for the imprecise clock.
+      TimeDelta::FromMilliseconds(1100);
+#elif defined(OS_WIN)
+      // On Windows, process creation time is based on the system clock while
+      // Time::Now() is a combination of system clock and
+      // QueryPerformanceCounter(). Tolerate 100 ms for the clock mismatch.
+      TimeDelta::FromMilliseconds(100);
+#elif defined(OS_MACOSX)
+      // On Mac, process creation time should be very precise.
+      TimeDelta::FromMilliseconds(0);
+#else
+#error Unsupported platform
+#endif
+  const Time before_creation = Time::Now();
+  Process process(SpawnChild("SleepyChildProcess"));
+  const Time after_creation = Time::Now();
+  const Time creation = process.CreationTime();
+  EXPECT_LE(before_creation - kTolerance, creation);
+  EXPECT_LE(creation, after_creation + kTolerance);
+  EXPECT_TRUE(process.Terminate(kDummyExitCode, true));
+}
+#endif  // !defined(OS_FUCHSIA)
+
 TEST_F(ProcessTest, Terminate) {
-  SpawnChildResult spawn_result = SpawnChild("SleepyChildProcess");
-  Process& process = spawn_result.process;
+  Process process(SpawnChild("SleepyChildProcess"));
   ASSERT_TRUE(process.IsValid());
 
-  const int kDummyExitCode = 42;
   int exit_code = kDummyExitCode;
   EXPECT_EQ(TERMINATION_STATUS_STILL_RUNNING,
             GetTerminationStatus(process.Handle(), &exit_code));
@@ -148,8 +191,8 @@ TEST_F(ProcessTest, Terminate) {
 
   EXPECT_NE(TERMINATION_STATUS_STILL_RUNNING,
             GetTerminationStatus(process.Handle(), &exit_code));
-#if !defined(OS_POSIX)
-  // The POSIX implementation actually ignores the exit_code.
+#if !defined(OS_POSIX) && !defined(OS_FUCHSIA)
+  // The POSIX & Fuchsia implementations actually ignore the exit_code.
   EXPECT_EQ(kExpectedExitCode, exit_code);
 #endif
 }
@@ -170,35 +213,29 @@ class ThreadLocalObject {
 
 MULTIPROCESS_TEST_MAIN(TerminateCurrentProcessImmediatelyWithCode0) {
   base::ThreadLocalPointer<ThreadLocalObject> object;
-  base::AtExitManager::RegisterCallback(&AtExitHandler, NULL);
+  base::AtExitManager::RegisterCallback(&AtExitHandler, nullptr);
   Process::TerminateCurrentProcessImmediately(0);
-  NOTREACHED();
-  return 42;
 }
 
 TEST_F(ProcessTest, TerminateCurrentProcessImmediatelyWithZeroExitCode) {
-  SpawnChildResult spawn_child =
-      SpawnChild("TerminateCurrentProcessImmediatelyWithCode0");
-  ASSERT_TRUE(spawn_child.process.IsValid());
+  Process process(SpawnChild("TerminateCurrentProcessImmediatelyWithCode0"));
+  ASSERT_TRUE(process.IsValid());
   int exit_code = 42;
-  ASSERT_TRUE(spawn_child.process.WaitForExitWithTimeout(
-      TestTimeouts::action_max_timeout(), &exit_code));
+  ASSERT_TRUE(process.WaitForExitWithTimeout(TestTimeouts::action_max_timeout(),
+                                             &exit_code));
   EXPECT_EQ(0, exit_code);
 }
 
 MULTIPROCESS_TEST_MAIN(TerminateCurrentProcessImmediatelyWithCode250) {
   Process::TerminateCurrentProcessImmediately(250);
-  NOTREACHED();
-  return 42;
 }
 
 TEST_F(ProcessTest, TerminateCurrentProcessImmediatelyWithNonZeroExitCode) {
-  SpawnChildResult spawn_child =
-      SpawnChild("TerminateCurrentProcessImmediatelyWithCode250");
-  ASSERT_TRUE(spawn_child.process.IsValid());
+  Process process(SpawnChild("TerminateCurrentProcessImmediatelyWithCode250"));
+  ASSERT_TRUE(process.IsValid());
   int exit_code = 42;
-  ASSERT_TRUE(spawn_child.process.WaitForExitWithTimeout(
-      TestTimeouts::action_max_timeout(), &exit_code));
+  ASSERT_TRUE(process.WaitForExitWithTimeout(TestTimeouts::action_max_timeout(),
+                                             &exit_code));
   EXPECT_EQ(250, exit_code);
 }
 
@@ -208,26 +245,26 @@ MULTIPROCESS_TEST_MAIN(FastSleepyChildProcess) {
 }
 
 TEST_F(ProcessTest, WaitForExit) {
-  SpawnChildResult spawn_child = SpawnChild("FastSleepyChildProcess");
-  ASSERT_TRUE(spawn_child.process.IsValid());
+  Process process(SpawnChild("FastSleepyChildProcess"));
+  ASSERT_TRUE(process.IsValid());
 
   const int kDummyExitCode = 42;
   int exit_code = kDummyExitCode;
-  EXPECT_TRUE(spawn_child.process.WaitForExit(&exit_code));
+  EXPECT_TRUE(process.WaitForExit(&exit_code));
   EXPECT_EQ(0, exit_code);
 }
 
 TEST_F(ProcessTest, WaitForExitWithTimeout) {
-  SpawnChildResult spawn_child = SpawnChild("SleepyChildProcess");
-  ASSERT_TRUE(spawn_child.process.IsValid());
+  Process process(SpawnChild("SleepyChildProcess"));
+  ASSERT_TRUE(process.IsValid());
 
   const int kDummyExitCode = 42;
   int exit_code = kDummyExitCode;
   TimeDelta timeout = TestTimeouts::tiny_timeout();
-  EXPECT_FALSE(spawn_child.process.WaitForExitWithTimeout(timeout, &exit_code));
+  EXPECT_FALSE(process.WaitForExitWithTimeout(timeout, &exit_code));
   EXPECT_EQ(kDummyExitCode, exit_code);
 
-  spawn_child.process.Terminate(kDummyExitCode, false);
+  process.Terminate(kDummyExitCode, false);
 }
 
 // Ensure that the priority of a process is restored correctly after
@@ -237,14 +274,9 @@ TEST_F(ProcessTest, WaitForExitWithTimeout) {
 TEST_F(ProcessTest, SetProcessBackgrounded) {
   if (!Process::CanBackgroundProcesses())
     return;
-  SpawnChildResult spawn_child = SpawnChild("SimpleChildProcess");
-  int old_priority = spawn_child.process.GetPriority();
-#if defined(OS_WIN)
-  EXPECT_TRUE(spawn_child.process.SetProcessBackgrounded(true));
-  EXPECT_TRUE(spawn_child.process.IsProcessBackgrounded());
-  EXPECT_TRUE(spawn_child.process.SetProcessBackgrounded(false));
-  EXPECT_FALSE(spawn_child.process.IsProcessBackgrounded());
-#elif defined(OS_MACOSX)
+  Process process(SpawnChild("SimpleChildProcess"));
+  int old_priority = process.GetPriority();
+#if defined(OS_MACOSX)
   // On the Mac, backgrounding a process requires a port to that process.
   // In the browser it's available through the MachBroker class, which is not
   // part of base. Additionally, there is an indefinite amount of time between
@@ -252,16 +284,18 @@ TEST_F(ProcessTest, SetProcessBackgrounded) {
   // the ability to background/foreground a process, we can use the current
   // process's port instead.
   FakePortProvider provider;
-  EXPECT_TRUE(spawn_child.process.SetProcessBackgrounded(&provider, true));
-  EXPECT_TRUE(spawn_child.process.IsProcessBackgrounded(&provider));
-  EXPECT_TRUE(spawn_child.process.SetProcessBackgrounded(&provider, false));
-  EXPECT_FALSE(spawn_child.process.IsProcessBackgrounded(&provider));
+  EXPECT_TRUE(process.SetProcessBackgrounded(&provider, true));
+  EXPECT_TRUE(process.IsProcessBackgrounded(&provider));
+  EXPECT_TRUE(process.SetProcessBackgrounded(&provider, false));
+  EXPECT_FALSE(process.IsProcessBackgrounded(&provider));
 
 #else
-  spawn_child.process.SetProcessBackgrounded(true);
-  spawn_child.process.SetProcessBackgrounded(false);
+  EXPECT_TRUE(process.SetProcessBackgrounded(true));
+  EXPECT_TRUE(process.IsProcessBackgrounded());
+  EXPECT_TRUE(process.SetProcessBackgrounded(false));
+  EXPECT_FALSE(process.IsProcessBackgrounded());
 #endif
-  int new_priority = spawn_child.process.GetPriority();
+  int new_priority = process.GetPriority();
   EXPECT_EQ(old_priority, new_priority);
 }
 
@@ -289,6 +323,41 @@ TEST_F(ProcessTest, SetProcessBackgroundedSelf) {
 #endif
   int new_priority = process.GetPriority();
   EXPECT_EQ(old_priority, new_priority);
+}
+
+// Consumers can use WaitForExitWithTimeout(base::TimeDelta(), nullptr) to check
+// whether the process is still running. This may not be safe because of the
+// potential reusing of the process id. So we won't export Process::IsRunning()
+// on all platforms. But for the controllable scenario in the test cases, the
+// behavior should be guaranteed.
+TEST_F(ProcessTest, CurrentProcessIsRunning) {
+  EXPECT_FALSE(Process::Current().WaitForExitWithTimeout(
+      base::TimeDelta(), nullptr));
+}
+
+#if defined(OS_MACOSX)
+// On Mac OSX, we can detect whether a non-child process is running.
+TEST_F(ProcessTest, PredefinedProcessIsRunning) {
+  // Process 1 is the /sbin/launchd, it should be always running.
+  EXPECT_FALSE(Process::Open(1).WaitForExitWithTimeout(
+      base::TimeDelta(), nullptr));
+}
+#endif
+
+#if defined(OS_WIN)
+TEST_F(ProcessTest, HeapCorruption) {
+  EXPECT_EXIT(base::debug::win::TerminateWithHeapCorruption(),
+              ::testing::ExitedWithCode(STATUS_HEAP_CORRUPTION), "");
+}
+#endif
+
+TEST_F(ProcessTest, ChildProcessIsRunning) {
+  Process process(SpawnChild("SleepyChildProcess"));
+  EXPECT_FALSE(process.WaitForExitWithTimeout(
+      base::TimeDelta(), nullptr));
+  process.Terminate(0, true);
+  EXPECT_TRUE(process.WaitForExitWithTimeout(
+      base::TimeDelta(), nullptr));
 }
 
 #if defined(OS_CHROMEOS)

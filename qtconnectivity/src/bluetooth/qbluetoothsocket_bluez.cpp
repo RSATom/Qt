@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtBluetooth module of the Qt Toolkit.
@@ -38,7 +38,8 @@
 ****************************************************************************/
 
 #include "qbluetoothsocket.h"
-#include "qbluetoothsocket_p.h"
+#include "qbluetoothsocket_bluez_p.h"
+#include "qbluetoothdeviceinfo.h"
 
 #include "bluez/manager_p.h"
 #include "bluez/adapter_p.h"
@@ -62,38 +63,30 @@ QT_BEGIN_NAMESPACE
 
 Q_DECLARE_LOGGING_CATEGORY(QT_BT_BLUEZ)
 
-QBluetoothSocketPrivate::QBluetoothSocketPrivate()
-    : socket(-1),
-      socketType(QBluetoothServiceInfo::UnknownProtocol),
-      state(QBluetoothSocket::UnconnectedState),
-      socketError(QBluetoothSocket::NoSocketError),
-      readNotifier(0),
-      connectWriteNotifier(0),
-      connecting(false),
-      discoveryAgent(0),
-      secFlags(QBluetooth::Authorization),
-      lowEnergySocketType(0)
+QBluetoothSocketPrivateBluez::QBluetoothSocketPrivateBluez()
+    : QBluetoothSocketBasePrivate()
 {
+    secFlags = QBluetooth::Authorization;
 }
 
-QBluetoothSocketPrivate::~QBluetoothSocketPrivate()
+QBluetoothSocketPrivateBluez::~QBluetoothSocketPrivateBluez()
 {
     delete readNotifier;
-    readNotifier = 0;
+    readNotifier = nullptr;
     delete connectWriteNotifier;
-    connectWriteNotifier = 0;
+    connectWriteNotifier = nullptr;
 }
 
-bool QBluetoothSocketPrivate::ensureNativeSocket(QBluetoothServiceInfo::Protocol type)
+bool QBluetoothSocketPrivateBluez::ensureNativeSocket(QBluetoothServiceInfo::Protocol type)
 {
     if (socket != -1) {
         if (socketType == type)
             return true;
 
         delete readNotifier;
-        readNotifier = 0;
+        readNotifier = nullptr;
         delete connectWriteNotifier;
-        connectWriteNotifier = 0;
+        connectWriteNotifier = nullptr;
         QT_CLOSE(socket);
     }
 
@@ -129,7 +122,7 @@ bool QBluetoothSocketPrivate::ensureNativeSocket(QBluetoothServiceInfo::Protocol
     return true;
 }
 
-void QBluetoothSocketPrivate::connectToService(const QBluetoothAddress &address, quint16 port, QIODevice::OpenMode openMode)
+void QBluetoothSocketPrivateBluez::connectToServiceHelper(const QBluetoothAddress &address, quint16 port, QIODevice::OpenMode openMode)
 {
     Q_Q(QBluetoothSocket);
     int result = -1;
@@ -171,7 +164,7 @@ void QBluetoothSocketPrivate::connectToService(const QBluetoothAddress &address,
         convertAddress(address.toUInt64(), addr.rc_bdaddr.b);
 
         connectWriteNotifier->setEnabled(true);
-        readNotifier->setEnabled(true);QString();
+        readNotifier->setEnabled(true);
 
         result = ::connect(socket, (sockaddr *)&addr, sizeof(addr));
     } else if (socketType == QBluetoothServiceInfo::L2capProtocol) {
@@ -214,7 +207,111 @@ void QBluetoothSocketPrivate::connectToService(const QBluetoothAddress &address,
     }
 }
 
-void QBluetoothSocketPrivate::_q_writeNotify()
+void QBluetoothSocketPrivateBluez::connectToService(
+        const QBluetoothServiceInfo &service, QIODevice::OpenMode openMode)
+{
+    Q_Q(QBluetoothSocket);
+
+    if (q->state() != QBluetoothSocket::UnconnectedState
+            && q->state() != QBluetoothSocket::ServiceLookupState) {
+        qCWarning(QT_BT_BLUEZ) << "QBluetoothSocketPrivateBluez::connectToService called on busy socket";
+        errorString = QBluetoothSocket::tr("Trying to connect while connection is in progress");
+        q->setSocketError(QBluetoothSocket::OperationError);
+        return;
+    }
+
+    // we are checking the service protocol and not socketType()
+    // socketType will change in ensureNativeSocket()
+    if (service.socketProtocol() == QBluetoothServiceInfo::UnknownProtocol) {
+        qCWarning(QT_BT_BLUEZ) << "QBluetoothSocket::connectToService cannot "
+                                  "connect with 'UnknownProtocol' (type provided by given service)";
+        errorString = QBluetoothSocket::tr("Socket type not supported");
+        q->setSocketError(QBluetoothSocket::UnsupportedProtocolError);
+        return;
+    }
+
+    if (service.protocolServiceMultiplexer() > 0) {
+        Q_ASSERT(service.socketProtocol() == QBluetoothServiceInfo::L2capProtocol);
+
+        if (!ensureNativeSocket(QBluetoothServiceInfo::L2capProtocol)) {
+            errorString = QBluetoothSocket::tr("Unknown socket error");
+            q->setSocketError(QBluetoothSocket::UnknownSocketError);
+            return;
+        }
+        connectToServiceHelper(service.device().address(), service.protocolServiceMultiplexer(),
+                               openMode);
+    } else if (service.serverChannel() > 0) {
+        Q_ASSERT(service.socketProtocol() == QBluetoothServiceInfo::RfcommProtocol);
+
+        if (!ensureNativeSocket(QBluetoothServiceInfo::RfcommProtocol)) {
+            errorString = QBluetoothSocket::tr("Unknown socket error");
+            q->setSocketError(QBluetoothSocket::UnknownSocketError);
+            return;
+        }
+        connectToServiceHelper(service.device().address(), service.serverChannel(), openMode);
+    } else {
+        // try doing service discovery to see if we can find the socket
+        if (service.serviceUuid().isNull()
+                && !service.serviceClassUuids().contains(QBluetoothUuid::SerialPort)) {
+            qCWarning(QT_BT_BLUEZ) << "No port, no PSM, and no UUID provided. Unable to connect";
+            return;
+        }
+        qCDebug(QT_BT_BLUEZ) << "Need a port/psm, doing discovery";
+        q->doDeviceDiscovery(service, openMode);
+    }
+}
+
+void QBluetoothSocketPrivateBluez::connectToService(
+        const QBluetoothAddress &address, const QBluetoothUuid &uuid,
+        QIODevice::OpenMode openMode)
+{
+    Q_Q(QBluetoothSocket);
+
+    if (q->state() != QBluetoothSocket::UnconnectedState) {
+        qCWarning(QT_BT_BLUEZ) << "QBluetoothSocketPrivateBluez::connectToService called on busy socket";
+        errorString = QBluetoothSocket::tr("Trying to connect while connection is in progress");
+        q->setSocketError(QBluetoothSocket::OperationError);
+        return;
+    }
+
+    if (q->socketType() == QBluetoothServiceInfo::UnknownProtocol) {
+        qCWarning(QT_BT_BLUEZ) << "QBluetoothSocketPrivateBluez::connectToService cannot "
+                                  "connect with 'UnknownProtocol' (type provided by given service)";
+        errorString = QBluetoothSocket::tr("Socket type not supported");
+        q->setSocketError(QBluetoothSocket::UnsupportedProtocolError);
+        return;
+    }
+
+    QBluetoothServiceInfo service;
+    QBluetoothDeviceInfo device(address, QString(), QBluetoothDeviceInfo::MiscellaneousDevice);
+    service.setDevice(device);
+    service.setServiceUuid(uuid);
+    q->doDeviceDiscovery(service, openMode);
+}
+
+void QBluetoothSocketPrivateBluez::connectToService(
+        const QBluetoothAddress &address, quint16 port, QIODevice::OpenMode openMode)
+{
+    Q_Q(QBluetoothSocket);
+
+    if (q->socketType() == QBluetoothServiceInfo::UnknownProtocol) {
+        qCWarning(QT_BT_BLUEZ) << "QBluetoothSocketPrivateBluez::connectToService cannot "
+                                  "connect with 'UnknownProtocol' (type provided by given service)";
+        errorString = QBluetoothSocket::tr("Socket type not supported");
+        q->setSocketError(QBluetoothSocket::UnsupportedProtocolError);
+        return;
+    }
+
+    if (q->state() != QBluetoothSocket::UnconnectedState) {
+        qCWarning(QT_BT_BLUEZ) << "QBluetoothSocketPrivateBluez::connectToService called on busy socket";
+        errorString = QBluetoothSocket::tr("Trying to connect while connection is in progress");
+        q->setSocketError(QBluetoothSocket::OperationError);
+        return;
+    }
+    connectToServiceHelper(address, port, openMode);
+}
+
+void QBluetoothSocketPrivateBluez::_q_writeNotify()
 {
     Q_Q(QBluetoothSocket);
     if(connecting && state == QBluetoothSocket::ConnectingState){
@@ -228,7 +325,6 @@ void QBluetoothSocketPrivate::_q_writeNotify()
         }
 
         q->setSocketState(QBluetoothSocket::ConnectedState);
-        emit q->connected();
 
         connectWriteNotifier->setEnabled(false);
         connecting = false;
@@ -275,7 +371,7 @@ void QBluetoothSocketPrivate::_q_writeNotify()
     }
 }
 
-void QBluetoothSocketPrivate::_q_readNotify()
+void QBluetoothSocketPrivateBluez::_q_readNotify()
 {
     Q_Q(QBluetoothSocket);
     char *writePointer = buffer.reserve(QPRIVATELINEARBUFFER_BUFFERSIZE);
@@ -302,21 +398,28 @@ void QBluetoothSocketPrivate::_q_readNotify()
     }
 }
 
-void QBluetoothSocketPrivate::abort()
+void QBluetoothSocketPrivateBluez::abort()
 {
     delete readNotifier;
-    readNotifier = 0;
+    readNotifier = nullptr;
     delete connectWriteNotifier;
-    connectWriteNotifier = 0;
+    connectWriteNotifier = nullptr;
 
     // We don't transition through Closing for abort, so
     // we don't call disconnectFromService or
     // QBluetoothSocket::close
     QT_CLOSE(socket);
     socket = -1;
+
+    Q_Q(QBluetoothSocket);
+
+    q->setOpenMode(QIODevice::NotOpen);
+    q->setSocketState(QBluetoothSocket::UnconnectedState);
+    emit q->readChannelFinished();
+    emit q->disconnected();
 }
 
-QString QBluetoothSocketPrivate::localName() const
+QString QBluetoothSocketPrivateBluez::localName() const
 {
     const QBluetoothAddress address = localAddress();
     if (address.isNull())
@@ -326,7 +429,7 @@ QString QBluetoothSocketPrivate::localName() const
     return device.name();
 }
 
-QBluetoothAddress QBluetoothSocketPrivate::localAddress() const
+QBluetoothAddress QBluetoothSocketPrivateBluez::localAddress() const
 {
     if (socketType == QBluetoothServiceInfo::RfcommProtocol) {
         sockaddr_rc addr;
@@ -345,7 +448,7 @@ QBluetoothAddress QBluetoothSocketPrivate::localAddress() const
     return QBluetoothAddress();
 }
 
-quint16 QBluetoothSocketPrivate::localPort() const
+quint16 QBluetoothSocketPrivateBluez::localPort() const
 {
     if (socketType == QBluetoothServiceInfo::RfcommProtocol) {
         sockaddr_rc addr;
@@ -364,7 +467,7 @@ quint16 QBluetoothSocketPrivate::localPort() const
     return 0;
 }
 
-QString QBluetoothSocketPrivate::peerName() const
+QString QBluetoothSocketPrivateBluez::peerName() const
 {
     quint64 bdaddr;
 
@@ -452,7 +555,7 @@ QString QBluetoothSocketPrivate::peerName() const
     }
 }
 
-QBluetoothAddress QBluetoothSocketPrivate::peerAddress() const
+QBluetoothAddress QBluetoothSocketPrivateBluez::peerAddress() const
 {
     if (socketType == QBluetoothServiceInfo::RfcommProtocol) {
         sockaddr_rc addr;
@@ -471,7 +574,7 @@ QBluetoothAddress QBluetoothSocketPrivate::peerAddress() const
     return QBluetoothAddress();
 }
 
-quint16 QBluetoothSocketPrivate::peerPort() const
+quint16 QBluetoothSocketPrivateBluez::peerPort() const
 {
     if (socketType == QBluetoothServiceInfo::RfcommProtocol) {
         sockaddr_rc addr;
@@ -490,7 +593,7 @@ quint16 QBluetoothSocketPrivate::peerPort() const
     return 0;
 }
 
-qint64 QBluetoothSocketPrivate::writeData(const char *data, qint64 maxSize)
+qint64 QBluetoothSocketPrivateBluez::writeData(const char *data, qint64 maxSize)
 {
     Q_Q(QBluetoothSocket);
 
@@ -535,7 +638,7 @@ qint64 QBluetoothSocketPrivate::writeData(const char *data, qint64 maxSize)
     }
 }
 
-qint64 QBluetoothSocketPrivate::readData(char *data, qint64 maxSize)
+qint64 QBluetoothSocketPrivateBluez::readData(char *data, qint64 maxSize)
 {
     Q_Q(QBluetoothSocket);
 
@@ -553,7 +656,7 @@ qint64 QBluetoothSocketPrivate::readData(char *data, qint64 maxSize)
     return 0;
 }
 
-void QBluetoothSocketPrivate::close()
+void QBluetoothSocketPrivateBluez::close()
 {
     if (txBuffer.size() > 0)
         connectWriteNotifier->setEnabled(true);
@@ -561,16 +664,19 @@ void QBluetoothSocketPrivate::close()
         abort();
 }
 
-bool QBluetoothSocketPrivate::setSocketDescriptor(int socketDescriptor, QBluetoothServiceInfo::Protocol socketType_,
+bool QBluetoothSocketPrivateBluez::setSocketDescriptor(int socketDescriptor, QBluetoothServiceInfo::Protocol socketType_,
                                            QBluetoothSocket::SocketState socketState, QBluetoothSocket::OpenMode openMode)
 {
     Q_Q(QBluetoothSocket);
     delete readNotifier;
-    readNotifier = 0;
+    readNotifier = nullptr;
     delete connectWriteNotifier;
-    connectWriteNotifier = 0;
+    connectWriteNotifier = nullptr;
 
     socketType = socketType_;
+    if (socket != -1)
+        QT_CLOSE(socket);
+
     socket = socketDescriptor;
 
     // ensure that O_NONBLOCK is set on new connections.
@@ -589,17 +695,17 @@ bool QBluetoothSocketPrivate::setSocketDescriptor(int socketDescriptor, QBluetoo
     return true;
 }
 
-qint64 QBluetoothSocketPrivate::bytesAvailable() const
+qint64 QBluetoothSocketPrivateBluez::bytesAvailable() const
 {
     return buffer.size();
 }
 
-qint64 QBluetoothSocketPrivate::bytesToWrite() const
+qint64 QBluetoothSocketPrivateBluez::bytesToWrite() const
 {
     return txBuffer.size();
 }
 
-bool QBluetoothSocketPrivate::canReadLine() const
+bool QBluetoothSocketPrivateBluez::canReadLine() const
 {
     return buffer.canReadLine();
 }

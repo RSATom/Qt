@@ -46,7 +46,7 @@ namespace es1
 		setAlphaTestEnable(false);
 		setSourceBlendFactor(BLEND_ONE);
 		setDestBlendFactor(BLEND_ZERO);
-		setCullMode(CULL_COUNTERCLOCKWISE);
+		setCullMode(CULL_COUNTERCLOCKWISE, true);
 		setDepthCompare(DEPTH_LESSEQUAL);
 		setAlphaReference(0.0f);
 		setAlphaCompare(ALPHA_ALWAYS);
@@ -172,7 +172,7 @@ namespace es1
 		rgba[2] = blue;
 		rgba[3] = alpha;
 
-		sw::SliceRect clearRect = renderTarget->getRect();
+		sw::Rect clearRect = renderTarget->getRect();
 
 		if(scissorEnable)
 		{
@@ -190,7 +190,7 @@ namespace es1
 		}
 
 		z = clamp01(z);
-		sw::SliceRect clearRect = depthBuffer->getRect();
+		sw::Rect clearRect = depthBuffer->getRect();
 
 		if(scissorEnable)
 		{
@@ -207,7 +207,7 @@ namespace es1
 			return;
 		}
 
-		sw::SliceRect clearRect = stencilBuffer->getRect();
+		sw::Rect clearRect = stencilBuffer->getRect();
 
 		if(scissorEnable)
 		{
@@ -215,69 +215,6 @@ namespace es1
 		}
 
 		stencilBuffer->clearStencil(stencil, mask, clearRect.x0, clearRect.y0, clearRect.width(), clearRect.height());
-	}
-
-	egl::Image *Device::createDepthStencilSurface(unsigned int width, unsigned int height, sw::Format format, int multiSampleDepth, bool discard)
-	{
-		if(height > OUTLINE_RESOLUTION)
-		{
-			ERR("Invalid parameters: %dx%d", width, height);
-			return nullptr;
-		}
-
-		bool lockable = true;
-
-		switch(format)
-		{
-	//	case FORMAT_D15S1:
-		case FORMAT_D24S8:
-		case FORMAT_D24X8:
-	//	case FORMAT_D24X4S4:
-		case FORMAT_D24FS8:
-		case FORMAT_D32:
-		case FORMAT_D16:
-			lockable = false;
-			break;
-	//	case FORMAT_S8_LOCKABLE:
-	//	case FORMAT_D16_LOCKABLE:
-		case FORMAT_D32F_LOCKABLE:
-	//	case FORMAT_D32_LOCKABLE:
-		case FORMAT_DF24S8:
-		case FORMAT_DF16S8:
-			lockable = true;
-			break;
-		default:
-			UNREACHABLE(format);
-		}
-
-		egl::Image *surface = egl::Image::create(width, height, format, multiSampleDepth, lockable);
-
-		if(!surface)
-		{
-			ERR("Out of memory");
-			return nullptr;
-		}
-
-		return surface;
-	}
-
-	egl::Image *Device::createRenderTarget(unsigned int width, unsigned int height, sw::Format format, int multiSampleDepth, bool lockable)
-	{
-		if(height > OUTLINE_RESOLUTION)
-		{
-			ERR("Invalid parameters: %dx%d", width, height);
-			return nullptr;
-		}
-
-		egl::Image *surface = egl::Image::create(width, height, format, multiSampleDepth, lockable);
-
-		if(!surface)
-		{
-			ERR("Out of memory");
-			return nullptr;
-		}
-
-		return surface;
 	}
 
 	void Device::drawIndexedPrimitive(sw::DrawType type, unsigned int indexOffset, unsigned int primitiveCount)
@@ -506,7 +443,8 @@ namespace es1
 		}
 		else
 		{
-			blit(source, sRect, dest, dRect, scaling && filter);
+			sw::SliceRectF sRectF((float)sRect.x0, (float)sRect.y0, (float)sRect.x1, (float)sRect.y1, sRect.slice);
+			blit(source, sRectF, dest, dRect, scaling && filter);
 		}
 
 		return true;

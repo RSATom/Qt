@@ -25,7 +25,7 @@ BluetoothInputClient::Properties::Properties(
   RegisterProperty(bluetooth_input::kReconnectModeProperty, &reconnect_mode);
 }
 
-BluetoothInputClient::Properties::~Properties() {}
+BluetoothInputClient::Properties::~Properties() = default;
 
 // The BluetoothInputClient implementation used in production.
 class BluetoothInputClientImpl : public BluetoothInputClient,
@@ -69,9 +69,10 @@ class BluetoothInputClientImpl : public BluetoothInputClient,
   }
 
  protected:
-  void Init(dbus::Bus* bus) override {
+  void Init(dbus::Bus* bus,
+            const std::string& bluetooth_service_name) override {
     object_manager_ = bus->GetObjectManager(
-        bluetooth_object_manager::kBluetoothObjectManagerServiceName,
+        bluetooth_service_name,
         dbus::ObjectPath(
             bluetooth_object_manager::kBluetoothObjectManagerServicePath));
     object_manager_->RegisterInterface(
@@ -107,7 +108,7 @@ class BluetoothInputClientImpl : public BluetoothInputClient,
   dbus::ObjectManager* object_manager_;
 
   // List of observers interested in event notifications from us.
-  base::ObserverList<BluetoothInputClient::Observer> observers_;
+  base::ObserverList<BluetoothInputClient::Observer>::Unchecked observers_;
 
   // Weak pointer factory for generating 'this' pointers that might live longer
   // than we do.
@@ -118,9 +119,9 @@ class BluetoothInputClientImpl : public BluetoothInputClient,
   DISALLOW_COPY_AND_ASSIGN(BluetoothInputClientImpl);
 };
 
-BluetoothInputClient::BluetoothInputClient() {}
+BluetoothInputClient::BluetoothInputClient() = default;
 
-BluetoothInputClient::~BluetoothInputClient() {}
+BluetoothInputClient::~BluetoothInputClient() = default;
 
 BluetoothInputClient* BluetoothInputClient::Create() {
   return new BluetoothInputClientImpl();

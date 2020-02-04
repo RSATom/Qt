@@ -1,4 +1,3 @@
 TEMPLATE = subdirs
 
-SUBDIRS += \
-    qthangman
+qtHaveModule(quick): SUBDIRS += qthangman

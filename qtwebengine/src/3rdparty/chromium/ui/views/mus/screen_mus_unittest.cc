@@ -5,61 +5,30 @@
 #include "ui/views/mus/screen_mus.h"
 
 #include "base/command_line.h"
-#include "base/message_loop/message_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "ui/display/display_switches.h"
 #include "ui/display/screen.h"
-#include "ui/views/test/scoped_views_test_helper.h"
 #include "ui/views/test/views_test_base.h"
 
 namespace views {
-
-class ScreenMusTestApi {
- public:
-  static void CallOnDisplaysChanged(
-      ScreenMus* screen,
-      std::vector<ui::mojom::WsDisplayPtr> ws_displays,
-      int64_t primary_display_id,
-      int64_t internal_display_id) {
-    screen->OnDisplaysChanged(std::move(ws_displays), primary_display_id,
-                              internal_display_id);
-  }
-
- private:
-  DISALLOW_IMPLICIT_CONSTRUCTORS(ScreenMusTestApi);
-};
-
 namespace {
 
-std::vector<ui::mojom::WsDisplayPtr> ConvertDisplayToWsDisplays(
+std::vector<ws::mojom::WsDisplayPtr> ConvertDisplayToWsDisplays(
     const std::vector<display::Display>& displays) {
-  std::vector<ui::mojom::WsDisplayPtr> results;
+  std::vector<ws::mojom::WsDisplayPtr> results;
   for (const auto& display : displays) {
-    ui::mojom::WsDisplayPtr display_ptr = ui::mojom::WsDisplay::New();
+    ws::mojom::WsDisplayPtr display_ptr = ws::mojom::WsDisplay::New();
     display_ptr->display = display;
     display_ptr->frame_decoration_values =
-        ui::mojom::FrameDecorationValues::New();
+        ws::mojom::FrameDecorationValues::New();
     results.push_back(std::move(display_ptr));
   }
   return results;
 }
 
-TEST(ScreenMusTest, ConsistentDisplayInHighDPI) {
-  base::MessageLoop message_loop(base::MessageLoop::TYPE_UI);
-  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-      switches::kForceDeviceScaleFactor, "2");
-  ScopedViewsTestHelper test_helper;
-  display::Screen* screen = display::Screen::GetScreen();
-  std::vector<display::Display> displays = screen->GetAllDisplays();
-  ASSERT_FALSE(displays.empty());
-  for (const display::Display& display : displays) {
-    EXPECT_EQ(2.f, display.device_scale_factor());
-    EXPECT_EQ(display.work_area(), display.bounds());
-  }
-}
+using ScreenMusTest = ViewsTestWithDesktopNativeWidget;
 
-TEST(ScreenMusTest, PrimaryChangedToExisting) {
-  base::MessageLoop message_loop(base::MessageLoop::TYPE_UI);
-  ScopedViewsTestHelper test_helper;
+TEST_F(ScreenMusTest, PrimaryChangedToExisting) {
   ScreenMus* screen = static_cast<ScreenMus*>(display::Screen::GetScreen());
   std::vector<display::Display> displays = screen->GetAllDisplays();
   ASSERT_FALSE(displays.empty());
@@ -67,16 +36,14 @@ TEST(ScreenMusTest, PrimaryChangedToExisting) {
   // Convert to a single display with a different primary id.
   displays.resize(1);
   displays[0].set_id(displays[0].id() + 1);
-  ScreenMusTestApi::CallOnDisplaysChanged(
-      screen, ConvertDisplayToWsDisplays(displays), displays[0].id(), 0);
+  screen->OnDisplaysChanged(ConvertDisplayToWsDisplays(displays),
+                            displays[0].id(), 0, 0);
   ASSERT_EQ(1u, screen->GetAllDisplays().size());
   EXPECT_EQ(displays[0].id(), screen->GetAllDisplays()[0].id());
   EXPECT_EQ(displays[0].id(), screen->GetPrimaryDisplay().id());
 }
 
-TEST(ScreenMusTest, AddAndUpdate) {
-  base::MessageLoop message_loop(base::MessageLoop::TYPE_UI);
-  ScopedViewsTestHelper test_helper;
+TEST_F(ScreenMusTest, AddAndUpdate) {
   ScreenMus* screen = static_cast<ScreenMus*>(display::Screen::GetScreen());
   std::vector<display::Display> displays = screen->GetAllDisplays();
   ASSERT_FALSE(displays.empty());
@@ -88,8 +55,8 @@ TEST(ScreenMusTest, AddAndUpdate) {
   displays[0].set_bounds(new_bounds);
   displays.push_back(displays[0]);
   displays[1].set_id(displays[0].id() + 1);
-  ScreenMusTestApi::CallOnDisplaysChanged(
-      screen, ConvertDisplayToWsDisplays(displays), displays[1].id(), 0);
+  screen->OnDisplaysChanged(ConvertDisplayToWsDisplays(displays),
+                            displays[1].id(), 0, 0);
   ASSERT_EQ(2u, screen->GetAllDisplays().size());
   ASSERT_TRUE(screen->display_list().FindDisplayById(displays[0].id()) !=
               screen->display_list().displays().end());
@@ -100,6 +67,57 @@ TEST(ScreenMusTest, AddAndUpdate) {
   ASSERT_TRUE(screen->display_list().FindDisplayById(displays[1].id()) !=
               screen->display_list().displays().end());
   EXPECT_EQ(displays[1].id(), screen->GetPrimaryDisplay().id());
+}
+
+TEST_F(ScreenMusTest, SetDisplayForNewWindows) {
+  ScreenMus* screen = static_cast<ScreenMus*>(display::Screen::GetScreen());
+
+  // Set up 2 displays with display 1 as the display for new windows.
+  constexpr int64_t kDisplayId1 = 111;
+  constexpr int64_t kDisplayId2 = 222;
+  std::vector<display::Display> displays = {display::Display(kDisplayId1),
+                                            display::Display(kDisplayId2)};
+  screen->OnDisplaysChanged(ConvertDisplayToWsDisplays(displays), kDisplayId1,
+                            kDisplayId1,
+                            kDisplayId1 /* display_id_for_new_windows */);
+  EXPECT_EQ(kDisplayId1, screen->GetDisplayForNewWindows().id());
+
+  // Set display 2 as the display for new windows.
+  screen->OnDisplaysChanged(ConvertDisplayToWsDisplays(displays), kDisplayId1,
+                            kDisplayId1,
+                            kDisplayId2 /* display_id_for_new_windows */);
+  EXPECT_EQ(kDisplayId2, screen->GetDisplayForNewWindows().id());
+
+  // Set a bad display as the display for new windows. ScreenMus should fall
+  // back to the primary display.
+  screen->OnDisplaysChanged(ConvertDisplayToWsDisplays(displays), kDisplayId1,
+                            kDisplayId1, 666 /* display_id_for_new_windows */);
+  EXPECT_EQ(kDisplayId1, screen->GetDisplayForNewWindows().id());
+}
+
+class ScreenMusScaleFactorTest : public ScreenMusTest {
+ public:
+  ScreenMusScaleFactorTest() = default;
+  ~ScreenMusScaleFactorTest() override = default;
+
+  void SetUp() override {
+    base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+        switches::kForceDeviceScaleFactor, "2");
+    ScreenMusTest::SetUp();
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(ScreenMusScaleFactorTest);
+};
+
+TEST_F(ScreenMusScaleFactorTest, ConsistentDisplayInHighDPI) {
+  display::Screen* screen = display::Screen::GetScreen();
+  std::vector<display::Display> displays = screen->GetAllDisplays();
+  ASSERT_FALSE(displays.empty());
+  for (const display::Display& display : displays) {
+    EXPECT_EQ(2.f, display.device_scale_factor());
+    EXPECT_EQ(display.work_area(), display.bounds());
+  }
 }
 
 }  // namespace

@@ -65,28 +65,25 @@ const int MAX_HEADERLINES = 100;            //maximum number of http request hea
     \internal
  */
 QWebSocketServerPrivate::QWebSocketServerPrivate(const QString &serverName,
-                                                 QWebSocketServerPrivate::SslMode secureMode,
-                                                 QWebSocketServer * const pWebSocketServer) :
+                                                 QWebSocketServerPrivate::SslMode secureMode) :
     QObjectPrivate(),
-    q_ptr(pWebSocketServer),
-    m_pTcpServer(Q_NULLPTR),
+    m_pTcpServer(nullptr),
     m_serverName(serverName),
     m_secureMode(secureMode),
     m_pendingConnections(),
     m_error(QWebSocketProtocol::CloseCodeNormal),
     m_errorString(),
     m_maxPendingConnections(30)
-{
-    Q_ASSERT(pWebSocketServer);
-}
+{}
 
 /*!
     \internal
  */
 void QWebSocketServerPrivate::init()
 {
+    Q_Q(QWebSocketServer);
     if (m_secureMode == NonSecureMode) {
-        m_pTcpServer = new QTcpServer(q_ptr);
+        m_pTcpServer = new QTcpServer(q);
         if (Q_LIKELY(m_pTcpServer))
             QObjectPrivate::connect(m_pTcpServer, &QTcpServer::newConnection,
                                     this, &QWebSocketServerPrivate::onNewConnection);
@@ -94,24 +91,24 @@ void QWebSocketServerPrivate::init()
             qFatal("Could not allocate memory for tcp server.");
     } else {
 #ifndef QT_NO_SSL
-        QSslServer *pSslServer = new QSslServer(q_ptr);
+        QSslServer *pSslServer = new QSslServer(q);
         m_pTcpServer = pSslServer;
         if (Q_LIKELY(m_pTcpServer)) {
             QObjectPrivate::connect(pSslServer, &QSslServer::newEncryptedConnection,
                                     this, &QWebSocketServerPrivate::onNewConnection,
                                     Qt::QueuedConnection);
             QObject::connect(pSslServer, &QSslServer::peerVerifyError,
-                             q_ptr, &QWebSocketServer::peerVerifyError);
+                             q, &QWebSocketServer::peerVerifyError);
             QObject::connect(pSslServer, &QSslServer::sslErrors,
-                             q_ptr, &QWebSocketServer::sslErrors);
+                             q, &QWebSocketServer::sslErrors);
             QObject::connect(pSslServer, &QSslServer::preSharedKeyAuthenticationRequired,
-                             q_ptr, &QWebSocketServer::preSharedKeyAuthenticationRequired);
+                             q, &QWebSocketServer::preSharedKeyAuthenticationRequired);
         }
 #else
         qFatal("SSL not supported on this platform.");
 #endif
     }
-    QObject::connect(m_pTcpServer, &QTcpServer::acceptError, q_ptr, &QWebSocketServer::acceptError);
+    QObject::connect(m_pTcpServer, &QTcpServer::acceptError, q, &QWebSocketServer::acceptError);
 }
 
 /*!
@@ -211,7 +208,7 @@ void QWebSocketServerPrivate::setErrorFromSocketError(QAbstractSocket::SocketErr
  */
 QWebSocket *QWebSocketServerPrivate::nextPendingConnection()
 {
-    QWebSocket *pWebSocket = Q_NULLPTR;
+    QWebSocket *pWebSocket = nullptr;
     if (Q_LIKELY(!m_pendingConnections.isEmpty()))
         pWebSocket = m_pendingConnections.dequeue();
     return pWebSocket;
@@ -419,7 +416,9 @@ void QWebSocketServerPrivate::handshakeReceived()
     //For Safari, the handshake is delivered at once
     //FIXME: For FireFox, the readyRead signal is never emitted
     //This is a bug in FireFox (see https://bugzilla.mozilla.org/show_bug.cgi?id=594502)
-    if (!pTcpSocket->canReadLine()) {
+
+    // According to RFC822 the body is separated from the headers by a null line (CRLF)
+    if (!pTcpSocket->peek(pTcpSocket->bytesAvailable()).endsWith(QByteArrayLiteral("\r\n\r\n"))) {
         return;
     }
     disconnect(pTcpSocket, &QTcpSocket::readyRead,

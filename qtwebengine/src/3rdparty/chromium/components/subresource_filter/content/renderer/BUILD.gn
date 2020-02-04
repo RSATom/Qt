@@ -4,6 +4,10 @@
 
 static_library("renderer") {
   sources = [
+    "ad_delay_renderer_metadata_provider.cc",
+    "ad_delay_renderer_metadata_provider.h",
+    "ad_resource_tracker.cc",
+    "ad_resource_tracker.h",
     "subresource_filter_agent.cc",
     "subresource_filter_agent.h",
     "unverified_ruleset_dealer.cc",
@@ -14,10 +18,11 @@ static_library("renderer") {
   deps = [
     "//base",
     "//components/subresource_filter/content/common",
+    "//components/subresource_filter/content/mojom",
     "//components/subresource_filter/core/common",
     "//content/public/common",
     "//content/public/renderer",
-    "//third_party/WebKit/public:blink",
+    "//third_party/blink/public:blink",
     "//url",
   ]
   public_deps = [
@@ -35,11 +40,12 @@ source_set("unit_tests") {
     "//base",
     "//base/test:test_support",
     "//components/subresource_filter/content/common",
+    "//components/subresource_filter/content/mojom",
     "//components/subresource_filter/core/common",
     "//components/subresource_filter/core/common:test_support",
     "//testing/gmock",
     "//testing/gtest",
-    "//third_party/WebKit/public:blink",
+    "//third_party/blink/public:blink",
     "//url",
   ]
 }

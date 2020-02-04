@@ -9,40 +9,35 @@
 
 #include <vector>
 
+#include "core/fxcodec/jbig2/JBig2_Define.h"
 #include "core/fxcrt/fx_system.h"
 
 class CJBig2_BitStream;
-struct JBig2TableLine;
 
 class CJBig2_HuffmanTable {
  public:
-  CJBig2_HuffmanTable(const JBig2TableLine* pTable,
-                      uint32_t nLines,
-                      bool bHTOOB);
-
+  explicit CJBig2_HuffmanTable(size_t idx);
   explicit CJBig2_HuffmanTable(CJBig2_BitStream* pStream);
-
   ~CJBig2_HuffmanTable();
 
   bool IsHTOOB() const { return HTOOB; }
   uint32_t Size() const { return NTEMP; }
-  const std::vector<int>& GetCODES() const { return CODES; }
-  const std::vector<int>& GetPREFLEN() const { return PREFLEN; }
+  const std::vector<JBig2HuffmanCode>& GetCODES() const { return CODES; }
   const std::vector<int>& GetRANGELEN() const { return RANGELEN; }
   const std::vector<int>& GetRANGELOW() const { return RANGELOW; }
   bool IsOK() const { return m_bOK; }
 
+  constexpr static size_t kNumHuffmanTables = 16;
+
  private:
-  void ParseFromStandardTable(const JBig2TableLine* pTable);
+  bool ParseFromStandardTable(size_t table_idx);
   bool ParseFromCodedBuffer(CJBig2_BitStream* pStream);
-  bool InitCodes();
   void ExtendBuffers(bool increment);
 
   bool m_bOK;
   bool HTOOB;
   uint32_t NTEMP;
-  std::vector<int> CODES;
-  std::vector<int> PREFLEN;
+  std::vector<JBig2HuffmanCode> CODES;
   std::vector<int> RANGELEN;
   std::vector<int> RANGELOW;
 };

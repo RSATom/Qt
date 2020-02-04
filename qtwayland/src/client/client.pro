@@ -15,8 +15,12 @@ use_gold_linker: CONFIG += no_linker_version_script
 CONFIG -= precompile_header
 CONFIG += link_pkgconfig wayland-scanner
 
-qtConfig(xkbcommon-evdev): \
-    QMAKE_USE_PRIVATE += xkbcommon_evdev
+qtConfig(xkbcommon) {
+    QT_FOR_PRIVATE += xkbcommon_support-private
+}
+
+qtHaveModule(linuxaccessibility_support_private): \
+    QT_PRIVATE += linuxaccessibility_support_private
 
 QMAKE_USE += wayland-client
 
@@ -25,14 +29,11 @@ INCLUDEPATH += $$PWD/../shared
 WAYLANDCLIENTSOURCES += \
             ../extensions/surface-extension.xml \
             ../extensions/touch-extension.xml \
-            ../extensions/qtkey-extension.xml \
+            ../extensions/qt-key-unstable-v1.xml \
             ../extensions/qt-windowmanager.xml \
             ../3rdparty/protocol/text-input-unstable-v2.xml \
-            ../3rdparty/protocol/xdg-shell.xml \
-            ../3rdparty/protocol/xdg-shell-unstable-v6.xml \
-
-WAYLANDCLIENTSOURCES_SYSTEM += \
-            ../3rdparty/protocol/wayland.xml \
+            ../3rdparty/protocol/xdg-output-unstable-v1.xml \
+            ../3rdparty/protocol/wayland.xml
 
 SOURCES +=  qwaylandintegration.cpp \
             qwaylandnativeinterface.cpp \
@@ -43,20 +44,11 @@ SOURCES +=  qwaylandintegration.cpp \
             qwaylandscreen.cpp \
             qwaylandshmwindow.cpp \
             qwaylandshellsurface.cpp \
-            qwaylandwlshellsurface.cpp \
-            qwaylandwlshellintegration.cpp \
-            qwaylandxdgshell.cpp \
-            qwaylandxdgsurface.cpp \
-            qwaylandxdgpopup.cpp \
-            qwaylandxdgshellintegration.cpp \
-            qwaylandxdgshellv6.cpp \
-            qwaylandxdgshellv6integration.cpp \
             qwaylandextendedsurface.cpp \
             qwaylandsubsurface.cpp \
             qwaylandtouch.cpp \
             qwaylandqtkey.cpp \
             ../shared/qwaylandmimehelper.cpp \
-            ../shared/qwaylandxkb.cpp \
             ../shared/qwaylandinputmethodeventbuilder.cpp \
             qwaylandabstractdecoration.cpp \
             qwaylanddecorationfactory.cpp \
@@ -76,14 +68,6 @@ HEADERS +=  qwaylandintegration_p.h \
             qwaylandbuffer_p.h \
             qwaylandshmwindow_p.h \
             qwaylandshellsurface_p.h \
-            qwaylandwlshellsurface_p.h \
-            qwaylandwlshellintegration_p.h \
-            qwaylandxdgshell_p.h \
-            qwaylandxdgsurface_p.h \
-            qwaylandxdgpopup_p.h \
-            qwaylandxdgshellintegration_p.h \
-            qwaylandxdgshellv6_p.h \
-            qwaylandxdgshellv6integration_p.h \
             qwaylandextendedsurface_p.h \
             qwaylandsubsurface_p.h \
             qwaylandtouch_p.h \
@@ -98,7 +82,6 @@ HEADERS +=  qwaylandintegration_p.h \
             qtwaylandclientglobal_p.h \
             ../shared/qwaylandinputmethodeventbuilder_p.h \
             ../shared/qwaylandmimehelper_p.h \
-            ../shared/qwaylandxkb_p.h \
             ../shared/qwaylandsharedmemoryformathelper_p.h \
 
 qtConfig(clipboard) {

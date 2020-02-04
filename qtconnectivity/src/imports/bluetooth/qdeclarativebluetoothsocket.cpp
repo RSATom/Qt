@@ -79,7 +79,7 @@ class QDeclarativeBluetoothSocketPrivate
 {
 public:
     QDeclarativeBluetoothSocketPrivate(QDeclarativeBluetoothSocket *bs)
-        : m_dbs(bs), m_service(0), m_socket(0),
+        : m_dbs(bs),
           m_error(QDeclarativeBluetoothSocket::NoError),
           m_state(QDeclarativeBluetoothSocket::NoServiceSet),
           m_componentCompleted(false),
@@ -112,16 +112,21 @@ public:
 
         m_socket = new QBluetoothSocket(socketProtocol);
         m_socket->connectToService(*m_service->serviceInfo());
-        QObject::connect(m_socket, SIGNAL(connected()), m_dbs, SLOT(socket_connected()));
-        QObject::connect(m_socket, SIGNAL(disconnected()), m_dbs, SLOT(socket_disconnected()));
-        QObject::connect(m_socket, SIGNAL(error(QBluetoothSocket::SocketError)), m_dbs, SLOT(socket_error(QBluetoothSocket::SocketError)));
-        QObject::connect(m_socket, SIGNAL(stateChanged(QBluetoothSocket::SocketState)), m_dbs, SLOT(socket_state(QBluetoothSocket::SocketState)));
-        QObject::connect(m_socket, SIGNAL(readyRead()), m_dbs, SLOT(socket_readyRead()));
+        QObject::connect(m_socket, &QBluetoothSocket::connected,
+                         m_dbs, &QDeclarativeBluetoothSocket::socket_connected);
+        QObject::connect(m_socket, &QBluetoothSocket::disconnected,
+                         m_dbs, &QDeclarativeBluetoothSocket::socket_disconnected);
+        QObject::connect(m_socket, QOverload<QBluetoothSocket::SocketError>::of(&QBluetoothSocket::error),
+                         m_dbs, &QDeclarativeBluetoothSocket::socket_error);
+        QObject::connect(m_socket, &QBluetoothSocket::stateChanged,
+                         m_dbs, &QDeclarativeBluetoothSocket::socket_state);
+        QObject::connect(m_socket, &QIODevice::readyRead,
+                         m_dbs, &QDeclarativeBluetoothSocket::socket_readyRead);
     }
 
     QDeclarativeBluetoothSocket *m_dbs;
-    QDeclarativeBluetoothService *m_service;
-    QBluetoothSocket *m_socket;
+    QDeclarativeBluetoothService *m_service = nullptr;
+    QBluetoothSocket *m_socket = nullptr;
     QDeclarativeBluetoothSocket::Error m_error;
     QDeclarativeBluetoothSocket::SocketState m_state;
     bool m_componentCompleted;
@@ -264,7 +269,7 @@ void QDeclarativeBluetoothSocket::socket_connected()
 void QDeclarativeBluetoothSocket::socket_disconnected()
 {
     d->m_socket->deleteLater();
-    d->m_socket = 0;
+    d->m_socket = nullptr;
     emit connectedChanged();
 }
 
@@ -363,11 +368,16 @@ void QDeclarativeBluetoothSocket::newSocket(QBluetoothSocket *socket, QDeclarati
     d->m_componentCompleted = true;
     d->m_error = NoError;
 
-    QObject::connect(socket, SIGNAL(connected()), this, SLOT(socket_connected()));
-    QObject::connect(socket, SIGNAL(disconnected()), this, SLOT(socket_disconnected()));
-    QObject::connect(socket, SIGNAL(error(QBluetoothSocket::SocketError)), this, SLOT(socket_error(QBluetoothSocket::SocketError)));
-    QObject::connect(socket, SIGNAL(stateChanged(QBluetoothSocket::SocketState)), this, SLOT(socket_state(QBluetoothSocket::SocketState)));
-    QObject::connect(socket, SIGNAL(readyRead()), this, SLOT(socket_readyRead()));
+    QObject::connect(socket, &QBluetoothSocket::connected,
+                     this, &QDeclarativeBluetoothSocket::socket_connected);
+    QObject::connect(socket, &QBluetoothSocket::disconnected,
+                     this, &QDeclarativeBluetoothSocket::socket_disconnected);
+    QObject::connect(socket, QOverload<QBluetoothSocket::SocketError>::of(&QBluetoothSocket::error),
+                     this, &QDeclarativeBluetoothSocket::socket_error);
+    QObject::connect(socket, &QBluetoothSocket::stateChanged,
+                     this, &QDeclarativeBluetoothSocket::socket_state);
+    QObject::connect(socket, &QIODevice::readyRead,
+                     this, &QDeclarativeBluetoothSocket::socket_readyRead);
 
     socket_state(socket->state());
 

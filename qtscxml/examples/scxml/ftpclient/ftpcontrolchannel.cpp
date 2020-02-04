@@ -52,8 +52,10 @@
 
 FtpControlChannel::FtpControlChannel(QObject *parent) : QObject(parent)
 {
-    connect(&m_socket, &QIODevice::readyRead, this, &FtpControlChannel::onReadyRead);
-    connect(&m_socket, &QAbstractSocket::disconnected, this, &FtpControlChannel::closed);
+    connect(&m_socket, &QIODevice::readyRead,
+            this, &FtpControlChannel::onReadyRead);
+    connect(&m_socket, &QAbstractSocket::disconnected,
+            this, &FtpControlChannel::closed);
     connect(&m_socket, &QAbstractSocket::connected, this, [this]() {
         emit opened(m_socket.localAddress(), m_socket.localPort());
     });
@@ -64,7 +66,8 @@ void FtpControlChannel::connectToServer(const QString &server)
     m_socket.connectToHost(server, 21);
 }
 
-void FtpControlChannel::command(const QByteArray &command, const QByteArray &params)
+void FtpControlChannel::command(const QByteArray &command,
+                                const QByteArray &params)
 {
     QByteArray sendData = command;
     if (!params.isEmpty())

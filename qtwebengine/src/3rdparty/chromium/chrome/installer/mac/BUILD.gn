@@ -5,17 +5,13 @@
 import("//build/util/branding.gni")
 import("//build/util/version.gni")
 import("//build/config/features.gni")
+import("//build/config/mac/base_rules.gni")
 
 group("mac") {
   public_deps = [
     ":copies",
     ":make_signers",
-    "app:mac_installer_app",
   ]
-
-  if (is_chrome_branded) {
-    public_deps += [ ":keychain_reauthorizers" ]
-  }
 }
 
 _packaging_dir = "$root_out_dir/$chrome_product_full_name Packaging"
@@ -71,6 +67,7 @@ copy("copies") {
 
   deps = [
     ":copy_variables",
+    "//chrome:entitlements",
     "//chrome/installer/mac/third_party/bsdiff:goobsdiff",
     "//chrome/installer/mac/third_party/bsdiff:goobspatch",
     "//chrome/installer/mac/third_party/xz:lzma_decompress",
@@ -79,6 +76,7 @@ copy("copies") {
   ]
 
   sources = [
+    "$root_gen_dir/chrome/entitlements.plist",
     "$root_out_dir/goobsdiff",
     "$root_out_dir/goobspatch",
     "$root_out_dir/liblzma_decompress.dylib",
@@ -99,12 +97,13 @@ copy("copies") {
     sources += [
       "//chrome/app/theme/google_chrome/mac/app_canary.icns",
       "//chrome/app/theme/google_chrome/mac/document_canary.icns",
+      "internal/Google_Chrome.provisionprofile",
+      "internal/Google_Chrome_Canary.provisionprofile",
       "internal/chrome_canary_dmg_dsstore",
       "internal/chrome_canary_dmg_icon.icns",
       "internal/chrome_dmg_background.png",
       "internal/chrome_dmg_dsstore",
       "internal/chrome_dmg_icon.icns",
-      "internal/generate_diffs",
       "internal/generate_dmgs",
       "internal/signing_common.sh",
     ]
@@ -113,19 +112,4 @@ copy("copies") {
   outputs = [
     "$_packaging_dir/{{source_file_part}}",
   ]
-}
-
-if (is_chrome_branded) {
-  copy("keychain_reauthorizers") {
-    visibility = [ ":mac" ]
-
-    sources = [
-      "internal/keychain_reauthorizers/com.google.Chrome",
-      "internal/keychain_reauthorizers/com.google.Chrome.canary",
-    ]
-
-    outputs = [
-      "$_packaging_dir/keychain_reauthorizers/{{source_file_part}}",
-    ]
-  }
 }

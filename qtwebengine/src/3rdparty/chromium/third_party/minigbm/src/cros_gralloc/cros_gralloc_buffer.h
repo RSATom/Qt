@@ -13,7 +13,7 @@
 class cros_gralloc_buffer
 {
       public:
-	cros_gralloc_buffer(uint32_t id, struct bo *acquirebo_,
+	cros_gralloc_buffer(uint32_t id, struct bo *acquire_bo,
 			    struct cros_gralloc_handle *acquire_handle);
 	~cros_gralloc_buffer();
 
@@ -23,7 +23,8 @@ class cros_gralloc_buffer
 	int32_t increase_refcount();
 	int32_t decrease_refcount();
 
-	int32_t lock(uint64_t flags, uint8_t *addr[DRV_MAX_PLANES]);
+	int32_t lock(const struct rectangle *rect, uint32_t map_flags,
+		     uint8_t *addr[DRV_MAX_PLANES]);
 	int32_t unlock();
 
       private:
@@ -38,7 +39,7 @@ class cros_gralloc_buffer
 	int32_t lockcount_;
 	uint32_t num_planes_;
 
-	struct map_info *lock_data_[DRV_MAX_PLANES];
+	struct mapping *lock_data_[DRV_MAX_PLANES];
 };
 
 #endif

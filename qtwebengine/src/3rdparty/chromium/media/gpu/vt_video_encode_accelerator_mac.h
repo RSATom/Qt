@@ -5,10 +5,10 @@
 #ifndef MEDIA_GPU_VT_VIDEO_ENCODE_ACCELERATOR_MAC_H_
 #define MEDIA_GPU_VT_VIDEO_ENCODE_ACCELERATOR_MAC_H_
 
-#include <deque>
 #include <memory>
 
 #include "base/bind.h"
+#include "base/containers/circular_deque.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
@@ -32,11 +32,7 @@ class MEDIA_GPU_EXPORT VTVideoEncodeAccelerator
 
   // VideoEncodeAccelerator implementation.
   VideoEncodeAccelerator::SupportedProfiles GetSupportedProfiles() override;
-  bool Initialize(VideoPixelFormat format,
-                  const gfx::Size& input_visible_size,
-                  VideoCodecProfile output_profile,
-                  uint32_t initial_bitrate,
-                  Client* client) override;
+  bool Initialize(const Config& config, Client* client) override;
   void Encode(const scoped_refptr<VideoFrame>& frame,
               bool force_keyframe) override;
   void UseOutputBitstreamBuffer(const BitstreamBuffer& buffer) override;
@@ -106,15 +102,17 @@ class MEDIA_GPU_EXPORT VTVideoEncodeAccelerator
   int32_t initial_bitrate_;
   int32_t target_bitrate_;
   int32_t encoder_set_bitrate_;
+  VideoCodecProfile h264_profile_;
 
   // Bitrate adjuster used to fix VideoToolbox's inconsistent bitrate issues.
   webrtc::BitrateAdjuster bitrate_adjuster_;
 
   // Bitstream buffers ready to be used to return encoded output as a FIFO.
-  std::deque<std::unique_ptr<BitstreamBufferRef>> bitstream_buffer_queue_;
+  base::circular_deque<std::unique_ptr<BitstreamBufferRef>>
+      bitstream_buffer_queue_;
 
   // EncodeOutput needs to be copied into a BitstreamBufferRef as a FIFO.
-  std::deque<std::unique_ptr<EncodeOutput>> encoder_output_queue_;
+  base::circular_deque<std::unique_ptr<EncodeOutput>> encoder_output_queue_;
 
   // Our original calling task runner for the child thread.
   const scoped_refptr<base::SingleThreadTaskRunner> client_task_runner_;

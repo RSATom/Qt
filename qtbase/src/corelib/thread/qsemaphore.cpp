@@ -1,6 +1,7 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2018 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -38,14 +39,15 @@
 ****************************************************************************/
 
 #include "qsemaphore.h"
-
-#ifndef QT_NO_THREAD
 #include "qmutex.h"
+#include "qfutex_p.h"
 #include "qwaitcondition.h"
 #include "qdeadlinetimer.h"
 #include "qdatetime.h"
 
 QT_BEGIN_NAMESPACE
+
+using namespace QtFutex;
 
 /*!
     \class QSemaphore
@@ -97,6 +99,177 @@ QT_BEGIN_NAMESPACE
     \sa QSemaphoreReleaser, QMutex, QWaitCondition, QThread, {Semaphores Example}
 */
 
+/*
+    QSemaphore futex operation
+
+    QSemaphore stores a 32-bit integer with the counter of currently available
+    tokens (value between 0 and INT_MAX). When a thread attempts to acquire n
+    tokens and the counter is larger than that, we perform a compare-and-swap
+    with the new count. If that succeeds, the acquisition worked; if not, we
+    loop again because the counter changed. If there were not enough tokens,
+    we'll perform a futex-wait.
+
+    Before we do, we set the high bit in the futex to indicate that semaphore
+    is contended: that is, there's a thread waiting for more tokens. On
+    release() for n tokens, we perform a fetch-and-add of n and then check if
+    that high bit was set. If it was, then we clear that bit and perform a
+    futex-wake on the semaphore to indicate the waiting threads can wake up and
+    acquire tokens. Which ones get woken up is unspecified.
+
+    If the system has the ability to wake up a precise number of threads, has
+    Linux's FUTEX_WAKE_OP functionality, and is 64-bit, instead of using a
+    single bit indicating a contended semaphore, we'll store the number of
+    tokens *plus* total number of waiters in the high word. Additionally, all
+    multi-token waiters will be waiting on that high word. So when releasing n
+    tokens on those systems, we tell the kernel to wake up n single-token
+    threads and all of the multi-token ones. Which threads get woken up is
+    unspecified, but it's likely single-token threads will get woken up first.
+ */
+
+#if defined(FUTEX_OP) && QT_POINTER_SIZE > 4
+static Q_CONSTEXPR bool futexHasWaiterCount = true;
+#else
+static Q_CONSTEXPR bool futexHasWaiterCount = false;
+#endif
+
+static const quintptr futexNeedsWakeAllBit =
+        Q_UINT64_C(1) << (sizeof(quintptr) * CHAR_BIT - 1);
+
+static int futexAvailCounter(quintptr v)
+{
+    // the low 31 bits
+    if (futexHasWaiterCount) {
+        // the high bit of the low word isn't used
+        Q_ASSERT((v & 0x80000000U) == 0);
+
+        // so we can be a little faster
+        return int(unsigned(v));
+    }
+    return int(v & 0x7fffffffU);
+}
+
+static bool futexNeedsWake(quintptr v)
+{
+    // If we're counting waiters, the number of waiters is stored in the low 31
+    // bits of the high word (that is, bits 32-62). If we're not, then we use
+    // bit 31 to indicate anyone is waiting. Either way, if any bit 31 or above
+    // is set, there are waiters.
+    return v >> 31;
+}
+
+static QBasicAtomicInteger<quint32> *futexLow32(QBasicAtomicInteger<quintptr> *ptr)
+{
+    auto result = reinterpret_cast<QBasicAtomicInteger<quint32> *>(ptr);
+#if Q_BYTE_ORDER == Q_BIG_ENDIAN && QT_POINTER_SIZE > 4
+    ++result;
+#endif
+    return result;
+}
+
+static QBasicAtomicInteger<quint32> *futexHigh32(QBasicAtomicInteger<quintptr> *ptr)
+{
+    auto result = reinterpret_cast<QBasicAtomicInteger<quint32> *>(ptr);
+#if Q_BYTE_ORDER == Q_LITTLE_ENDIAN && QT_POINTER_SIZE > 4
+    ++result;
+#endif
+    return result;
+}
+
+template <bool IsTimed> bool
+futexSemaphoreTryAcquire_loop(QBasicAtomicInteger<quintptr> &u, quintptr curValue, quintptr nn, int timeout)
+{
+    QDeadlineTimer timer(IsTimed ? QDeadlineTimer(timeout) : QDeadlineTimer());
+    qint64 remainingTime = timeout * Q_INT64_C(1000) * 1000;
+    int n = int(unsigned(nn));
+
+    // we're called after one testAndSet, so start by waiting first
+    goto start_wait;
+
+    forever {
+        if (futexAvailCounter(curValue) >= n) {
+            // try to acquire
+            quintptr newValue = curValue - nn;
+            if (u.testAndSetOrdered(curValue, newValue, curValue))
+                return true;        // succeeded!
+            continue;
+        }
+
+        // not enough tokens available, put us to wait
+        if (remainingTime == 0)
+            return false;
+
+        // indicate we're waiting
+start_wait:
+        auto ptr = futexLow32(&u);
+        if (n > 1 || !futexHasWaiterCount) {
+            u.fetchAndOrRelaxed(futexNeedsWakeAllBit);
+            curValue |= futexNeedsWakeAllBit;
+            if (n > 1 && futexHasWaiterCount) {
+                ptr = futexHigh32(&u);
+                //curValue >>= 32;  // but this is UB in 32-bit, so roundabout:
+                curValue = quint64(curValue) >> 32;
+            }
+        }
+
+        if (IsTimed && remainingTime > 0) {
+            bool timedout = !futexWait(*ptr, curValue, remainingTime);
+            if (timedout)
+                return false;
+        } else {
+            futexWait(*ptr, curValue);
+        }
+
+        curValue = u.loadAcquire();
+        if (IsTimed)
+            remainingTime = timer.remainingTimeNSecs();
+    }
+}
+
+template <bool IsTimed> bool futexSemaphoreTryAcquire(QBasicAtomicInteger<quintptr> &u, int n, int timeout)
+{
+    // Try to acquire without waiting (we still loop because the testAndSet
+    // call can fail).
+    quintptr nn = unsigned(n);
+    if (futexHasWaiterCount)
+        nn |= quint64(nn) << 32;    // token count replicated in high word
+
+    quintptr curValue = u.loadAcquire();
+    while (futexAvailCounter(curValue) >= n) {
+        // try to acquire
+        quintptr newValue = curValue - nn;
+        if (u.testAndSetOrdered(curValue, newValue, curValue))
+            return true;        // succeeded!
+    }
+    if (timeout == 0)
+        return false;
+
+    // we need to wait
+    quintptr oneWaiter = quintptr(Q_UINT64_C(1) << 32); // zero on 32-bit
+    if (futexHasWaiterCount) {
+        // increase the waiter count
+        u.fetchAndAddRelaxed(oneWaiter);
+
+        // We don't use the fetched value from above so futexWait() fails if
+        // it changed after the testAndSetOrdered above.
+        if ((quint64(curValue) >> 32) == 0x7fffffff)
+            return false;       // overflow!
+        curValue += oneWaiter;
+
+        // Also adjust nn to subtract oneWaiter when we succeed in acquiring.
+        nn += oneWaiter;
+    }
+
+    if (futexSemaphoreTryAcquire_loop<IsTimed>(u, curValue, nn, timeout))
+        return true;
+
+    if (futexHasWaiterCount) {
+        // decrement the number of threads waiting
+        Q_ASSERT(futexHigh32(&u)->load() & 0x7fffffffU);
+        u.fetchAndSubRelaxed(oneWaiter);
+    }
+    return false;
+}
+
 class QSemaphorePrivate {
 public:
     inline QSemaphorePrivate(int n) : avail(n) { }
@@ -116,7 +289,14 @@ public:
 QSemaphore::QSemaphore(int n)
 {
     Q_ASSERT_X(n >= 0, "QSemaphore", "parameter 'n' must be non-negative");
-    d = new QSemaphorePrivate(n);
+    if (futexAvailable()) {
+        quintptr nn = unsigned(n);
+        if (futexHasWaiterCount)
+            nn |= quint64(nn) << 32;    // token count replicated in high word
+        u.store(nn);
+    } else {
+        d = new QSemaphorePrivate(n);
+    }
 }
 
 /*!
@@ -126,7 +306,10 @@ QSemaphore::QSemaphore(int n)
     undefined behavior.
 */
 QSemaphore::~QSemaphore()
-{ delete d; }
+{
+    if (!futexAvailable())
+        delete d;
+}
 
 /*!
     Tries to acquire \c n resources guarded by the semaphore. If \a n
@@ -138,6 +321,12 @@ QSemaphore::~QSemaphore()
 void QSemaphore::acquire(int n)
 {
     Q_ASSERT_X(n >= 0, "QSemaphore::acquire", "parameter 'n' must be non-negative");
+
+    if (futexAvailable()) {
+        futexSemaphoreTryAcquire<false>(u, n, -1);
+        return;
+    }
+
     QMutexLocker locker(&d->mutex);
     while (n > d->avail)
         d->cond.wait(locker.mutex());
@@ -160,6 +349,68 @@ void QSemaphore::acquire(int n)
 void QSemaphore::release(int n)
 {
     Q_ASSERT_X(n >= 0, "QSemaphore::release", "parameter 'n' must be non-negative");
+
+    if (futexAvailable()) {
+        quintptr nn = unsigned(n);
+        if (futexHasWaiterCount)
+            nn |= quint64(nn) << 32;    // token count replicated in high word
+        quintptr prevValue = u.fetchAndAddRelease(nn);
+        if (futexNeedsWake(prevValue)) {
+#ifdef FUTEX_OP
+            if (!futexHasWaiterCount) {
+                /*
+                   On 32-bit systems, all waiters are waiting on the same address,
+                   so we'll wake them all and ask the kernel to clear the high bit.
+
+                   atomic {
+                      int oldval = u;
+                      u = oldval & ~(1 << 31);
+                      futexWake(u, INT_MAX);
+                      if (oldval == 0)       // impossible condition
+                          futexWake(u, INT_MAX);
+                   }
+                */
+                quint32 op = FUTEX_OP_ANDN | FUTEX_OP_OPARG_SHIFT;
+                quint32 oparg = 31;
+                quint32 cmp = FUTEX_OP_CMP_EQ;
+                quint32 cmparg = 0;
+                futexWakeOp(u, INT_MAX, INT_MAX, u, FUTEX_OP(op, oparg, cmp, cmparg));
+            } else {
+                /*
+                   On 64-bit systems, the single-token waiters wait on the low half
+                   and the multi-token waiters wait on the upper half. So we ask
+                   the kernel to wake up n single-token waiters and all multi-token
+                   waiters (if any), then clear the multi-token wait bit.
+
+                   atomic {
+                      int oldval = *upper;
+                      *upper = oldval & ~(1 << 31);
+                      futexWake(lower, n);
+                      if (oldval < 0)   // sign bit set
+                          futexWake(upper, INT_MAX);
+                   }
+                */
+                quint32 op = FUTEX_OP_ANDN | FUTEX_OP_OPARG_SHIFT;
+                quint32 oparg = 31;
+                quint32 cmp = FUTEX_OP_CMP_LT;
+                quint32 cmparg = 0;
+                futexWakeOp(*futexLow32(&u), n, INT_MAX, *futexHigh32(&u), FUTEX_OP(op, oparg, cmp, cmparg));
+            }
+#else
+            // Unset the bit and wake everyone. There are two possibibilies
+            // under which a thread can set the bit between the AND and the
+            // futexWake:
+            // 1) it did see the new counter value, but it wasn't enough for
+            //    its acquisition anyway, so it has to wait;
+            // 2) it did not see the new counter value, in which case its
+            //    futexWait will fail.
+            u.fetchAndAndRelease(futexNeedsWakeAllBit - 1);
+            futexWakeAll(u);
+#endif
+        }
+        return;
+    }
+
     QMutexLocker locker(&d->mutex);
     d->avail += n;
     d->cond.wakeAll();
@@ -173,6 +424,9 @@ void QSemaphore::release(int n)
 */
 int QSemaphore::available() const
 {
+    if (futexAvailable())
+        return futexAvailCounter(u.load());
+
     QMutexLocker locker(&d->mutex);
     return d->avail;
 }
@@ -191,6 +445,10 @@ int QSemaphore::available() const
 bool QSemaphore::tryAcquire(int n)
 {
     Q_ASSERT_X(n >= 0, "QSemaphore::tryAcquire", "parameter 'n' must be non-negative");
+
+    if (futexAvailable())
+        return futexSemaphoreTryAcquire<false>(u, n, 0);
+
     QMutexLocker locker(&d->mutex);
     if (n > d->avail)
         return false;
@@ -222,13 +480,14 @@ bool QSemaphore::tryAcquire(int n, int timeout)
     // but QDeadlineTimer only accepts -1.
     timeout = qMax(timeout, -1);
 
+    if (futexAvailable())
+        return futexSemaphoreTryAcquire<true>(u, n, timeout);
+
     QDeadlineTimer timer(timeout);
     QMutexLocker locker(&d->mutex);
-    qint64 remainingTime = timer.remainingTime();
-    while (n > d->avail && remainingTime != 0) {
-        if (!d->cond.wait(locker.mutex(), remainingTime))
+    while (n > d->avail && !timer.hasExpired()) {
+        if (!d->cond.wait(locker.mutex(), timer))
             return false;
-        remainingTime = timer.remainingTime();
     }
     if (n > d->avail)
         return false;
@@ -240,7 +499,7 @@ bool QSemaphore::tryAcquire(int n, int timeout)
 
 /*!
     \class QSemaphoreReleaser
-    \brief The QSemaphoreReleaser class provides exception-safe deferral of a QSemaphore::release() call
+    \brief The QSemaphoreReleaser class provides exception-safe deferral of a QSemaphore::release() call.
     \since 5.10
     \ingroup thread
     \inmodule QtCore
@@ -256,10 +515,7 @@ bool QSemaphore::tryAcquire(int n, int timeout)
     You can use this to reliably release a semaphore to avoid dead-lock
     in the face of exceptions or early returns:
 
-    \code
-    // ... do something that may throw or return early
-    sem.release();
-    \endcode
+    \snippet code/src_corelib_thread_qsemaphore.cpp 4
 
     If an early return is taken or an exception is thrown before the
     \c{sem.release()} call is reached, the semaphore is not released,
@@ -268,11 +524,7 @@ bool QSemaphore::tryAcquire(int n, int timeout)
 
     When using RAII instead:
 
-    \code
-    const QSemaphoreReleaser releaser(sem);
-    // ... do something that may throw or early return
-    // implicitly calls sem.release() here and at every other return in between
-    \endcode
+    \snippet code/src_corelib_thread_qsemaphore.cpp 5
 
     this can no longer happen, because the compiler will make sure that
     the QSemaphoreReleaser destructor is always called, and therefore
@@ -282,17 +534,7 @@ bool QSemaphore::tryAcquire(int n, int timeout)
     from functions to transfer responsibility for releasing a semaphore
     out of a function or a scope:
 
-    \code
-    { // some scope
-        QSemaphoreReleaser releaser; // does nothing
-        // ...
-        if (someCondition) {
-            releaser = QSemaphoreReleaser(sem);
-            // ...
-        }
-        // ...
-    } // conditionally calls sem.release(), depending on someCondition
-    \endcode
+    \snippet code/src_corelib_thread_qsemaphore.cpp 6
 
     A QSemaphoreReleaser can be canceled by a call to cancel(). A canceled
     semaphore releaser will no longer call QSemaphore::release() in its
@@ -364,7 +606,7 @@ bool QSemaphore::tryAcquire(int n, int timeout)
     \fn QSemaphoreReleaser::semaphore() const
 
     Returns a pointer to the QSemaphore object provided to the constructor,
-    or by the last move assignment, if any. Otherwise, returns \c nullptr.
+    or by the last move assignment, if any. Otherwise, returns \nullptr.
 */
 
 /*!
@@ -372,18 +614,12 @@ bool QSemaphore::tryAcquire(int n, int timeout)
 
     Cancels this QSemaphoreReleaser such that the destructor will no longer
     call \c{semaphore()->release()}. Returns the value of semaphore()
-    before this call. After this call, semaphore() will return \c nullptr.
+    before this call. After this call, semaphore() will return \nullptr.
 
     To enable again, assign a new QSemaphoreReleaser:
 
-    \code
-    releaser.cancel(); // avoid releasing old semaphore()
-    releaser = QSemaphoreReleaser(sem, 42);
-    // now will call sem.release(42) when 'releaser' is destroyed
-    \endcode
+    \snippet code/src_corelib_thread_qsemaphore.cpp 7
 */
 
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_THREAD

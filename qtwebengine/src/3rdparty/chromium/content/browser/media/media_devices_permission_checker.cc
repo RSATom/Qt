@@ -9,15 +9,15 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/feature_list.h"
+#include "base/task/post_task.h"
 #include "content/browser/frame_host/render_frame_host_delegate.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
-#include "content/common/media/media_devices.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
-#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
+#include "third_party/blink/public/common/mediastream/media_devices.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -38,43 +38,40 @@ MediaDevicesManager::BoolDeviceTypes DoCheckPermissionsOnUIThread(
     return MediaDevicesManager::BoolDeviceTypes();
 
   RenderFrameHostDelegate* delegate = frame_host->delegate();
-  GURL origin = frame_host->GetLastCommittedOrigin().GetURL();
-
-  MediaDevicesManager::BoolDeviceTypes result;
-  bool audio_permission =
-      delegate->CheckMediaAccessPermission(origin, MEDIA_DEVICE_AUDIO_CAPTURE);
+  url::Origin origin = frame_host->GetLastCommittedOrigin();
+  bool audio_permission = delegate->CheckMediaAccessPermission(
+      frame_host, origin, blink::MEDIA_DEVICE_AUDIO_CAPTURE);
   bool mic_feature_policy = true;
   bool camera_feature_policy = true;
-  if (base::FeatureList::IsEnabled(features::kUseFeaturePolicyForPermissions)) {
-    mic_feature_policy = frame_host->IsFeatureEnabled(
-        blink::WebFeaturePolicyFeature::kMicrophone);
-    camera_feature_policy =
-        frame_host->IsFeatureEnabled(blink::WebFeaturePolicyFeature::kCamera);
-  }
+  mic_feature_policy = frame_host->IsFeatureEnabled(
+      blink::mojom::FeaturePolicyFeature::kMicrophone);
+  camera_feature_policy =
+      frame_host->IsFeatureEnabled(blink::mojom::FeaturePolicyFeature::kCamera);
 
+  MediaDevicesManager::BoolDeviceTypes result;
   // Speakers.
   // TODO(guidou): use specific permission for audio output when it becomes
   // available. See http://crbug.com/556542.
-  result[MEDIA_DEVICE_TYPE_AUDIO_OUTPUT] =
-      requested_device_types[MEDIA_DEVICE_TYPE_AUDIO_OUTPUT] &&
+  result[blink::MEDIA_DEVICE_TYPE_AUDIO_OUTPUT] =
+      requested_device_types[blink::MEDIA_DEVICE_TYPE_AUDIO_OUTPUT] &&
       audio_permission;
 
   // Mic.
-  result[MEDIA_DEVICE_TYPE_AUDIO_INPUT] =
-      requested_device_types[MEDIA_DEVICE_TYPE_AUDIO_INPUT] &&
+  result[blink::MEDIA_DEVICE_TYPE_AUDIO_INPUT] =
+      requested_device_types[blink::MEDIA_DEVICE_TYPE_AUDIO_INPUT] &&
       audio_permission && mic_feature_policy;
 
   // Camera.
-  result[MEDIA_DEVICE_TYPE_VIDEO_INPUT] =
-      requested_device_types[MEDIA_DEVICE_TYPE_VIDEO_INPUT] &&
-      delegate->CheckMediaAccessPermission(origin,
-                                           MEDIA_DEVICE_VIDEO_CAPTURE) &&
+  result[blink::MEDIA_DEVICE_TYPE_VIDEO_INPUT] =
+      requested_device_types[blink::MEDIA_DEVICE_TYPE_VIDEO_INPUT] &&
+      delegate->CheckMediaAccessPermission(frame_host, origin,
+                                           blink::MEDIA_DEVICE_VIDEO_CAPTURE) &&
       camera_feature_policy;
 
   return result;
 }
 
-bool CheckSinglePermissionOnUIThread(MediaDeviceType device_type,
+bool CheckSinglePermissionOnUIThread(blink::MediaDeviceType device_type,
                                      int render_process_id,
                                      int render_frame_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
@@ -99,7 +96,7 @@ MediaDevicesPermissionChecker::MediaDevicesPermissionChecker(
     : use_override_(true), override_value_(override_value) {}
 
 bool MediaDevicesPermissionChecker::CheckPermissionOnUIThread(
-    MediaDeviceType device_type,
+    blink::MediaDeviceType device_type,
     int render_process_id,
     int render_frame_id) const {
   if (use_override_)
@@ -110,7 +107,7 @@ bool MediaDevicesPermissionChecker::CheckPermissionOnUIThread(
 }
 
 void MediaDevicesPermissionChecker::CheckPermission(
-    MediaDeviceType device_type,
+    blink::MediaDeviceType device_type,
     int render_process_id,
     int render_frame_id,
     base::OnceCallback<void(bool)> callback) const {
@@ -119,8 +116,8 @@ void MediaDevicesPermissionChecker::CheckPermission(
     return;
   }
 
-  BrowserThread::PostTaskAndReplyWithResult(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraitsAndReplyWithResult(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&CheckSinglePermissionOnUIThread, device_type,
                      render_process_id, render_frame_id),
       std::move(callback));
@@ -139,8 +136,8 @@ void MediaDevicesPermissionChecker::CheckPermissions(
     return;
   }
 
-  BrowserThread::PostTaskAndReplyWithResult(
-      BrowserThread::UI, FROM_HERE,
+  base::PostTaskWithTraitsAndReplyWithResult(
+      FROM_HERE, {BrowserThread::UI},
       base::BindOnce(&DoCheckPermissionsOnUIThread, requested,
                      render_process_id, render_frame_id),
       std::move(callback));

@@ -18,11 +18,14 @@
 #include "ui/events/gesture_event_details.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/events/test/event_generator.h"
+#include "ui/views/accessibility/ax_event_manager.h"
+#include "ui/views/accessibility/ax_event_observer.h"
 #include "ui/views/test/slider_test_api.h"
 #include "ui/views/test/views_test_base.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
+#include "ui/views/widget/widget_utils.h"
 
 namespace {
 
@@ -116,6 +119,28 @@ void TestSliderListener::SliderDragEnded(views::Slider* sender) {
   last_drag_ended_epoch_ = ++last_event_epoch_;
 }
 
+class TestAXEventObserver : public views::AXEventObserver {
+ public:
+  TestAXEventObserver() { views::AXEventManager::Get()->AddObserver(this); }
+
+  ~TestAXEventObserver() override {
+    views::AXEventManager::Get()->RemoveObserver(this);
+  }
+
+  bool value_changed() const { return value_changed_; }
+
+  // views::AXEventObserver:
+  void OnViewEvent(views::View* view, ax::mojom::Event event_type) override {
+    if (event_type == ax::mojom::Event::kValueChanged)
+      value_changed_ = true;
+  }
+
+ private:
+  bool value_changed_ = false;
+
+  DISALLOW_COPY_AND_ASSIGN(TestAXEventObserver);
+};
+
 }  // namespace
 
 namespace views {
@@ -123,8 +148,8 @@ namespace views {
 // Base test fixture for Slider tests.
 class SliderTest : public views::ViewsTestBase {
  public:
-  SliderTest();
-  ~SliderTest() override;
+  SliderTest() = default;
+  ~SliderTest() override = default;
 
  protected:
   Slider* slider() {
@@ -155,29 +180,23 @@ class SliderTest : public views::ViewsTestBase {
 
  private:
   // The Slider to be tested.
-  Slider* slider_;
+  Slider* slider_ = nullptr;
   // A simple SliderListener test double.
   TestSliderListener slider_listener_;
   // Stores the default locale at test setup so it can be restored
   // during test teardown.
   std::string default_locale_;
   // The maximum x value within the bounds of the slider.
-  int max_x_;
+  int max_x_ = 0;
   // The maximum y value within the bounds of the slider.
-  int max_y_;
+  int max_y_ = 0;
   // The widget container for the slider being tested.
-  views::Widget* widget_;
+  views::Widget* widget_ = nullptr;
   // An event generator.
   std::unique_ptr<ui::test::EventGenerator> event_generator_;
 
   DISALLOW_COPY_AND_ASSIGN(SliderTest);
 };
-
-SliderTest::SliderTest()
-    : slider_(NULL), default_locale_(), max_x_(0), max_y_(0) {}
-
-SliderTest::~SliderTest() {
-}
 
 void SliderTest::SetUp() {
   views::ViewsTestBase::SetUp();
@@ -199,8 +218,8 @@ void SliderTest::SetUp() {
   widget_->SetContentsView(slider_);
   widget_->Show();
 
-  event_generator_.reset(
-      new ui::test::EventGenerator(widget_->GetNativeWindow()));
+  event_generator_ =
+      std::make_unique<ui::test::EventGenerator>(GetRootWindow(widget_));
 }
 
 void SliderTest::TearDown() {
@@ -369,6 +388,33 @@ TEST_F(SliderTest, SliderListenerEventsForMultiFingerScrollGesture) {
             slider_listener().last_drag_started_epoch());
   EXPECT_EQ(slider(), slider_listener().last_drag_started_sender());
   EXPECT_EQ(slider(), slider_listener().last_drag_ended_sender());
+}
+
+// Verifies the correct SliderListener events are raised for an accessible
+// slider.
+TEST_F(SliderTest, SliderRaisesA11yEvents) {
+  TestAXEventObserver observer;
+  EXPECT_FALSE(observer.value_changed());
+
+  // First, detach/reattach the slider without setting value.
+  // Temporarily detach the slider.
+  View* root_view = slider()->parent();
+  root_view->RemoveChildView(slider());
+
+  // Re-attachment should cause nothing to get fired.
+  root_view->AddChildView(slider());
+  EXPECT_FALSE(observer.value_changed());
+
+  // Now, set value before reattaching.
+  root_view->RemoveChildView(slider());
+
+  // Value changes won't trigger accessibility events before re-attachment.
+  slider()->SetValue(22);
+  EXPECT_FALSE(observer.value_changed());
+
+  // Re-attachment should trigger the value change.
+  root_view->AddChildView(slider());
+  EXPECT_TRUE(observer.value_changed());
 }
 
 #endif  // !defined(OS_MACOSX) || defined(USE_AURA)

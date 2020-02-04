@@ -6,11 +6,9 @@
 #define CC_INPUT_BROWSER_CONTROLS_STATE_H_
 
 namespace cc {
-enum BrowserControlsState {
-  SHOWN = 1,
-  HIDDEN = 2,
-  BOTH = 3
-};
-}
+
+enum class BrowserControlsState { kShown = 1, kHidden = 2, kBoth = 3 };
+
+}  // namespace cc
 
 #endif  // CC_INPUT_BROWSER_CONTROLS_STATE_H_

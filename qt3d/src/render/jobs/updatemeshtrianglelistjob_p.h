@@ -62,14 +62,14 @@ namespace Render {
 
 class NodeManagers;
 
-class QT3DRENDERSHARED_PRIVATE_EXPORT UpdateMeshTriangleListJob : public Qt3DCore::QAspectJob
+class Q_3DRENDERSHARED_PRIVATE_EXPORT UpdateMeshTriangleListJob : public Qt3DCore::QAspectJob
 {
 public:
     UpdateMeshTriangleListJob();
     ~UpdateMeshTriangleListJob();
 
     void setManagers(NodeManagers *manager);
-    void run() Q_DECL_FINAL;
+    void run() final;
 
     NodeManagers *managers() const;
 

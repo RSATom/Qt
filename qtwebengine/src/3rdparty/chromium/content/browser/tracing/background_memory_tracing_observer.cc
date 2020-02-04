@@ -4,7 +4,6 @@
 
 #include "content/browser/tracing/background_memory_tracing_observer.h"
 
-#include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/memory_dump_request_args.h"
 #include "services/resource_coordinator/public/cpp/memory_instrumentation/memory_instrumentation.h"
 
@@ -23,6 +22,8 @@ BackgroundMemoryTracingObserver::~BackgroundMemoryTracingObserver() {}
 void BackgroundMemoryTracingObserver::OnScenarioActivated(
     const BackgroundTracingConfigImpl* config) {}
 
+void BackgroundMemoryTracingObserver::OnScenarioAborted() {}
+
 void BackgroundMemoryTracingObserver::OnTracingEnabled(
     BackgroundTracingConfigImpl::CategoryPreset preset) {
   if (preset !=
@@ -34,7 +35,7 @@ void BackgroundMemoryTracingObserver::OnTracingEnabled(
           base::trace_event::MemoryDumpType::EXPLICITLY_TRIGGERED,
           base::trace_event::MemoryDumpLevelOfDetail::BACKGROUND,
           memory_instrumentation::MemoryInstrumentation::
-              RequestGlobalDumpAndAppendToTraceCallback());
+              RequestGlobalMemoryDumpAndAppendToTraceCallback());
 }
 
 }  // namespace content

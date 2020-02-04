@@ -51,13 +51,13 @@ class dummySensorPlugin : public QObject, public QSensorPluginInterface, public 
     Q_PLUGIN_METADATA(IID "com.qt-project.Qt.QSensorPluginInterface/1.0" FILE "plugin.json")
     Q_INTERFACES(QSensorPluginInterface)
 public:
-    void registerSensors()
+    void registerSensors() override
     {
         QSensorManager::registerBackend(QAccelerometer::type, dummyaccelerometer::id, this);
         QSensorManager::registerBackend(QAmbientLightSensor::type, dummylightsensor::id, this);
     }
 
-    QSensorBackend *createBackend(QSensor *sensor)
+    QSensorBackend *createBackend(QSensor *sensor) override
     {
         if (sensor->identifier() == dummyaccelerometer::id) {
             return new dummyaccelerometer(sensor);

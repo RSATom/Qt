@@ -3,7 +3,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import cStringIO
 import functools
 import multiprocessing
 import optparse
@@ -17,6 +16,11 @@ import common
 import gold
 import pngdiffer
 import suppressor
+
+# Arbitrary timestamp, expressed in seconds since the epoch, used to make sure
+# that tests that depend on the current time are stable. Happens to be the
+# timestamp of the first commit to repo, 2014/5/9 17:48:50.
+TEST_SEED_TIME = "1399672130"
 
 class KeyboardInterruptError(Exception): pass
 
@@ -36,9 +40,22 @@ def TestOneFileParallel(this, test_case):
     raise KeyboardInterruptError()
 
 
+def DeleteFiles(files):
+  """Utility function to delete a list of files"""
+  for f in files:
+    if os.path.exists(f):
+      os.remove(f)
+
+
 class TestRunner:
   def __init__(self, dirname):
+    # Currently the only used directories are corpus, javascript, and pixel,
+    # which all correspond directly to the type for the test being run. In the
+    # future if there are tests that don't have this clean correspondence, then
+    # an argument for the type will need to be added.
     self.test_dir = dirname
+    self.test_type = dirname
+    self.delete_output_on_success = False
     self.enforce_expected_images = False
     self.oneshot_renderer = False
 
@@ -47,6 +64,8 @@ class TestRunner:
   # tests and outputfiles is a list tuples:
   #          (path_to_image, md5_hash_of_pixelbuffer)
   def GenerateAndTest(self, input_filename, source_dir):
+    use_ahem = 'use_ahem' in source_dir
+
     input_root, _ = os.path.splitext(input_filename)
     expected_txt_path = os.path.join(source_dir, input_root + '_expected.txt')
 
@@ -55,9 +74,7 @@ class TestRunner:
     # Remove any existing generated images from previous runs.
     actual_images = self.image_differ.GetActualFiles(input_filename, source_dir,
                                                      self.working_dir)
-    for image in actual_images:
-      if os.path.exists(image):
-        os.remove(image)
+    DeleteFiles(actual_images)
 
     sys.stdout.flush()
 
@@ -72,7 +89,7 @@ class TestRunner:
     if os.path.exists(expected_txt_path):
       raised_exception = self.TestText(input_root, expected_txt_path, pdf_path)
     else:
-      raised_exception, results = self.TestPixel(input_root, pdf_path)
+      raised_exception, results = self.TestPixel(input_root, pdf_path, use_ahem)
 
     if raised_exception is not None:
       print 'FAILURE: %s; %s' % (input_filename, raised_exception)
@@ -81,14 +98,28 @@ class TestRunner:
     if actual_images:
       if self.image_differ.HasDifferences(input_filename, source_dir,
                                           self.working_dir):
+        self.RegenerateIfNeeded_(input_filename, source_dir)
         return False, results
     else:
       if (self.enforce_expected_images
           and not self.test_suppressor.IsImageDiffSuppressed(input_filename)):
+        self.RegenerateIfNeeded_(input_filename, source_dir)
         print 'FAILURE: %s; Missing expected images' % input_filename
         return False, results
 
+    if self.delete_output_on_success:
+      DeleteFiles(actual_images)
     return True, results
+
+  def RegenerateIfNeeded_(self, input_filename, source_dir):
+    if (not self.options.regenerate_expected
+        or self.test_suppressor.IsResultSuppressed(input_filename)
+        or self.test_suppressor.IsImageDiffSuppressed(input_filename)):
+      return
+
+    platform_only = (self.options.regenerate_expected == 'platform')
+    self.image_differ.Regenerate(input_filename, source_dir,
+                                 self.working_dir, platform_only)
 
   def Generate(self, source_dir, input_filename, input_root, pdf_path):
     original_path = os.path.join(source_dir, input_filename)
@@ -110,35 +141,50 @@ class TestRunner:
         [sys.executable, self.fixup_path, '--output-dir=' + self.working_dir,
             input_path])
 
-
   def TestText(self, input_root, expected_txt_path, pdf_path):
     txt_path = os.path.join(self.working_dir, input_root + '.txt')
 
     with open(txt_path, 'w') as outfile:
-      cmd_to_run = [self.pdfium_test_path, pdf_path]
+      cmd_to_run = [self.pdfium_test_path, '--send-events',
+                    '--time=' + TEST_SEED_TIME, pdf_path]
       subprocess.check_call(cmd_to_run, stdout=outfile)
 
     cmd = [sys.executable, self.text_diff_path, expected_txt_path, txt_path]
     return common.RunCommand(cmd)
 
+  def TestPixel(self, input_root, pdf_path, use_ahem):
+    cmd_to_run = [self.pdfium_test_path, '--send-events', '--png', '--md5',
+                  '--time=' + TEST_SEED_TIME]
 
-  def TestPixel(self, input_root, pdf_path):
-    cmd_to_run = [self.pdfium_test_path, '--send-events', '--png']
-    if self.gold_results:
-      cmd_to_run.append('--md5')
     if self.oneshot_renderer:
       cmd_to_run.append('--render-oneshot')
+
+    if use_ahem:
+      cmd_to_run.append('--font-dir=%s' % self.font_dir)
+
     cmd_to_run.append(pdf_path)
     return common.RunCommandExtractHashedFiles(cmd_to_run)
 
   def HandleResult(self, input_filename, input_path, result):
     success, image_paths = result
-    if self.gold_results:
-      if image_paths:
-        for img_path, md5_hash in image_paths:
-          # the output filename (without extension becomes the test name)
-          test_name = os.path.splitext(os.path.split(img_path)[1])[0]
-          self.gold_results.AddTestResult(test_name, md5_hash, img_path)
+
+    if image_paths:
+      for img_path, md5_hash in image_paths:
+        # The output filename without image extension becomes the test name.
+        # For example, "/path/to/.../testing/corpus/example_005.pdf.0.png"
+        # becomes "example_005.pdf.0".
+        test_name = os.path.splitext(os.path.split(img_path)[1])[0]
+
+        matched = "suppressed"
+        if not self.test_suppressor.IsResultSuppressed(input_filename):
+          matched = self.gold_baseline.MatchLocalResult(test_name, md5_hash)
+          if matched == gold.GoldBaseline.MISMATCH:
+            print 'Skia Gold hash mismatch for test case: %s' % test_name
+          elif matched ==  gold.GoldBaseline.NO_BASELINE:
+            print 'No Skia Gold baseline found for test case: %s' % test_name
+
+        if self.gold_results:
+          self.gold_results.AddTestResult(test_name, md5_hash, img_path, matched)
 
     if self.test_suppressor.IsResultSuppressed(input_filename):
       self.result_suppressed_cases.append(input_filename)
@@ -147,7 +193,6 @@ class TestRunner:
     else:
       if not success:
         self.failures.append(input_path)
-
 
   def Run(self):
     parser = optparse.OptionParser()
@@ -160,25 +205,44 @@ class TestRunner:
                       help='run NUM_WORKERS jobs in parallel')
 
     parser.add_option('--gold_properties', default='', dest="gold_properties",
-                      help='Key value pairs that are written to the top level of the JSON file that is ingested by Gold.')
+                      help='Key value pairs that are written to the top level '
+                           'of the JSON file that is ingested by Gold.')
 
     parser.add_option('--gold_key', default='', dest="gold_key",
-                      help='Key value pairs that are added to the "key" field of the JSON file that is ingested by Gold.')
+                      help='Key value pairs that are added to the "key" field '
+                           'of the JSON file that is ingested by Gold.')
 
     parser.add_option('--gold_output_dir', default='', dest="gold_output_dir",
-                      help='Path of where to write the JSON output to be uploaded to Gold.')
+                      help='Path of where to write the JSON output to be '
+                           'uploaded to Gold.')
 
-    parser.add_option('--gold_ignore_hashes', default='', dest="gold_ignore_hashes",
+    parser.add_option('--gold_ignore_hashes', default='',
+                      dest="gold_ignore_hashes",
                       help='Path to a file with MD5 hashes we wish to ignore.')
 
-    parser.add_option('--ignore_errors', action="store_true", dest="ignore_errors",
-                      help='Prevents the return value from being non-zero when image comparison fails.')
+    parser.add_option('--regenerate_expected', default='',
+                      dest="regenerate_expected",
+                      help='Regenerates expected images. Valid values are '
+                           '"all" to regenerate all expected pngs, and '
+                           '"platform" to regenerate only platform-specific '
+                           'expected pngs.')
 
-    options, args = parser.parse_args()
+    parser.add_option('--ignore_errors', action="store_true",
+                      dest="ignore_errors",
+                      help='Prevents the return value from being non-zero '
+                           'when image comparison fails.')
 
-    finder = common.DirectoryFinder(options.build_dir)
+    self.options, self.args = parser.parse_args()
+
+    if (self.options.regenerate_expected
+        and self.options.regenerate_expected not in ['all', 'platform']) :
+      print 'FAILURE: --regenerate_expected must be "all" or "platform"'
+      return 1
+
+    finder = common.DirectoryFinder(self.options.build_dir)
     self.fixup_path = finder.ScriptPath('fixup_pdf_template.py')
     self.text_diff_path = finder.ScriptPath('text_diff.py')
+    self.font_dir = os.path.join(finder.TestingDir(), 'resources', 'fonts')
 
     self.source_dir = finder.TestingDir()
     if self.test_dir != 'corpus':
@@ -200,14 +264,21 @@ class TestRunner:
                                                    '--show-config'])
     self.test_suppressor = suppressor.Suppressor(finder, self.feature_string)
     self.image_differ = pngdiffer.PNGDiffer(finder)
+    error_message = self.image_differ.CheckMissingTools(
+        self.options.regenerate_expected)
+    if error_message:
+      print "FAILURE: %s" % error_message
+      return 1
+
+    self.gold_baseline = gold.GoldBaseline(self.options.gold_properties)
 
     walk_from_dir = finder.TestingDir(test_dir);
 
     self.test_cases = []
     self.execution_suppressed_cases = []
     input_file_re = re.compile('^.+[.](in|pdf)$')
-    if args:
-      for file_name in args:
+    if self.args:
+      for file_name in self.args:
         file_name.replace('.pdf', '.in')
         input_path = os.path.join(walk_from_dir, file_name)
         if not os.path.isfile(input_path):
@@ -227,22 +298,23 @@ class TestRunner:
               if os.path.isfile(input_path):
                 self.test_cases.append((input_filename, file_dir))
 
+    self.test_cases.sort()
     self.failures = []
     self.surprises = []
     self.result_suppressed_cases = []
 
     # Collect Gold results if an output directory was named.
     self.gold_results = None
-    if options.gold_output_dir:
-      self.gold_results = gold.GoldResults('pdfium',
-                                           options.gold_output_dir,
-                                           options.gold_properties,
-                                           options.gold_key,
-                                           options.gold_ignore_hashes)
+    if self.options.gold_output_dir:
+      self.gold_results = gold.GoldResults(self.test_type,
+                                           self.options.gold_output_dir,
+                                           self.options.gold_properties,
+                                           self.options.gold_key,
+                                           self.options.gold_ignore_hashes)
 
-    if options.num_workers > 1 and len(self.test_cases) > 1:
+    if self.options.num_workers > 1 and len(self.test_cases) > 1:
       try:
-        pool = multiprocessing.Pool(options.num_workers)
+        pool = multiprocessing.Pool(self.options.num_workers)
         worker_func = functools.partial(TestOneFileParallel, self)
 
         worker_results = pool.imap(worker_func, self.test_cases)
@@ -282,7 +354,7 @@ class TestRunner:
     self._PrintSummary()
 
     if self.failures:
-      if not options.ignore_errors:
+      if not self.options.ignore_errors:
         return 1
 
     return 0
@@ -301,6 +373,10 @@ class TestRunner:
     print '  Failures: %d' % number_failures
     print
     print 'Test cases not executed: %d' % len(self.execution_suppressed_cases)
+
+  def SetDeleteOutputOnSuccess(self, new_value):
+    """Set whether to delete generated output if the test passes."""
+    self.delete_output_on_success = new_value
 
   def SetEnforceExpectedImages(self, new_value):
     """Set whether to enforce that each test case provide an expected image."""

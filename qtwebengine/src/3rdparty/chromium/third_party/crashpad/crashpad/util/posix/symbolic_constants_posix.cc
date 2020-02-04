@@ -18,7 +18,7 @@
 #include <string.h>
 #include <sys/types.h>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
 #include "util/misc/implicit_cast.h"
@@ -26,7 +26,7 @@
 
 namespace {
 
-const char* kSignalNames[] = {
+constexpr const char* kSignalNames[] = {
     nullptr,
 
 #if defined(OS_MACOSX)
@@ -65,6 +65,39 @@ const char* kSignalNames[] = {
     "USR1",
     "USR2",
 #elif defined(OS_LINUX) || defined(OS_ANDROID)
+#if defined(ARCH_CPU_MIPS_FAMILY)
+    "HUP",
+    "INT",
+    "QUIT",
+    "ILL",
+    "TRAP",
+    "ABRT",
+    "EMT",
+    "FPE",
+    "KILL",
+    "BUS",
+    "SEGV",
+    "SYS",
+    "PIPE",
+    "ALRM",
+    "TERM",
+    "USR1",
+    "USR2",
+    "CHLD",
+    "PWR",
+    "WINCH",
+    "URG",
+    "IO",
+    "STOP",
+    "TSTP",
+    "CONT",
+    "TTIN",
+    "TTOU",
+    "VTALRM",
+    "PROF",
+    "XCPU",
+    "XFSZ",
+#else
     // sed -Ene 's/^#define[[:space:]]SIG([[:alnum:]]+)[[:space:]]+[[:digit:]]{1,2}([[:space:]]|$).*/    "\1",/p'
     //     /usr/include/asm-generic/signal.h
     // and fix up by removing SIGIOT, SIGLOST, SIGUNUSED, and SIGRTMIN.
@@ -99,16 +132,17 @@ const char* kSignalNames[] = {
     "IO",
     "PWR",
     "SYS",
+#endif  // defined(ARCH_CPU_MIPS_FAMILY)
 #endif
 };
 #if defined(OS_LINUX) || defined(OS_ANDROID)
 // NSIG is 64 to account for real-time signals.
-static_assert(arraysize(kSignalNames) == 32, "kSignalNames length");
+static_assert(base::size(kSignalNames) == 32, "kSignalNames length");
 #else
-static_assert(arraysize(kSignalNames) == NSIG, "kSignalNames length");
+static_assert(base::size(kSignalNames) == NSIG, "kSignalNames length");
 #endif
 
-const char kSigPrefix[] = "SIG";
+constexpr char kSigPrefix[] = "SIG";
 
 }  // namespace
 
@@ -117,7 +151,7 @@ namespace crashpad {
 std::string SignalToString(int signal,
                            SymbolicConstantToStringOptions options) {
   const char* signal_name =
-      implicit_cast<size_t>(signal) < arraysize(kSignalNames)
+      implicit_cast<size_t>(signal) < base::size(kSignalNames)
           ? kSignalNames[signal]
           : nullptr;
   if (!signal_name) {
@@ -142,8 +176,7 @@ bool StringToSignal(const base::StringPiece& string,
         string.substr(0, strlen(kSigPrefix)).compare(kSigPrefix) == 0;
     base::StringPiece short_string =
         can_match_full ? string.substr(strlen(kSigPrefix)) : string;
-    for (int index = 0;
-         index < implicit_cast<int>(arraysize(kSignalNames));
+    for (int index = 0; index < implicit_cast<int>(base::size(kSignalNames));
          ++index) {
       const char* signal_name = kSignalNames[index];
       if (!signal_name) {
@@ -161,7 +194,7 @@ bool StringToSignal(const base::StringPiece& string,
   }
 
   if (options & kAllowNumber) {
-    return StringToNumber(string, signal);
+    return StringToNumber(std::string(string.data(), string.length()), signal);
   }
 
   return false;

@@ -54,9 +54,9 @@
 #include "qfutureinterface_p.h"
 #include <qlist.h>
 
-#ifndef QT_NO_QFUTURE
-
 #include <private/qobject_p.h>
+
+QT_REQUIRE_CONFIG(future);
 
 QT_BEGIN_NAMESPACE
 
@@ -69,8 +69,8 @@ class QFutureWatcherBasePrivate : public QObjectPrivate,
 public:
     QFutureWatcherBasePrivate();
 
-    void postCallOutEvent(const QFutureCallOutEvent &callOutEvent) Q_DECL_OVERRIDE;
-    void callOutInterfaceDisconnected() Q_DECL_OVERRIDE;
+    void postCallOutEvent(const QFutureCallOutEvent &callOutEvent) override;
+    void callOutInterfaceDisconnected() override;
 
     void sendCallOutEvent(QFutureCallOutEvent *event);
 
@@ -84,5 +84,4 @@ public:
 
 QT_END_NAMESPACE
 
-#endif // QT_NO_QFUTURE
 #endif

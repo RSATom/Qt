@@ -8,7 +8,12 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "headless/public/headless_devtools_channel.h"
 #include "headless/public/headless_export.h"
+
+namespace base {
+class DictionaryValue;
+}  // namespace base
 
 namespace headless {
 
@@ -57,6 +62,9 @@ class Domain;
 namespace emulation {
 class Domain;
 }
+namespace headless_experimental {
+class Domain;
+}
 namespace heap_profiler {
 class Domain;
 }
@@ -87,6 +95,9 @@ class Domain;
 namespace page {
 class Domain;
 }
+namespace performance {
+class Domain;
+}
 namespace profiler {
 class Domain;
 }
@@ -111,7 +122,21 @@ class HEADLESS_EXPORT HeadlessDevToolsClient {
  public:
   virtual ~HeadlessDevToolsClient() {}
 
+  class HEADLESS_EXPORT ExternalHost {
+   public:
+    ExternalHost() {}
+    virtual ~ExternalHost() {}
+    virtual void SendProtocolMessage(const std::string& message) = 0;
+
+   private:
+    DISALLOW_COPY_AND_ASSIGN(ExternalHost);
+  };
+
   static std::unique_ptr<HeadlessDevToolsClient> Create();
+
+  // TODO(dgozman): remove this method and ExternalHost altogether.
+  static std::unique_ptr<HeadlessDevToolsClient> CreateWithExternalHost(
+      ExternalHost*);
 
   // DevTools commands are split into domains which corresponds to the getters
   // below. Each domain can be used to send commands and to subscribe to events.
@@ -133,6 +158,7 @@ class HEADLESS_EXPORT HeadlessDevToolsClient {
   virtual dom_snapshot::Domain* GetDOMSnapshot() = 0;
   virtual dom_storage::Domain* GetDOMStorage() = 0;
   virtual emulation::Domain* GetEmulation() = 0;
+  virtual headless_experimental::Domain* GetHeadlessExperimental() = 0;
   virtual heap_profiler::Domain* GetHeapProfiler() = 0;
   virtual indexeddb::Domain* GetIndexedDB() = 0;
   virtual input::Domain* GetInput() = 0;
@@ -143,6 +169,7 @@ class HEADLESS_EXPORT HeadlessDevToolsClient {
   virtual memory::Domain* GetMemory() = 0;
   virtual network::Domain* GetNetwork() = 0;
   virtual page::Domain* GetPage() = 0;
+  virtual performance::Domain* GetPerformance() = 0;
   virtual profiler::Domain* GetProfiler() = 0;
   virtual runtime::Domain* GetRuntime() = 0;
   virtual security::Domain* GetSecurity() = 0;
@@ -157,7 +184,6 @@ class HEADLESS_EXPORT HeadlessDevToolsClient {
 
     // Returns true if the listener handled the message.
     virtual bool OnProtocolMessage(
-        const std::string& devtools_agent_host_id,
         const std::string& json_message,
         const base::DictionaryValue& parsed_message) = 0;
 
@@ -165,15 +191,25 @@ class HEADLESS_EXPORT HeadlessDevToolsClient {
     DISALLOW_COPY_AND_ASSIGN(RawProtocolListener);
   };
 
+  virtual void AttachToChannel(
+      std::unique_ptr<HeadlessDevToolsChannel> channel) = 0;
+  virtual void DetachFromChannel() = 0;
+
   virtual void SetRawProtocolListener(
       RawProtocolListener* raw_protocol_listener) = 0;
+
+  virtual std::unique_ptr<HeadlessDevToolsClient> CreateSession(
+      const std::string& session_id) = 0;
 
   // Generates an odd numbered ID.
   virtual int GetNextRawDevToolsMessageId() = 0;
 
   // The id within the message must be odd to prevent collisions.
   virtual void SendRawDevToolsMessage(const std::string& json_message) = 0;
-  virtual void SendRawDevToolsMessage(const base::DictionaryValue& message) = 0;
+
+  // TODO(dgozman): remove this method together with ExternalHost.
+  virtual void DispatchMessageFromExternalHost(
+      const std::string& json_message) = 0;
 
   // TODO(skyostil): Add notification for disconnection.
 

@@ -9,11 +9,20 @@
 #define SkPaintPriv_DEFINED
 
 #include "SkImageInfo.h"
-#include "SkPaint.h"
 #include "SkMatrix.h"
+#include "SkPaint.h"
+#include "SkTypeface.h"
 
 class SkBitmap;
 class SkImage;
+class SkReadBuffer;
+class SkWriteBuffer;
+
+enum SkReadPaintResult {
+    kFailed_ReadPaint,
+    kSuccess_JustPaint,
+    kSuccess_PaintAndFont,
+};
 
 class SkPaintPriv {
 public:
@@ -47,23 +56,36 @@ public:
      */
     static bool Overwrites(const SkImage*, const SkPaint* paint);
 
-    static void ScaleFontMetrics(SkPaint::FontMetrics*, SkScalar);
-
-    /**
-     *  Return a matrix that applies the paint's text values: size, scale, skew
-     */
-    static void MakeTextMatrix(SkMatrix* matrix, SkScalar size, SkScalar scaleX, SkScalar skewX) {
-        matrix->setScale(size * scaleX, size);
-        if (skewX) {
-            matrix->postSkew(skewX, 0);
-        }
-    }
-
-    static void MakeTextMatrix(SkMatrix* matrix, const SkPaint& paint) {
-        MakeTextMatrix(matrix, paint.getTextSize(), paint.getTextScaleX(), paint.getTextSkewX());
-    }
-    
     static bool ShouldDither(const SkPaint&, SkColorType);
+
+    static SkTextEncoding GetEncoding(const SkPaint& paint) {
+        return paint.private_internal_getTextEncoding();
+    }
+
+    /** Serializes SkPaint into a buffer. A companion unflatten() call
+    can reconstitute the paint at a later time.
+
+    @param buffer  SkWriteBuffer receiving the flattened SkPaint data
+    */
+    static void Flatten(const SkPaint& paint, SkWriteBuffer& buffer);
+
+    /** Populates SkPaint, typically from a serialized stream, created by calling
+        flatten() at an earlier time.
+
+        SkReadBuffer class is not public, so unflatten() cannot be meaningfully called
+        by the client.
+
+        Older formats also stored font info in the serialized data. On success, this
+        returns if it deserialized just a paint, or both a font and paint. The font
+        param is optional.
+
+        @param buffer  serialized data describing SkPaint content
+        @return        false if the buffer contains invalid data
+    */
+    static SkReadPaintResult Unflatten(SkPaint* paint, SkReadBuffer& buffer, SkFont* font);
+
+private:
+    static SkReadPaintResult Unflatten_PreV68(SkPaint* paint, SkReadBuffer& buffer, SkFont*);
 };
 
 #endif

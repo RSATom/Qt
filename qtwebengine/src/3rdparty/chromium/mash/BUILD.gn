@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import("//build/config/nacl/config.gni")
+import("//components/nacl/features.gni")
 import("//services/catalog/public/tools/catalog.gni")
 import("//services/service_manager/public/service_manifest.gni")
 import("//testing/test.gni")
@@ -12,25 +13,17 @@ group("all") {
   testonly = true
 
   deps = [
-    ":mash_catalog",
-    "//components/leveldb",
+    "//components/services/leveldb",
     "//mash/catalog_viewer",
     "//mash/example",
-    "//mash/quick_launch",
     "//mash/runner",
     "//mash/session",
-    "//mash/simple_wm",
     "//mash/task_viewer",
   ]
 
   # Build on platforms that support ash.
   if (is_chromeos) {
-    deps += [
-      "//ash/autoclick/mus:accessibility_autoclick",
-      "//ash/mus/standalone:ash_standalone",
-      "//ash/touch_hud/mus:touch_hud",
-      "//mash:mash_unittests",
-    ]
+    deps += [ "//ash/components/quick_launch:quick_launch_app" ]
   }
 }
 
@@ -40,43 +33,25 @@ catalog("catalog") {
   testonly = true
 
   standalone_services = [
-    "//components/leveldb:manifest",
+    "//components/services/leveldb:manifest",
     "//mash/catalog_viewer:manifest",
-    "//mash/quick_launch:manifest",
+    "//mash/example/views_examples:manifest",
+    "//mash/example/window_type_launcher:manifest",
     "//mash/session:manifest",
     "//mash/task_viewer:manifest",
-    "//services/ui:manifest",
-    "//services/ui/demo:manifest",
-    "//services/ui/ime/test_ime_driver:manifest",
-
-    # TODO(rockot): It seems like a layering violation to have these service
-    # names referenced here, but it's the most convenient thing to do for now,
-    # and this is only for developers.
-    #
-    # Note that there are no build-time dependencies on the actual Chrome
-    # binary implied by mash:all or other targets here. This only ensures that
-    # if you have such a binary built, the runner will be able to locate it.
-    "//chrome/app:chrome_content_browser_manifest",
-    "//chrome/app:chrome_content_gpu_manifest",
-    "//chrome/app:chrome_content_packaged_services_manifest_for_mash",
-    "//chrome/app:chrome_content_plugin_manifest",
-    "//chrome/app:chrome_content_renderer_manifest",
-    "//chrome/app:chrome_content_utility_manifest",
+    "//services/ws/ime/test_ime_driver:manifest",
+    "//services/viz:manifest",
   ]
-
-  executable_overrides = [ "content_packaged_services:@EXE_DIR/chrome" ]
-
-  catalog_deps = [ "//mash/example:catalog" ]
 
   if (is_chromeos) {
     standalone_services += [
-      "//ash/mus:manifest",
-      "//ash/mus/standalone:manifest",
+      "//ash:manifest",
+      "//ash/components/quick_launch:manifest",
     ]
   }
 
-  if (is_linux && !is_android) {
-    standalone_services += [ "//components/font_service:manifest" ]
+  if (is_linux) {
+    standalone_services += [ "//components/services/font:manifest" ]
   }
 
   if (enable_nacl) {
@@ -87,69 +62,8 @@ catalog("catalog") {
   }
 }
 
-copy("mash_catalog") {
+catalog_cpp_source("mash_catalog_source") {
   testonly = true
-  sources = get_target_outputs(":catalog")
-  outputs = [
-    "$root_out_dir/mash_catalog.json",
-  ]
-  deps = [
-    ":catalog",
-  ]
-}
-
-if (is_chromeos) {
-  # TODO(jamescook): Move these tests into //ash/mus.
-  test("mash_unittests") {
-    sources = [
-      "test/mash_test_suite.cc",
-      "test/mash_test_suite.h",
-      "test/mash_unittests.cc",
-    ]
-    deps = [
-      "//ash:test_support_without_content",
-      "//ash/mus:resources",
-      "//ash/mus:unittests",
-      "//ash/public/cpp:ash_public_cpp",
-      "//base",
-      "//base/test:test_support",
-      "//cc",
-      "//cc:test_support",
-      "//cc/surfaces",
-      "//mojo/edk/system",
-      "//services/catalog:lib",
-      "//ui/aura",
-      "//ui/base",
-      "//ui/compositor:test_support",
-      "//ui/gl:test_support",
-    ]
-    data_deps = [
-      ":mash_unittests_catalog_copy",
-      "//ash/mus:resources",
-    ]
-  }
-
-  service_manifest("unittests_manifest") {
-    name = "mash_unittests"
-    source = "unittests_manifest.json"
-  }
-
-  catalog("mash_unittests_catalog") {
-    testonly = true
-
-    embedded_services = [ ":unittests_manifest" ]
-
-    catalog_deps = [ ":catalog" ]
-  }
-
-  copy("mash_unittests_catalog_copy") {
-    testonly = true
-    sources = get_target_outputs(":mash_unittests_catalog")
-    outputs = [
-      "${root_out_dir}/mash_unittests_catalog.json",
-    ]
-    deps = [
-      ":mash_unittests_catalog",
-    ]
-  }
+  catalog = ":catalog"
+  generated_function_name = "CreateMashCatalog"
 }

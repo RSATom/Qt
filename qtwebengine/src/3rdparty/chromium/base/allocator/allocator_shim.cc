@@ -9,6 +9,7 @@
 #include <new>
 
 #include "base/atomicops.h"
+#include "base/bits.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/process/process_metrics.h"
@@ -41,10 +42,6 @@ subtle::AtomicWord g_chain_head = reinterpret_cast<subtle::AtomicWord>(
 
 bool g_call_new_handler_on_malloc_failure = false;
 
-#if !defined(OS_WIN)
-subtle::Atomic32 g_new_handler_lock = 0;
-#endif
-
 inline size_t GetCachedPageSize() {
   static size_t pagesize = 0;
   if (!pagesize)
@@ -58,20 +55,7 @@ bool CallNewHandler(size_t size) {
 #if defined(OS_WIN)
   return base::allocator::WinCallNewHandler(size);
 #else
-  // TODO(primiano): C++11 has introduced std::get_new_handler() which is
-  // supposed to be thread safe and would avoid the spinlock boilerplate here.
-  // However, it is not available in the headers in the current Debian Jessie
-  // sysroot, which has libstdc++ 4.8. The function is available in libstdc++
-  // 4.9 and newer, but it will be a few more years before a newer sysroot
-  // becomes available.
-  std::new_handler nh;
-  {
-    while (subtle::Acquire_CompareAndSwap(&g_new_handler_lock, 0, 1))
-      PlatformThread::YieldCurrentThread();
-    nh = std::set_new_handler(0);
-    ignore_result(std::set_new_handler(nh));
-    subtle::Release_Store(&g_new_handler_lock, 0);
-  }
+  std::new_handler nh = std::get_new_handler();
   if (!nh)
     return false;
   (*nh)();
@@ -178,6 +162,20 @@ ALWAYS_INLINE void* ShimCppNew(size_t size) {
   return ptr;
 }
 
+ALWAYS_INLINE void* ShimCppAlignedNew(size_t size, size_t alignment) {
+  const allocator::AllocatorDispatch* const chain_head = GetChainHead();
+  void* ptr;
+  do {
+    void* context = nullptr;
+#if defined(OS_MACOSX)
+    context = malloc_default_zone();
+#endif
+    ptr = chain_head->alloc_aligned_function(chain_head, alignment, size,
+                                             context);
+  } while (!ptr && CallNewHandler(size));
+  return ptr;
+}
+
 ALWAYS_INLINE void ShimCppDelete(void* address) {
   void* context = nullptr;
 #if defined(OS_MACOSX)
@@ -235,7 +233,7 @@ ALWAYS_INLINE int ShimPosixMemalign(void** res, size_t alignment, size_t size) {
   // posix_memalign is supposed to check the arguments. See tc_posix_memalign()
   // in tc_malloc.cc.
   if (((alignment % sizeof(void*)) != 0) ||
-      ((alignment & (alignment - 1)) != 0) || (alignment == 0)) {
+      !base::bits::IsPowerOfTwo(alignment)) {
     return EINVAL;
   }
   void* ptr = ShimMemalign(alignment, size, nullptr);
@@ -293,6 +291,40 @@ ALWAYS_INLINE void ShimFreeDefiniteSize(void* ptr, size_t size, void* context) {
                                                  context);
 }
 
+ALWAYS_INLINE void* ShimAlignedMalloc(size_t size,
+                                      size_t alignment,
+                                      void* context) {
+  const allocator::AllocatorDispatch* const chain_head = GetChainHead();
+  void* ptr = nullptr;
+  do {
+    ptr = chain_head->aligned_malloc_function(chain_head, size, alignment,
+                                              context);
+  } while (!ptr && g_call_new_handler_on_malloc_failure &&
+           CallNewHandler(size));
+  return ptr;
+}
+
+ALWAYS_INLINE void* ShimAlignedRealloc(void* address,
+                                       size_t size,
+                                       size_t alignment,
+                                       void* context) {
+  // _aligned_realloc(size == 0) means _aligned_free() and might return a
+  // nullptr. We should not call the std::new_handler in that case, though.
+  const allocator::AllocatorDispatch* const chain_head = GetChainHead();
+  void* ptr = nullptr;
+  do {
+    ptr = chain_head->aligned_realloc_function(chain_head, address, size,
+                                               alignment, context);
+  } while (!ptr && size && g_call_new_handler_on_malloc_failure &&
+           CallNewHandler(size));
+  return ptr;
+}
+
+ALWAYS_INLINE void ShimAlignedFree(void* address, void* context) {
+  const allocator::AllocatorDispatch* const chain_head = GetChainHead();
+  return chain_head->aligned_free_function(chain_head, address, context);
+}
+
 }  // extern "C"
 
 #if !defined(OS_WIN) && !defined(OS_MACOSX)
@@ -348,6 +380,6 @@ void InitializeAllocatorShim() {
 #endif
 
 #if (defined(__GNUC__) && defined(__EXCEPTIONS)) || \
-    (defined(_HAS_EXCEPTIONS) && _HAS_EXCEPTIONS)
+    (defined(_MSC_VER) && defined(_CPPUNWIND))
 #error This code cannot be used when exceptions are turned on.
 #endif

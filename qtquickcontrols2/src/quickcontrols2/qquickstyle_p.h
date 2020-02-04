@@ -59,13 +59,15 @@ class QSettings;
 class Q_QUICKCONTROLS2_PRIVATE_EXPORT QQuickStylePrivate
 {
 public:
-    static QStringList stylePaths();
+    static QStringList stylePaths(bool resolve = false);
     static QString fallbackStyle();
     static bool isCustomStyle();
     static void init(const QUrl &baseUrl);
     static void reset();
     static QString configFilePath();
     static QSharedPointer<QSettings> settings(const QString &group = QString());
+    static const QFont *readFont(const QSharedPointer<QSettings> &settings);
+    static const QPalette *readPalette(const QSharedPointer<QSettings> &settings);
     static bool isDarkSystemTheme();
 };
 

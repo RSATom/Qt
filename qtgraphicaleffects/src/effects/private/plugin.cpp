@@ -44,13 +44,6 @@
 #include "qgfxsourceproxy_p.h"
 #include "qgfxshaderbuilder_p.h"
 
-static void initResources()
-{
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtGraphicalEffects_private);
-#endif
-}
-
 QT_BEGIN_NAMESPACE
 
 static QObject *qgfxshaderbuilder_provider(QQmlEngine *, QJSEngine *)
@@ -64,12 +57,15 @@ class QtGraphicalEffectsPrivatePlugin : public QQmlExtensionPlugin
     Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
 
 public:
-    QtGraphicalEffectsPrivatePlugin(QObject *parent = 0) : QQmlExtensionPlugin(parent) { initResources(); }
+    QtGraphicalEffectsPrivatePlugin(QObject *parent = 0) : QQmlExtensionPlugin(parent) { }
     virtual void registerTypes(const char *uri)
     {
         Q_ASSERT(QByteArray(uri) == QByteArrayLiteral("QtGraphicalEffects.private"));
         qmlRegisterType<QGfxSourceProxy>(uri, 1, 0, "SourceProxy");
         qmlRegisterSingletonType<QGfxShaderBuilder>(uri, 1, 0, "ShaderBuilder", qgfxshaderbuilder_provider);
+
+        // Auto-increment the import to stay in sync with ALL future QtQuick minor versions from 5.12 onward
+        qmlRegisterModule(uri, 1, QT_VERSION_MINOR);
     }
 };
 

@@ -132,12 +132,12 @@ example_006.pdf mac,win * *
 example_007.pdf mac * *
 example_008.pdf mac * *
 example_009.pdf mac * *
-example_010.pdf mac,win * *
+example_010.pdf mac * *
 example_011.pdf mac * *
 example_012.pdf mac * *
 example_013.pdf mac * *
 example_014.pdf mac * *
-example_015.pdf mac,win * *
+example_015.pdf mac * *
 example_016.pdf mac * *
 example_017.pdf mac * *
 example_018.pdf mac * *
@@ -145,7 +145,7 @@ example_019.pdf mac * *
 example_020.pdf mac * *
 example_021.pdf mac * *
 example_022.pdf mac * *
-example_023.pdf mac,win * *
+example_023.pdf mac * *
 example_024.pdf mac * *
 example_025.pdf mac * *
 example_026.pdf mac * *
@@ -175,7 +175,7 @@ example_049.pdf mac * *
 example_050.pdf mac * *
 example_051.pdf mac * *
 example_052.pdf mac * *
-example_053.pdf mac,win * *
+example_053.pdf mac * *
 example_054.pdf mac * *
 example_055.pdf mac,win * *
 example_056.pdf mac * *
@@ -286,13 +286,8 @@ zh_file1.pdf mac * *
 zh_function_list.pdf mac * *
 zh_shared_document.pdf mac * *
 
-bug_492.in * nov8 *
-bug_679643.in * * noxfa
-bug_679642.in * * noxfa
-
-#
 # TODO(hnakashima): These might never have been run. Go over them and fix.
-#
+
 FRC_8.5_E&X.pdf * * *
 FRC_8.5_O&PO_GoToE.pdf * * *
 FRC_8.5_OpenAction&O_URI.pdf * * *
@@ -300,12 +295,10 @@ FRC_8.5_PC&C_GoToE_T_T.pdf * * *
 FRC_8.5_PC_GoToE_T_R&P&A.pdf * * *
 FRC_8.5_PO_GoToE_T_R&N.pdf * * *
 
-#
 # xfa_specific
-#
+
 Choose.pdf * * *
 data_binding.pdf * * *
-Date_FormCale.pdf * * *
 # TODO(npm): Add proper evt for MouseEvents.
 MouseEvents_enter.pdf * * *
 MouseEvents_exit.pdf * * *
@@ -315,3 +308,35 @@ TimeField.pdf win,linux * *
 Test_CheckBox.pdf * * *
 Test_DateField_locale_zh_HK.pdf mac,win * *
 
+#
+# JavaScript tests
+#
+bug_679642.in * * noxfa
+bug_679643.in * * noxfa
+bug_735912.in * * noxfa
+
+# xfa_specific
+
+# TODO(pdfium:1106): Remove after associated bug is fixed
+resolve_nodes_1.pdf * * *
+
+#
+# Pixel tests
+#
+bug_492.in * nov8 *
+
+# TODO(pdfium:632): Remove after associated bug is fixed
+bug_632.in * * *
+
+# xfa_specific
+
+# TODO(pdfium:1107): Remove after associated bug is fixed
+standard_symbols.pdf * * *
+# TODO(pdfium:1168): Remove after associated bug is fixed
+xfa_bmp_image.in * * *
+# TODO(pdfium:1095): Remove after associated bug is fixed
+xfa_example.in win * *
+# TODO(pdfium:1167): Remove after associated bug is fixed
+xfa_gif_image.in * * *
+# TODO(pdfium:1095): Remove after associated bug is fixed
+xfa_textfield.in win * *

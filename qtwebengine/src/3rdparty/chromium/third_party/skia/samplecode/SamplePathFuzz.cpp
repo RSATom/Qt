@@ -5,8 +5,7 @@
  * found in the LICENSE file.
  */
 
-#include "SampleCode.h"
-#include "SkView.h"
+#include "Sample.h"
 #include "SkCanvas.h"
 #include "SkPaint.h"
 #include "SkPath.h"
@@ -574,7 +573,8 @@ SkVector makeVector() {
 
 void validate(const SkPath& path) {
     if (fValidate) {
-        SkDEBUGCODE(path.experimentalValidateRef());
+        // FIXME: this could probably assert on path.isValid() instead
+        SkDEBUGCODE(path.validateRef());
     }
 }
 
@@ -645,17 +645,16 @@ static void path_fuzz_stroker(SkBitmap* bitmap, int seed) {
     });
 }
 
-class PathFuzzView : public SampleView {
+class PathFuzzView : public Sample {
 public:
     PathFuzzView()
         : fOneDraw(false)
     {
     }
 protected:
-    // overrides from SkEventSink
-    bool onQuery(SkEvent* evt) override {
-        if (SampleCode::TitleQ(*evt)) {
-            SampleCode::TitleR(evt, "PathFuzzer");
+    bool onQuery(Sample::Event* evt) override {
+        if (Sample::TitleQ(*evt)) {
+            Sample::TitleR(evt, "PathFuzzer");
             return true;
         }
         return this->INHERITED::onQuery(evt);
@@ -685,7 +684,6 @@ protected:
             path_fuzz_stroker(&offscreen, fIndex += 100);
             canvas->drawBitmap(offscreen, 0, 0);
         }
-        this->inval(nullptr);
     }
 
 private:
@@ -693,8 +691,7 @@ private:
     SkBitmap offscreen;
     FuzzPath fuzzPath;
     bool fOneDraw;
-    typedef SkView INHERITED;
+    typedef Sample INHERITED;
 };
 
-static SkView* MyFactory() { return new PathFuzzView; }
-static SkViewRegister reg(MyFactory);
+DEF_SAMPLE( return new PathFuzzView(); )

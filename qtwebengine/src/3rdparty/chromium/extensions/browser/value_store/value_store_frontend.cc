@@ -10,7 +10,9 @@
 #include "base/files/file_path.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/task/post_task.h"
 #include "base/trace_event/trace_event.h"
+#include "content/public/browser/browser_task_traits.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/api/storage/backend_task_runner.h"
 #include "extensions/browser/value_store/leveldb_value_store.h"
@@ -36,16 +38,17 @@ class ValueStoreFrontend::Backend : public base::RefCountedThreadSafe<Backend> {
     // Extract the value from the ReadResult and pass ownership of it to the
     // callback.
     std::unique_ptr<base::Value> value;
-    if (result->status().ok()) {
-      result->settings().RemoveWithoutPathExpansion(key, &value);
+    if (result.status().ok()) {
+      result.settings().RemoveWithoutPathExpansion(key, &value);
     } else {
       LOG(WARNING) << "Reading " << key << " from " << db_path_.value()
-                   << " failed: " << result->status().message;
+                   << " failed: " << result.status().message;
     }
 
-    BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
-        base::Bind(&ValueStoreFrontend::Backend::RunCallback,
-                   this, callback, base::Passed(&value)));
+    base::PostTaskWithTraits(
+        FROM_HERE, {BrowserThread::UI},
+        base::Bind(&ValueStoreFrontend::Backend::RunCallback, this, callback,
+                   base::Passed(&value)));
   }
 
   void Set(const std::string& key, std::unique_ptr<base::Value> value) {
@@ -55,8 +58,8 @@ class ValueStoreFrontend::Backend : public base::RefCountedThreadSafe<Backend> {
     ValueStore::WriteResult result = storage_->Set(
         ValueStore::IGNORE_QUOTA | ValueStore::NO_GENERATE_CHANGES, key,
         *value);
-    LOG_IF(ERROR, !result->status().ok()) << "Error while writing " << key
-                                          << " to " << db_path_.value();
+    LOG_IF(ERROR, !result.status().ok())
+        << "Error while writing " << key << " to " << db_path_.value();
   }
 
   void Remove(const std::string& key) {

@@ -40,7 +40,6 @@ class ResourceCreationImpl : public ppapi::thunk::ResourceCreationAPI {
                                 uint32_t sample_frame_count) override;
   PP_Resource CreateAudioInput(PP_Instance instance) override;
   PP_Resource CreateAudioOutput(PP_Instance instance) override;
-  PP_Resource CreateCompositor(PP_Instance instance) override;
   PP_Resource CreateBroker(PP_Instance instance) override;
   PP_Resource CreateBuffer(PP_Instance instance, uint32_t size) override;
   PP_Resource CreateCameraDevicePrivate(PP_Instance instance) override;
@@ -58,9 +57,9 @@ class ResourceCreationImpl : public ppapi::thunk::ResourceCreationAPI {
   PP_Resource CreateGraphics3DRaw(
       PP_Instance instance,
       PP_Resource share_context,
-      const gpu::gles2::ContextCreationAttribHelper& attrib_helper,
+      const gpu::ContextCreationAttribs& attrib_helper,
       gpu::Capabilities* capabilities,
-      base::SharedMemoryHandle* shared_state,
+      const base::UnsafeSharedMemoryRegion** shared_state,
       gpu::CommandBufferId* command_buffer_id) override;
   PP_Resource CreateHostResolver(PP_Instance instance) override;
   PP_Resource CreateHostResolverPrivate(PP_Instance instance) override;
@@ -113,8 +112,6 @@ class ResourceCreationImpl : public ppapi::thunk::ResourceCreationAPI {
       PP_Instance instance,
       const PP_NetAddress_Private& private_addr) override;
   PP_Resource CreateNetworkMonitor(PP_Instance instance) override;
-  PP_Resource CreatePlatformVerificationPrivate(PP_Instance instance) override;
-  PP_Resource CreateOutputProtectionPrivate(PP_Instance instance) override;
   PP_Resource CreateTCPServerSocketPrivate(PP_Instance instance) override;
   PP_Resource CreateTCPSocket1_0(PP_Instance instance) override;
   PP_Resource CreateTCPSocket(PP_Instance instance) override;
@@ -130,9 +127,7 @@ class ResourceCreationImpl : public ppapi::thunk::ResourceCreationAPI {
   PP_Resource CreateVideoDecoderDev(PP_Instance instance,
                                     PP_Resource graphics3d_id,
                                     PP_VideoDecoder_Profile profile) override;
-  PP_Resource CreateVideoDestination(PP_Instance instance) override;
   PP_Resource CreateVideoEncoder(PP_Instance instance) override;
-  PP_Resource CreateVideoSource(PP_Instance instance) override;
   PP_Resource CreateVpnProvider(PP_Instance instance) override;
   PP_Resource CreateWheelInputEvent(PP_Instance instance,
                                     PP_TimeTicks time_stamp,

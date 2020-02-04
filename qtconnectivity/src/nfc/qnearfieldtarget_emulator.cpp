@@ -51,7 +51,8 @@ QT_BEGIN_NAMESPACE
 
 static QMutex tagMutex;
 static QMap<TagBase *, bool> tagMap;
-static TagActivator tagActivator;
+
+Q_GLOBAL_STATIC(TagActivator, globalTagActivator);
 
 TagType1::TagType1(TagBase *tag, QObject *parent)
 :   QNearFieldTagType1(parent), m_tag(tag)
@@ -82,9 +83,7 @@ QNearFieldTarget::RequestId TagType1::sendCommand(const QByteArray &command)
 
     // tag not in proximity
     if (!tagMap.value(m_tag)) {
-        QMetaObject::invokeMethod(this, "error", Qt::QueuedConnection,
-                                  Q_ARG(QNearFieldTarget::Error, TargetOutOfRangeError),
-                                  Q_ARG(QNearFieldTarget::RequestId, id));
+        reportError(QNearFieldTarget::TargetOutOfRangeError, id);
         return id;
     }
 
@@ -93,17 +92,13 @@ QNearFieldTarget::RequestId TagType1::sendCommand(const QByteArray &command)
     QByteArray response = m_tag->processCommand(command + char(crc & 0xff) + char(crc >> 8));
 
     if (response.isEmpty()) {
-        QMetaObject::invokeMethod(this, "error", Qt::QueuedConnection,
-                                  Q_ARG(QNearFieldTarget::Error, NoResponseError),
-                                  Q_ARG(QNearFieldTarget::RequestId, id));
+        reportError(QNearFieldTarget::NoResponseError, id);
         return id;
     }
 
     // check crc
     if (qChecksum(response.constData(), response.length(), Qt::ChecksumItuV41) != 0) {
-        QMetaObject::invokeMethod(this, "error", Qt::QueuedConnection,
-                                  Q_ARG(QNearFieldTarget::Error, ChecksumMismatchError),
-                                  Q_ARG(QNearFieldTarget::RequestId, id));
+        reportError(QNearFieldTarget::ChecksumMismatchError, id);
         return id;
     }
 
@@ -152,9 +147,7 @@ QNearFieldTarget::RequestId TagType2::sendCommand(const QByteArray &command)
 
     // tag not in proximity
     if (!tagMap.value(m_tag)) {
-        QMetaObject::invokeMethod(this, "error", Qt::QueuedConnection,
-                                  Q_ARG(QNearFieldTarget::Error, TargetOutOfRangeError),
-                                  Q_ARG(QNearFieldTarget::RequestId, id));
+        reportError(QNearFieldTarget::TargetOutOfRangeError, id);
         return id;
     }
 
@@ -168,9 +161,7 @@ QNearFieldTarget::RequestId TagType2::sendCommand(const QByteArray &command)
     if (response.length() > 1) {
         // check crc
         if (qChecksum(response.constData(), response.length(), Qt::ChecksumItuV41) != 0) {
-            QMetaObject::invokeMethod(this, "error", Qt::QueuedConnection,
-                                      Q_ARG(QNearFieldTarget::Error, ChecksumMismatchError),
-                                      Q_ARG(QNearFieldTarget::RequestId, id));
+            reportError(QNearFieldTarget::ChecksumMismatchError, id);
             return id;
         }
 
@@ -211,7 +202,11 @@ void TagActivator::initialize()
     if (!tagMap.isEmpty())
         return;
 
+#ifndef BUILTIN_TESTDATA
     QDirIterator nfcTargets(QDir::currentPath(), QStringList(QStringLiteral("*.nfc")), QDir::Files);
+#else
+    QDirIterator nfcTargets(":/nfcdata", QStringList(QStringLiteral("*.nfc")), QDir::Files);
+#endif
     while (nfcTargets.hasNext()) {
         const QString targetFilename = nfcTargets.next();
 
@@ -256,7 +251,7 @@ void TagActivator::reset()
 
 TagActivator *TagActivator::instance()
 {
-    return &tagActivator;
+    return globalTagActivator();
 }
 
 void TagActivator::timerEvent(QTimerEvent *e)

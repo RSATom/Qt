@@ -36,8 +36,12 @@
 
 # This script installs python3
 
+# shellcheck source=./InstallPKGFromURL.sh
 source "${BASH_SOURCE%/*}/InstallPKGFromURL.sh"
+# shellcheck source=../unix/SetEnvVar.sh
 source "${BASH_SOURCE%/*}/../unix/SetEnvVar.sh"
+# shellcheck source=./pip.sh
+source "${BASH_SOURCE%/*}/pip.sh"
 
 PrimaryUrl="http://ci-files01-hki.intra.qt.io/input/mac/python-3.6.1-macosx10.6.pkg"
 AltUrl="https://www.python.org/ftp/python/3.6.1/python-3.6.1-macosx10.6.pkg"
@@ -46,9 +50,16 @@ DestDir="/"
 
 InstallPKGFromURL "$PrimaryUrl" "$AltUrl" "$SHA1" "$DestDir"
 
-/Library/Frameworks/Python.framework/Versions/3.6/bin/pip3 install virtualenv
+InstallPip python3.6
+
+/Library/Frameworks/Python.framework/Versions/3.6/bin/pip3 install virtualenv wheel
 
 SetEnvVar "PYTHON3_PATH" "/Library/Frameworks/Python.framework/Versions/3.6/bin"
 SetEnvVar "PIP3_PATH" "/Library/Frameworks/Python.framework/Versions/3.6/bin"
 
+# Install all needed packages in a special wheel cache directory
+/Library/Frameworks/Python.framework/Versions/3.6/bin/pip3 wheel --wheel-dir $HOME/python3-wheels -r ${BASH_SOURCE%/*}/../shared/requirements.txt
+SetEnvVar "PYTHON3_WHEEL_CACHE" "$HOME/python3-wheels"
+
 echo "python3 = 3.6.1" >> ~/versions.txt
+

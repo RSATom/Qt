@@ -4,70 +4,58 @@
 
 #include "media/audio/audio_debug_recording_manager.h"
 
+#include <memory>
+
 #include "base/bind.h"
-#include "base/files/file_path.h"
 #include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
-#include "base/strings/string_number_conversions.h"
+#include "base/task_runner_util.h"
 
 namespace media {
 
 namespace {
-
 // Running id recording sources.
-int g_next_stream_id = 1;
-
-#if defined(OS_WIN)
-#define IntToStringType base::IntToString16
-#else
-#define IntToStringType base::IntToString
-#endif
-
-// Helper function that returns |base_file_name| with |file_name_extension| and
-// |id| added to it as as extensions.
-base::FilePath GetOutputDebugRecordingFileNameWithExtensions(
-    const base::FilePath& base_file_name,
-    const base::FilePath::StringType& file_name_extension,
-    int id) {
-  return base_file_name.AddExtension(file_name_extension)
-      .AddExtension(IntToStringType(id));
+uint32_t g_next_stream_id = 1;
 }
-
-}  // namespace
 
 AudioDebugRecordingManager::AudioDebugRecordingManager(
     scoped_refptr<base::SingleThreadTaskRunner> task_runner)
     : task_runner_(std::move(task_runner)), weak_factory_(this) {}
 
-AudioDebugRecordingManager::~AudioDebugRecordingManager() {}
+AudioDebugRecordingManager::~AudioDebugRecordingManager() = default;
 
 void AudioDebugRecordingManager::EnableDebugRecording(
-    const base::FilePath& base_file_name) {
+    CreateWavFileCallback create_file_callback) {
   DCHECK(task_runner_->BelongsToCurrentThread());
-  DCHECK(!base_file_name.empty());
+  DCHECK(!create_file_callback.is_null());
+  create_file_callback_ = std::move(create_file_callback);
 
   for (const auto& it : debug_recording_helpers_) {
-    it.second.first->EnableDebugRecording(
-        GetOutputDebugRecordingFileNameWithExtensions(
-            base_file_name, it.second.second, it.first));
+    uint32_t id = it.first;
+    AudioDebugRecordingHelper* recording_helper = it.second.first;
+    AudioDebugRecordingStreamType stream_type = it.second.second;
+    recording_helper->EnableDebugRecording(stream_type, id,
+                                           create_file_callback_);
   }
-  debug_recording_base_file_name_ = base_file_name;
 }
 
 void AudioDebugRecordingManager::DisableDebugRecording() {
   DCHECK(task_runner_->BelongsToCurrentThread());
-  for (const auto& it : debug_recording_helpers_)
-    it.second.first->DisableDebugRecording();
-  debug_recording_base_file_name_.clear();
+  DCHECK(!create_file_callback_.is_null());
+  for (const auto& it : debug_recording_helpers_) {
+    AudioDebugRecordingHelper* recording_helper = it.second.first;
+    recording_helper->DisableDebugRecording();
+  }
+  create_file_callback_.Reset();
 }
 
 std::unique_ptr<AudioDebugRecorder>
 AudioDebugRecordingManager::RegisterDebugRecordingSource(
-    const base::FilePath::StringType& file_name_extension,
+    AudioDebugRecordingStreamType stream_type,
     const AudioParameters& params) {
   DCHECK(task_runner_->BelongsToCurrentThread());
 
-  const int id = g_next_stream_id++;
+  const uint32_t id = g_next_stream_id++;
 
   // Normally, the manager will outlive the one who registers and owns the
   // returned recorder. But to not require this we use a weak pointer.
@@ -79,18 +67,17 @@ AudioDebugRecordingManager::RegisterDebugRecordingSource(
               weak_factory_.GetWeakPtr(), id));
 
   if (IsDebugRecordingEnabled()) {
-    recording_helper->EnableDebugRecording(
-        GetOutputDebugRecordingFileNameWithExtensions(
-            debug_recording_base_file_name_, file_name_extension, id));
+    recording_helper->EnableDebugRecording(stream_type, id,
+                                           create_file_callback_);
   }
 
   debug_recording_helpers_[id] =
-      std::make_pair(recording_helper.get(), file_name_extension);
+      std::make_pair(recording_helper.get(), stream_type);
 
   return base::WrapUnique<AudioDebugRecorder>(recording_helper.release());
 }
 
-void AudioDebugRecordingManager::UnregisterDebugRecordingSource(int id) {
+void AudioDebugRecordingManager::UnregisterDebugRecordingSource(uint32_t id) {
   DCHECK(task_runner_->BelongsToCurrentThread());
   auto it = debug_recording_helpers_.find(id);
   DCHECK(it != debug_recording_helpers_.end());
@@ -102,13 +89,13 @@ AudioDebugRecordingManager::CreateAudioDebugRecordingHelper(
     const AudioParameters& params,
     scoped_refptr<base::SingleThreadTaskRunner> task_runner,
     base::OnceClosure on_destruction_closure) {
-  return base::MakeUnique<AudioDebugRecordingHelper>(
+  return std::make_unique<AudioDebugRecordingHelper>(
       params, task_runner, std::move(on_destruction_closure));
 }
 
 bool AudioDebugRecordingManager::IsDebugRecordingEnabled() {
   DCHECK(task_runner_->BelongsToCurrentThread());
-  return !debug_recording_base_file_name_.empty();
+  return !create_file_callback_.is_null();
 }
 
 }  // namespace media

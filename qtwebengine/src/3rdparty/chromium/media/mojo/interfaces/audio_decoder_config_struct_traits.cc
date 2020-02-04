@@ -4,6 +4,8 @@
 
 #include "media/mojo/interfaces/audio_decoder_config_struct_traits.h"
 
+#include "mojo/public/cpp/base/time_mojom_traits.h"
+
 namespace mojo {
 
 // static

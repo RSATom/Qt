@@ -10,20 +10,10 @@
 #include "core/fxcrt/fx_system.h"
 
 //NOTE: The tiff codec requires an ANSI C compiler environment for building and 
-//		presumes an ANSI C environment for use.
+//    presumes an ANSI C environment for use.
 
-/* Define to 1 if you have the <fcntl.h> header file. */
-/* Define to 1 if you have the <sys/types.h> header file. */
-#if _FX_OS_ == _FX_WIN32_MOBILE_
-# define O_RDONLY       0x0000  /* open for reading only */
-# define O_WRONLY       0x0001  /* open for writing only */
-# define O_RDWR         0x0002  /* open for reading and writing */
-# define O_CREAT        0x0100  /* create and open file */
-# define O_TRUNC        0x0200  /* open and truncate */
-#else
 # define HAVE_SYS_TYPES_H 1
 # define HAVE_FCNTL_H 1
-#endif
 
 /* Compatibility stuff. */
 
@@ -39,24 +29,31 @@
 //fx_system.h already include the string.h in ANSIC
 
 /* Define to 1 if you have the <search.h> header file. */
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_ && _MSC_VER >= 1900
+#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_ && _MSC_VER >= 1900
 // search.h is always available in VS 2015 and above, and may be
 // available in earlier versions.
 #define HAVE_SEARCH_H 1
 #endif
 
-/* The size of a `int', as computed by sizeof. */
-/* According typedef int	int32_t; in the fx_system.h*/
+/* The size of a `int'. */
+/* According typedef int  int32_t; in the fx_system.h*/
 #define SIZEOF_INT 4
 
 /* Sunliang.Liu 20110325. We should config the correct long size for tif 
    fax4decode optimize in tif_fax3.c  -- Linux64 decode issue. 
    TESTDOC: Bug #23661 - z1.tif. */
-#if _FX_CPU_ == _FX_WIN64_ || _FX_CPU_ == _FX_X64_ || _FX_CPU_ == _FX_IA64_
+#if _FX_CPU_ == _FX_X64_ || _FX_CPU_ == _FX_IA64_
 /* The size of `unsigned long', as computed by sizeof. */
 #define SIZEOF_UNSIGNED_LONG 8
 #else
 #define SIZEOF_UNSIGNED_LONG 4
+#endif
+
+/* The size of void*. */
+#ifdef __LP64__
+#define SIZEOF_VOIDP 8
+#else
+#define SIZEOF_VOIDP 4
 #endif
 
 /* Signed 8-bit type */
@@ -83,7 +80,7 @@
 /* Unsigned 32-bit type formatter */
 #define TIFF_UINT32_FORMAT "%u"
 
-#ifdef _MSC_VER		// windows
+#ifdef _MSC_VER   // windows
 
 /* Signed 64-bit type formatter */
 #define TIFF_INT64_FORMAT "%I64d"
@@ -97,9 +94,9 @@
 /* Unsigned 64-bit type */
 #define TIFF_UINT64_T unsigned __int64
 
-#else						// linux/unix
+#else           // linux/unix
 
-#if 0 //_FX_CPU_ == _FX_X64_	// linux/unix 64
+#if 0 //_FX_CPU_ == _FX_X64_  // linux/unix 64
 
 /* Signed 64-bit type formatter */
 #define TIFF_INT64_FORMAT "%ld"
@@ -110,7 +107,7 @@
 /* Signed 64-bit type */
 #define TIFF_INT64_T signed long
 
-#else						// linux/unix 32
+#else           // linux/unix 32
 
 /* Signed 64-bit type formatter */
 #define TIFF_INT64_FORMAT "%lld"
@@ -121,7 +118,7 @@
 /* Signed 64-bit type */
 #define TIFF_INT64_T signed long long
 
-#endif						// end _FX_CPU_
+#endif            // end _FX_CPU_
 
 /* Unsigned 64-bit type */
 #define TIFF_UINT64_T unsigned long long
@@ -204,7 +201,7 @@
 
 /* Support Old JPEG compresson (read contrib/ojpeg/README first! Compilation
    fails with unpatched IJG JPEG library) */
-#define  OJPEG_SUPPORT	1
+#define  OJPEG_SUPPORT  1
 
 /* Support Macintosh PackBits algorithm */
 #define PACKBITS_SUPPORT 1

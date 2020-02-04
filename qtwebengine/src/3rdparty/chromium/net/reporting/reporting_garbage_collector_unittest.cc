@@ -6,7 +6,6 @@
 
 #include <string>
 
-#include "base/memory/ptr_util.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/time/time.h"
 #include "base/timer/mock_timer.h"
@@ -28,6 +27,7 @@ class ReportingGarbageCollectorTest : public ReportingTestBase {
   }
 
   const GURL kUrl_ = GURL("https://origin/path");
+  const std::string kUserAgent_ = "Mozilla/1.0";
   const std::string kGroup_ = "group";
   const std::string kType_ = "default";
 };
@@ -41,8 +41,8 @@ TEST_F(ReportingGarbageCollectorTest, Created) {
 TEST_F(ReportingGarbageCollectorTest, Timer) {
   EXPECT_FALSE(garbage_collection_timer()->IsRunning());
 
-  cache()->AddReport(kUrl_, kGroup_, kType_,
-                     base::MakeUnique<base::DictionaryValue>(),
+  cache()->AddReport(kUrl_, kUserAgent_, kGroup_, kType_,
+                     std::make_unique<base::DictionaryValue>(), 0,
                      tick_clock()->NowTicks(), 0);
 
   EXPECT_TRUE(garbage_collection_timer()->IsRunning());
@@ -53,8 +53,8 @@ TEST_F(ReportingGarbageCollectorTest, Timer) {
 }
 
 TEST_F(ReportingGarbageCollectorTest, Report) {
-  cache()->AddReport(kUrl_, kGroup_, kType_,
-                     base::MakeUnique<base::DictionaryValue>(),
+  cache()->AddReport(kUrl_, kUserAgent_, kGroup_, kType_,
+                     std::make_unique<base::DictionaryValue>(), 0,
                      tick_clock()->NowTicks(), 0);
   garbage_collection_timer()->Fire();
 
@@ -62,8 +62,8 @@ TEST_F(ReportingGarbageCollectorTest, Report) {
 }
 
 TEST_F(ReportingGarbageCollectorTest, ExpiredReport) {
-  cache()->AddReport(kUrl_, kGroup_, kType_,
-                     base::MakeUnique<base::DictionaryValue>(),
+  cache()->AddReport(kUrl_, kUserAgent_, kGroup_, kType_,
+                     std::make_unique<base::DictionaryValue>(), 0,
                      tick_clock()->NowTicks(), 0);
   tick_clock()->Advance(2 * policy().max_report_age);
   garbage_collection_timer()->Fire();
@@ -72,8 +72,8 @@ TEST_F(ReportingGarbageCollectorTest, ExpiredReport) {
 }
 
 TEST_F(ReportingGarbageCollectorTest, FailedReport) {
-  cache()->AddReport(kUrl_, kGroup_, kType_,
-                     base::MakeUnique<base::DictionaryValue>(),
+  cache()->AddReport(kUrl_, kUserAgent_, kGroup_, kType_,
+                     std::make_unique<base::DictionaryValue>(), 0,
                      tick_clock()->NowTicks(), 0);
 
   std::vector<const ReportingReport*> reports;

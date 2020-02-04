@@ -96,11 +96,18 @@ LSSharedFileListItemRef GetLoginItemForApp() {
   NSURL* url = [NSURL fileURLWithPath:[base::mac::MainBundle() bundlePath]];
 
   for(NSUInteger i = 0; i < [login_items_array count]; ++i) {
-    LSSharedFileListItemRef item = reinterpret_cast<LSSharedFileListItemRef>(
-        [login_items_array objectAtIndex:i]);
-    CFURLRef item_url_ref = NULL;
+    LSSharedFileListItemRef item =
+        reinterpret_cast<LSSharedFileListItemRef>(login_items_array[i]);
+    base::ScopedCFTypeRef<CFErrorRef> error;
+    CFURLRef item_url_ref =
+        LSSharedFileListItemCopyResolvedURL(item, 0, error.InitializeInto());
 
-    if (LSSharedFileListItemResolve(item, 0, &item_url_ref, NULL) == noErr) {
+    // This function previously used LSSharedFileListItemResolve(), which could
+    // return a NULL URL even when returning no error. This caused
+    // <https://crbug.com/760989>. It's not clear one way or the other whether
+    // LSSharedFileListItemCopyResolvedURL() shares this behavior, so this check
+    // remains in place.
+    if (!error && item_url_ref) {
       ScopedCFTypeRef<CFURLRef> item_url(item_url_ref);
       if (CFEqual(item_url, url)) {
         CFRetain(item);
@@ -206,8 +213,7 @@ void SwitchFullScreenModes(FullScreenMode from_mode, FullScreenMode to_mode) {
 }
 
 bool SetFileBackupExclusion(const FilePath& file_path) {
-  NSString* file_path_ns =
-      [NSString stringWithUTF8String:file_path.value().c_str()];
+  NSString* file_path_ns = base::mac::FilePathToNSString(file_path);
   NSURL* file_url = [NSURL fileURLWithPath:file_path_ns];
 
   // When excludeByPath is true the application must be running with root
@@ -260,9 +266,7 @@ void AddToLoginItems(bool hide_on_startup) {
 
   BOOL hide = hide_on_startup ? YES : NO;
   NSDictionary* properties =
-      [NSDictionary
-        dictionaryWithObject:[NSNumber numberWithBool:hide]
-                      forKey:(NSString*)kLSSharedFileListLoginItemHidden];
+      @{(NSString*)kLSSharedFileListLoginItemHidden : @(hide) };
 
   ScopedCFTypeRef<LSSharedFileListItemRef> new_item;
   new_item.reset(LSSharedFileListInsertItemURL(
@@ -418,9 +422,9 @@ int MacOSXMinorVersionInternal() {
   // immediate death.
   CHECK(darwin_major_version >= 6);
   int mac_os_x_minor_version = darwin_major_version - 4;
-  DLOG_IF(WARNING, darwin_major_version > 16) << "Assuming Darwin "
-      << base::IntToString(darwin_major_version) << " is Mac OS X 10."
-      << base::IntToString(mac_os_x_minor_version);
+  DLOG_IF(WARNING, darwin_major_version > 18)
+      << "Assuming Darwin " << base::IntToString(darwin_major_version)
+      << " is macOS 10." << base::IntToString(mac_os_x_minor_version);
 
   return mac_os_x_minor_version;
 }

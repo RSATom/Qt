@@ -450,7 +450,7 @@ void Job::StartURLRequest(URLRequestContext* context) {
   }
 
   // Start the URLRequest.
-  read_buffer_ = new IOBuffer(kReadBufferSizeInBytes);
+  read_buffer_ = base::MakeRefCounted<IOBuffer>(kReadBufferSizeInBytes);
   net::NetworkTrafficAnnotationTag traffic_annotation =
       net::DefineNetworkTrafficAnnotation("certificate_verifier", R"(
         semantics {
@@ -474,7 +474,7 @@ void Job::StartURLRequest(URLRequestContext* context) {
           destination: OTHER
         }
         policy {
-          cookies_allowed: false
+          cookies_allowed: NO
           setting: "This feature cannot be disabled by settings."
           policy_exception_justification: "Not implemented."
         })");
@@ -666,8 +666,8 @@ Job* AsyncCertNetFetcherImpl::FindJob(const RequestParams& params) {
 
   // The JobSet is kept in sorted order so items can be found using binary
   // search.
-  JobSet::iterator it = std::lower_bound(jobs_.begin(), jobs_.end(), params,
-                                         JobToRequestParamsComparator());
+  auto it = std::lower_bound(jobs_.begin(), jobs_.end(), params,
+                             JobToRequestParamsComparator());
   if (it != jobs_.end() && !(params < (*it).first->request_params()))
     return (*it).first;
   return nullptr;
@@ -803,7 +803,7 @@ class CertNetFetcherImpl : public CertNetFetcher {
       request_core->SignalImmediateError();
     }
 
-    return base::MakeUnique<CertNetFetcherRequestImpl>(std::move(request_core));
+    return std::make_unique<CertNetFetcherRequestImpl>(std::move(request_core));
   }
 
  private:
@@ -816,7 +816,7 @@ class CertNetFetcherImpl : public CertNetFetcher {
 }  // namespace
 
 scoped_refptr<CertNetFetcher> CreateCertNetFetcher(URLRequestContext* context) {
-  return make_scoped_refptr(new CertNetFetcherImpl(context));
+  return base::MakeRefCounted<CertNetFetcherImpl>(context);
 }
 
 }  // namespace net

@@ -52,24 +52,11 @@ DirectShowPin::DirectShowPin(DirectShowBaseFilter *filter, const QString &name, 
     , m_filter(filter)
     , m_name(name)
     , m_direction(direction)
-    , m_peerPin(NULL)
+    , m_peerPin(nullptr)
 {
 }
 
-DirectShowPin::~DirectShowPin()
-{
-
-}
-
-HRESULT DirectShowPin::getInterface(const IID &riid, void **ppvObject)
-{
-    if (riid == IID_IPin)
-        return GetInterface(static_cast<IPin*>(this), ppvObject);
-    else
-        return DirectShowObject::getInterface(riid, ppvObject);
-}
-
-
+DirectShowPin::~DirectShowPin() = default;
 
 HRESULT DirectShowPin::Connect(IPin *pReceivePin, const AM_MEDIA_TYPE *pmt)
 {
@@ -89,11 +76,11 @@ HRESULT DirectShowPin::Connect(IPin *pReceivePin, const AM_MEDIA_TYPE *pmt)
     if (pd == m_direction)
         return VFW_E_INVALID_DIRECTION;
 
-    if (pmt != NULL && DirectShowMediaType::isPartiallySpecified(pmt)) {
+    if (pmt != nullptr && DirectShowMediaType::isPartiallySpecified(pmt)) {
         // If the type is fully specified, use it
         hr = tryConnect(pReceivePin, pmt);
     } else {
-        IEnumMediaTypes *enumMediaTypes = NULL;
+        IEnumMediaTypes *enumMediaTypes = nullptr;
 
         // First, try the receiving pin's preferred types
         if (SUCCEEDED(pReceivePin->EnumMediaTypes(&enumMediaTypes))) {
@@ -121,13 +108,13 @@ HRESULT DirectShowPin::tryMediaTypes(IPin *pin, const AM_MEDIA_TYPE *partialType
     if (FAILED(hr))
         return hr;
 
-    AM_MEDIA_TYPE *mediaType = NULL;
+    AM_MEDIA_TYPE *mediaType = nullptr;
     ULONG mediaCount = 0;
     HRESULT hrFailure = VFW_E_NO_ACCEPTABLE_TYPES;
 
     for (; enumMediaTypes->Next(1, &mediaType, &mediaCount) == S_OK;) {
 
-        if (mediaType && (partialType == NULL || DirectShowMediaType::isCompatible(mediaType, partialType))) {
+        if (mediaType && (partialType == nullptr || DirectShowMediaType::isCompatible(mediaType, partialType))) {
             hr = tryConnect(pin, mediaType);
 
             if (FAILED(hr) && (hr != E_FAIL)
@@ -170,8 +157,8 @@ HRESULT DirectShowPin::tryConnect(IPin *pin, const AM_MEDIA_TYPE *type)
     if (FAILED(hr)) {
         connectionEnded();
         m_peerPin->Release();
-        m_peerPin = NULL;
-        setMediaType(NULL);
+        m_peerPin = nullptr;
+        setMediaType(nullptr);
         return hr;
     }
 
@@ -210,8 +197,8 @@ HRESULT DirectShowPin::ReceiveConnection(IPin *pConnector, const AM_MEDIA_TYPE *
     if (FAILED(hr)) {
         connectionEnded();
         m_peerPin->Release();
-        m_peerPin = NULL;
-        setMediaType(NULL);
+        m_peerPin = nullptr;
+        setMediaType(nullptr);
         return hr;
     }
 
@@ -231,9 +218,9 @@ HRESULT DirectShowPin::Disconnect()
             return hr;
 
         m_peerPin->Release();
-        m_peerPin = NULL;
+        m_peerPin = nullptr;
 
-        setMediaType(NULL);
+        setMediaType(nullptr);
 
         return S_OK;
     }
@@ -243,70 +230,60 @@ HRESULT DirectShowPin::Disconnect()
 
 HRESULT DirectShowPin::ConnectedTo(IPin **ppPin)
 {
-    if (!ppPin) {
+    if (!ppPin)
         return E_POINTER;
-    } else {
-        QMutexLocker locker(&m_mutex);
 
-        if (!m_peerPin) {
-            *ppPin = 0;
-            return VFW_E_NOT_CONNECTED;
-        } else {
-            m_peerPin->AddRef();
-            *ppPin = m_peerPin;
-            return S_OK;
-        }
+    QMutexLocker locker(&m_mutex);
+    if (!m_peerPin) {
+        *ppPin = 0;
+        return VFW_E_NOT_CONNECTED;
     }
+    m_peerPin->AddRef();
+    *ppPin = m_peerPin;
+    return S_OK;
 }
 
 HRESULT DirectShowPin::ConnectionMediaType(AM_MEDIA_TYPE *pmt)
 {
-    if (!pmt) {
+    if (!pmt)
         return E_POINTER;
-    } else {
-        QMutexLocker locker(&m_mutex);
 
-        if (!m_peerPin) {
-            DirectShowMediaType::init(pmt);
-            return VFW_E_NOT_CONNECTED;
-        } else {
-            DirectShowMediaType::copy(pmt, &m_mediaType);
-            return S_OK;
-        }
+    QMutexLocker locker(&m_mutex);
+    if (!m_peerPin) {
+        DirectShowMediaType::init(pmt);
+        return VFW_E_NOT_CONNECTED;
     }
+    DirectShowMediaType::copy(pmt, &m_mediaType);
+    return S_OK;
 }
 
 HRESULT DirectShowPin::QueryPinInfo(PIN_INFO *pInfo)
 {
-    if (!pInfo) {
+    if (!pInfo)
         return E_POINTER;
-    } else {
-        pInfo->pFilter = m_filter;
-        if (m_filter) {
-            m_filter->AddRef();
-        }
-        pInfo->dir = m_direction;
 
-        QString name = m_name;
-        if (name.length() >= MAX_PIN_NAME)
-            name.truncate(MAX_PIN_NAME - 1);
-        int length = name.toWCharArray(pInfo->achName);
-        pInfo->achName[length] = '\0';
+    pInfo->pFilter = m_filter;
+    if (m_filter)
+        m_filter->AddRef();
+    pInfo->dir = m_direction;
 
-        return S_OK;
-    }
+    QString name = m_name;
+    if (name.length() >= MAX_PIN_NAME)
+        name.truncate(MAX_PIN_NAME - 1);
+    int length = name.toWCharArray(pInfo->achName);
+    pInfo->achName[length] = '\0';
+
+    return S_OK;
 }
 
 HRESULT DirectShowPin::QueryId(LPWSTR *Id)
 {
-    if (!Id) {
+    if (!Id)
         return E_POINTER;
-    } else {
-        const int bytes = (m_name.length() + 1) * 2;
-        *Id = static_cast<LPWSTR>(::CoTaskMemAlloc(bytes));
-        ::memcpy(*Id, m_name.utf16(), bytes);
-        return S_OK;
-    }
+    const int bytes = (m_name.length() + 1) * 2;
+    *Id = static_cast<LPWSTR>(::CoTaskMemAlloc(bytes));
+    ::memcpy(*Id, m_name.utf16(), bytes);
+    return S_OK;
 }
 
 HRESULT DirectShowPin::QueryAccept(const AM_MEDIA_TYPE *pmt)
@@ -322,12 +299,10 @@ HRESULT DirectShowPin::QueryAccept(const AM_MEDIA_TYPE *pmt)
 
 HRESULT DirectShowPin::EnumMediaTypes(IEnumMediaTypes **ppEnum)
 {
-    if (!ppEnum) {
+    if (!ppEnum)
         return E_POINTER;
-    } else {
-        *ppEnum = new DirectShowMediaTypeEnum(this);
-        return S_OK;
-    }
+    *ppEnum = new DirectShowMediaTypeEnum(this);
+    return S_OK;
 }
 
 HRESULT DirectShowPin::QueryInternalConnections(IPin **apPin, ULONG *nPin)
@@ -362,12 +337,10 @@ HRESULT DirectShowPin::NewSegment(REFERENCE_TIME tStart, REFERENCE_TIME tStop, d
 
 HRESULT DirectShowPin::QueryDirection(PIN_DIRECTION *pPinDir)
 {
-    if (!pPinDir) {
+    if (!pPinDir)
         return E_POINTER;
-    } else {
-        *pPinDir = m_direction;
-        return S_OK;
-    }
+    *pPinDir = m_direction;
+    return S_OK;
 }
 
 QList<DirectShowMediaType> DirectShowPin::supportedMediaTypes()
@@ -407,23 +380,21 @@ HRESULT DirectShowPin::setActive(bool active)
 
 DirectShowOutputPin::DirectShowOutputPin(DirectShowBaseFilter *filter, const QString &name)
     : DirectShowPin(filter, name, PINDIR_OUTPUT)
-    , m_allocator(NULL)
-    , m_inputPin(NULL)
+    , m_allocator(nullptr)
+    , m_inputPin(nullptr)
 {
 
 }
 
-DirectShowOutputPin::~DirectShowOutputPin()
-{
-}
+DirectShowOutputPin::~DirectShowOutputPin() = default;
 
 HRESULT DirectShowOutputPin::completeConnection(IPin *pin)
 {
     if (!pin)
         return E_POINTER;
 
-    Q_ASSERT(m_inputPin == NULL);
-    Q_ASSERT(m_allocator == NULL);
+    Q_ASSERT(m_inputPin == nullptr);
+    Q_ASSERT(m_allocator == nullptr);
 
     HRESULT hr = pin->QueryInterface(IID_PPV_ARGS(&m_inputPin));
     if (FAILED(hr))
@@ -452,7 +423,7 @@ HRESULT DirectShowOutputPin::completeConnection(IPin *pin)
         }
 
         m_allocator->Release();
-        m_allocator = NULL;
+        m_allocator = nullptr;
     }
 
     // Otherwise, allocate its own allocator
@@ -470,7 +441,7 @@ HRESULT DirectShowOutputPin::completeConnection(IPin *pin)
         }
 
         m_allocator->Release();
-        m_allocator = NULL;
+        m_allocator = nullptr;
     }
 
     return hr;
@@ -484,12 +455,12 @@ HRESULT DirectShowOutputPin::connectionEnded()
             return hr;
 
         m_allocator->Release();
-        m_allocator = NULL;
+        m_allocator = nullptr;
     }
 
     if (m_inputPin) {
         m_inputPin->Release();
-        m_inputPin = NULL;
+        m_inputPin = nullptr;
     }
 
     return S_OK;
@@ -514,25 +485,14 @@ HRESULT DirectShowOutputPin::EndOfStream()
 
 DirectShowInputPin::DirectShowInputPin(DirectShowBaseFilter *filter, const QString &name)
     : DirectShowPin(filter, name, PINDIR_INPUT)
-    , m_allocator(NULL)
+    , m_allocator(nullptr)
     , m_flushing(false)
     , m_inErrorState(false)
 {
     ZeroMemory(&m_sampleProperties, sizeof(m_sampleProperties));
 }
 
-DirectShowInputPin::~DirectShowInputPin()
-{
-
-}
-
-HRESULT DirectShowInputPin::getInterface(const IID &riid, void **ppvObject)
-{
-    if (riid == IID_IMemInputPin)
-        return GetInterface(static_cast<IMemInputPin*>(this), ppvObject);
-    else
-        return DirectShowPin::getInterface(riid, ppvObject);
-}
+DirectShowInputPin::~DirectShowInputPin() = default;
 
 HRESULT DirectShowInputPin::connectionEnded()
 {
@@ -542,7 +502,7 @@ HRESULT DirectShowInputPin::connectionEnded()
             return hr;
 
         m_allocator->Release();
-        m_allocator = NULL;
+        m_allocator = nullptr;
     }
 
     return S_OK;
@@ -648,7 +608,8 @@ HRESULT DirectShowInputPin::Receive(IMediaSample *pSample)
 
     IMediaSample2 *sample2;
     if (SUCCEEDED(pSample->QueryInterface(IID_PPV_ARGS(&sample2)))) {
-        hr = sample2->GetProperties(sizeof(m_sampleProperties), (PBYTE)&m_sampleProperties);
+        hr = sample2->GetProperties(sizeof(m_sampleProperties),
+                                    reinterpret_cast<PBYTE>(&m_sampleProperties));
         sample2->Release();
         if (FAILED(hr))
             return hr;

@@ -11,10 +11,12 @@
         "src/corelib",
         "src/network",
         "src/gui",
+        "src/sql",
         "src/xml",
         "src/widgets",
         "src/printsupport",
-        "src/plugins/sqldrivers"
+        "src/plugins/sqldrivers",
+        "src/testlib"
     ],
 
     "commandline": {
@@ -65,6 +67,7 @@
             "commercial": "void",
             "compile-examples": { "type": "boolean", "name": "compile_examples" },
             "confirm-license": "void",
+            "coverage": "coverage",
             "dbus": { "type": "optionalString", "values": [ "no", "yes", "linked", "runtime" ] },
             "dbus-linked": { "type": "void", "name": "dbus", "value": "linked" },
             "dbus-runtime": { "type": "void", "name": "dbus", "value": "runtime" },
@@ -78,6 +81,8 @@
             "force-debug-info": { "type": "boolean", "name": "force_debug_info" },
             "force-pkg-config": { "type": "void", "name": "pkg-config" },
             "framework": "boolean",
+            "gc-binaries": { "type": "boolean", "name": "gc_binaries" },
+            "gdb-index": { "type": "boolean", "name": "enable_gdb_index" },
             "gcc-sysroot": "boolean",
             "gcov": "boolean",
             "gnumake": { "type": "boolean", "name": "GNUmake" },
@@ -85,6 +90,7 @@
             "headersclean": "boolean",
             "incredibuild-xge": { "type": "boolean", "name": "incredibuild_xge" },
             "libudev": "boolean",
+            "linker": { "type": "optionalString", "values": [ "bfd", "gold", "lld" ] },
             "ltcg": "boolean",
             "make": { "type": "addString", "values": [ "examples", "libs", "tests", "tools" ] },
             "make-tool": "string",
@@ -102,7 +108,6 @@
             "platform": "string",
             "plugin-manifests": "boolean",
             "profile": "boolean",
-            "qml-debug": "boolean",
             "qreal": "string",
             "qtlibinfix": { "type": "string", "name": "qt_libinfix" },
             "qtnamespace": { "type": "string", "name": "qt_namespace" },
@@ -127,12 +132,13 @@
             "syncqt": "boolean",
             "sysroot": "string",
             "testcocoon": "boolean",
-            "use-gold-linker": { "type": "boolean", "name": "use_gold_linker" },
+            "use-gold-linker": { "type": "boolean", "name": "use_gold_linker_alias" },
             "warnings-are-errors": { "type": "boolean", "name": "warnings_are_errors" },
             "Werror": { "type": "boolean", "name": "warnings_are_errors" },
             "widgets": "boolean",
             "xplatform": "string",
-            "zlib": { "type": "enum", "name": "system-zlib", "values": { "system": "yes", "qt": "no" } }
+            "zlib": { "type": "enum", "name": "system-zlib", "values": { "system": "yes", "qt": "no" } },
+            "zstd": "boolean"
         },
         "prefix": {
             "D": "defines",
@@ -149,31 +155,41 @@
         "zlib": {
             "label": "zlib",
             "test": {
-                "include": "zlib.h",
                 "main": [
                     "z_streamp stream = 0;",
                     "(void) zlibVersion();",
                     "(void) compress2(0, 0, 0, 0, 1);  // compress2 was added in zlib version 1.0.8"
                 ]
             },
+            "headers": "zlib.h",
             "sources": [
                 { "libs": "-lzdll", "condition": "config.msvc" },
-                { "libs": "-lz", "condition": "!config.msvc" }
+                { "libs": "-lzlib", "condition": "config.msvc" },
+                { "libs": "-lz", "condition": "!config.msvc" },
+                { "libs": "-s USE_ZLIB=1", "condition": "config.wasm" }
+            ]
+        },
+        "zstd": {
+            "label": "Zstandard",
+            "test": {
+                "include": "zstd.h",
+                "main": [
+                    "(void) ZSTD_compress(NULL, 0, NULL, 0, 1);",
+                    "unsigned long long n = ZSTD_getFrameContentSize(NULL, 0);",
+                    "(void) ZSTD_decompress(NULL, 0, NULL, n);"
+                ]
+            },
+            "sources": [
+                { "type": "pkgConfig", "args": "libzstd >= 1.3" },
+                "-lzstd"
             ]
         },
         "dbus": {
             "label": "D-Bus >= 1.2",
             "test": {
-                "include": "dbus/dbus.h",
-                "main": "(void) dbus_bus_get_private(DBUS_BUS_SYSTEM, (DBusError *)NULL);",
-                "qmake": [
-                    "CONFIG += build_all",
-                    "CONFIG(debug, debug|release): \\",
-                    "    LIBS += $$LIBS_DEBUG",
-                    "else: \\",
-                    "    LIBS += $$LIBS_RELEASE"
-                ]
+                "main": "(void) dbus_bus_get_private(DBUS_BUS_SYSTEM, (DBusError *)NULL);"
             },
+            "headers": "dbus/dbus.h",
             "sources": [
                 { "type": "pkgConfig", "args": "dbus-1 >= 1.2" },
                 {
@@ -198,9 +214,9 @@
         "libudev": {
             "label": "udev",
             "test": {
-                "include": "libudev.h",
                 "main": "udev_unref(udev_new());"
             },
+            "headers": "libudev.h",
             "sources": [
                 { "type": "pkgConfig", "args": "libudev" },
                 "-ludev"
@@ -209,17 +225,16 @@
     },
 
     "testTypeDependencies": {
-        "linkerSupportsFlag": [ "use_gold_linker" ],
-        "verifySpec": [ "shared", "use_gold_linker", "compiler-flags", "gcc-sysroot", "qmakeargs", "commit" ],
+        "linkerSupportsFlag": [ "use_bfd_linker", "use_gold_linker", "use_lld_linker" ],
+        "verifySpec": [ "shared", "use_bfd_linker", "use_gold_linker", "use_lld_linker", "compiler-flags", "qmakeargs", "commit" ],
         "compile": [ "verifyspec" ],
         "detectPkgConfig": [ "cross_compile", "machineTuple" ],
-        "library": [ "pkg-config" ],
-        "getPkgConfigVariable": [ "pkg-config" ],
-        "subarch": [ "architecture" ]
+        "library": [ "pkg-config", "compiler-flags" ],
+        "getPkgConfigVariable": [ "pkg-config" ]
     },
 
     "testTypeAliases": {
-        "compile": [ "library", "architecture" ]
+        "compile": [ "library", "architecture", "x86Simd", "x86SimdAlways" ]
     },
 
     "tests": {
@@ -236,12 +251,14 @@
             "label": "target architecture",
             "type": "architecture",
             "test": "arch",
+            "output": "arch",
             "log": "arch"
         },
         "host_architecture": {
             "label": "host architecture",
             "type": "architecture",
             "test": "arch",
+            "output": "arch_host",
             "host": true,
             "pro": "arch_host.pro",
             "log": "arch"
@@ -259,6 +276,36 @@
             "type": "compile",
             "test": "stl"
         },
+        "c99": {
+            "label": "C99 support",
+            "type": "compile",
+            "test": {
+                "head": [
+                    "#if __STDC_VERSION__ >= 199901L",
+                    "// Compiler claims to support C99, trust it",
+                    "#else",
+                    "#  error __STDC_VERSION__ must be >= 199901L",
+                    "#endif"
+                ],
+                "lang": "c",
+                "qmake": "CONFIG += c99"
+            }
+        },
+        "c11": {
+            "label": "C11 support",
+            "type": "compile",
+            "test": {
+                "head": [
+                    "#if __STDC_VERSION__ >= 201112L",
+                    "// Compiler claims to support C11, trust it",
+                    "#else",
+                    "#  error __STDC_VERSION__ must be >= 201112L",
+                    "#endif"
+                ],
+                "lang": "c",
+                "qmake": "CONFIG += c11"
+            }
+        },
         "c++14": {
             "label": "C++14 support",
             "type": "compile",
@@ -274,7 +321,7 @@
             }
         },
         "c++1z": {
-            "label": "C++1z support",
+            "label": "C++17 support",
             "type": "compile",
             "test": {
                 "head": [
@@ -283,20 +330,64 @@
                     "#else",
                     "#  error __cplusplus must be > 201402L (the value for C++14)",
                     "#endif",
-                    "#include <map>  // https://bugs.llvm.org//show_bug.cgi?id=33117"
+                    "#include <map>  // https://bugs.llvm.org//show_bug.cgi?id=33117",
+                    "#include <variant>"
+                ],
+                "main": [
+                    "std::variant<int> v(42);",
+                    "int i = std::get<int>(v);",
+                    "std::visit([](const auto &) { return 1; }, v);"
                 ],
                 "qmake": "CONFIG += c++11 c++14 c++1z"
+            }
+        },
+        "c++2a": {
+            "label": "C++2a support",
+            "type": "compile",
+            "test": {
+                "head": [
+                    "#if __cplusplus > 201703L",
+                    "// Compiler claims to support experimental C++2a, trust it",
+                    "#else",
+                    "#  error __cplusplus must be > 201703L (the value for C++17)",
+                    "#endif"
+                ],
+                "qmake": "CONFIG += c++11 c++14 c++1z c++2a"
             }
         },
         "precompile_header": {
             "label": "precompiled header support",
             "type": "compile",
-            "test": "common/pch"
+            "test": {
+                "files": {
+                    "header.h": "#define HEADER_H"
+                },
+                "tail": [
+                    "#ifndef HEADER_H",
+                    "#error no go",
+                    "#endif"
+                ],
+                "qmake": [
+                    "CONFIG += precompile_header",
+                    "PRECOMPILED_DIR = .pch",
+                    "PRECOMPILED_HEADER = header.h"
+                ]
+            }
+        },
+        "use_bfd_linker": {
+            "label": "bfd linker",
+            "type": "compilerSupportsFlag",
+            "flag": "-fuse-ld=bfd"
         },
         "use_gold_linker": {
             "label": "gold linker",
             "type": "compilerSupportsFlag",
             "flag": "-fuse-ld=gold"
+        },
+        "use_lld_linker" : {
+            "label": "lld linker",
+            "type": "compilerSupportsFlag",
+            "flag": "-fuse-ld=lld"
         },
         "optimize_debug": {
             "label": "-Og support",
@@ -307,6 +398,11 @@
             "label": "new dtags support",
             "type": "linkerSupportsFlag",
             "flag": "--enable-new-dtags"
+        },
+        "gdb_index": {
+            "label": "gdb index support",
+            "type": "linkerSupportsFlag",
+            "flag": "--gdb-index"
         },
         "reduce_exports": {
             "label": "symbol visibility support",
@@ -361,223 +457,101 @@
                 ]
             }
         },
-        "sse2": {
-            "label": "SSE2 instructions",
+        "gc_binaries": {
+            "label": "support for split sections and linker garbage collection",
             "type": "compile",
             "test": {
-                "include": "emmintrin.h",
-                "main": [
-                    "__m128i a = _mm_setzero_si128();",
-                    "_mm_maskmoveu_si128(a, _mm_setzero_si128(), 0);"
-                ],
                 "qmake": [
-                    "!defined(QMAKE_CFLAGS_SSE2, var): error(\"This compiler does not support SSE2\")",
-                    "QMAKE_CXXFLAGS += $$QMAKE_CFLAGS_SSE2"
+                    "isEmpty(QMAKE_CFLAGS_SPLIT_SECTIONS): error(\"Nope\")",
+                    "isEmpty(QMAKE_CXXFLAGS_SPLIT_SECTIONS): error(\"Nope\")",
+                    "isEmpty(QMAKE_LFLAGS_GCSECTIONS): error(\"Nope\")"
                 ]
             }
+        },
+        "sse2": {
+            "label": "SSE2 instructions",
+            "type": "x86Simd"
         },
         "sse3": {
             "label": "SSE3 instructions",
-            "type": "compile",
-            "test": {
-                "include": "pmmintrin.h",
-                "main": [
-                    "__m128d a = _mm_set1_pd(6.28);",
-                    "__m128d b = _mm_set1_pd(3.14);",
-                    "__m128d result = _mm_addsub_pd(a, b);",
-                    "(void) _mm_movedup_pd(result);"
-                ],
-                "qmake": [
-                    "!defined(QMAKE_CFLAGS_SSE3, var): error(\"This compiler does not support SSE3\")",
-                    "QMAKE_CXXFLAGS += $$QMAKE_CFLAGS_SSE3"
-                ]
-            }
+            "type": "x86Simd"
         },
         "ssse3": {
             "label": "SSSE3 instructions",
-            "type": "compile",
-            "test": {
-                "include": "tmmintrin.h",
-                "main": [
-                    "__m128i a = _mm_set1_epi32(42);",
-                    "_mm_abs_epi8(a);",
-                    "(void) _mm_sign_epi16(a, _mm_set1_epi32(64));"
-                ],
-                "qmake": [
-                    "!defined(QMAKE_CFLAGS_SSSE3, var): error(\"This compiler does not support SSSE3\")",
-                    "QMAKE_CXXFLAGS += $$QMAKE_CFLAGS_SSSE3"
-                ]
-            }
+            "type": "x86Simd"
         },
         "sse4_1": {
             "label": "SSE4.1 instructions",
-            "type": "compile",
-            "test": {
-                "include": "smmintrin.h",
-                "main": [
-                    "__m128 a = _mm_setzero_ps();",
-                    "_mm_ceil_ps(a);",
-                    "__m128i result = _mm_mullo_epi32(_mm_set1_epi32(42), _mm_set1_epi32(64));",
-                    "(void)result;"
-                ],
-                "qmake": [
-                    "!defined(QMAKE_CFLAGS_SSE4_1, var): error(\"This compiler does not support SSE4.1\")",
-                    "QMAKE_CXXFLAGS += $$QMAKE_CFLAGS_SSE4_1"
-                ]
-            }
+            "type": "x86Simd"
         },
         "sse4_2": {
             "label": "SSE4.2 instructions",
-            "type": "compile",
-            "test": {
-                "include": "nmmintrin.h",
-                "main": [
-                    "__m128i a = _mm_setzero_si128();",
-                    "__m128i b = _mm_set1_epi32(42);",
-                    "(void) _mm_cmpestrm(a, 16, b, 16, 0);"
-                ],
-                "qmake": [
-                    "!defined(QMAKE_CFLAGS_SSE4_2, var): error(\"This compiler does not support SSE4.2\")",
-                    "QMAKE_CXXFLAGS += $$QMAKE_CFLAGS_SSE4_2"
-                ]
-            }
+            "type": "x86Simd"
         },
         "aesni": {
             "label": "AES new instructions",
-            "type": "compile",
-            "test": "common/aesni"
+            "type": "x86Simd"
         },
         "f16c": {
             "label": "F16C instructions",
-            "type": "compile",
-            "test": {
-                "include": "immintrin.h",
-                "main": [
-                    "__m128i a = _mm_setzero_si128();",
-                    "__m128 b = _mm_cvtph_ps(a);",
-                    "__m256 b256 = _mm256_cvtph_ps(a);",
-                    "(void) _mm_cvtps_ph(b, 0);",
-                    "(void) _mm256_cvtps_ph(b256, 0);"
-                ],
-                "qmake": [
-                    "!defined(QMAKE_CFLAGS_F16C, var): error(\"This compiler does not support F16C\")",
-                    "QMAKE_CXXFLAGS += $$QMAKE_CFLAGS_F16C"
-                ]
-            }
+            "type": "x86Simd"
         },
         "rdrnd": {
             "label": "RDRAND instruction",
-            "type": "compile",
-            "test": "common/rdrnd"
+            "type": "x86Simd"
         },
         "shani": {
             "label": "SHA new instructions",
-            "type": "compile",
-            "test": "common/shani"
+            "type": "x86Simd"
         },
         "avx": {
             "label": "AVX instructions",
-            "type": "compile",
-            "test": {
-                "include": "immintrin.h",
-                "main": [
-                    "__m256d a = _mm256_setzero_pd();",
-                    "__m256d b = _mm256_set1_pd(42.42);",
-                    "(void) _mm256_add_pd(a, b);"
-                ],
-                "qmake": [
-                    "!defined(QMAKE_CFLAGS_AVX, var): error(\"This compiler does not support AVX\")",
-                    "QMAKE_CXXFLAGS += $$QMAKE_CFLAGS_AVX"
-                ]
-            }
+            "type": "x86Simd"
         },
         "avx2": {
             "label": "AVX2 instructions",
-            "type": "compile",
-            "test": {
-                "include": "immintrin.h",
-                "main": [
-                    "// AVX",
-                    "_mm256_zeroall();",
-                    "__m256i a = _mm256_setzero_si256();",
-                    "// AVX2",
-                    "__m256i b = _mm256_and_si256(a, a);",
-                    "(void) _mm256_add_epi8(a, b);"
-                ],
-                "qmake": [
-                    "!defined(QMAKE_CFLAGS_AVX2, var): error(\"This compiler does not support AVX2\")",
-                    "QMAKE_CXXFLAGS += $$QMAKE_CFLAGS_AVX2"
-                ]
-            }
+            "type": "x86Simd"
         },
         "avx512f": {
             "label": "AVX512 F instructions",
-            "type": "compile",
-            "test": "avx512",
-            "args": "AVX512=F"
+            "type": "x86Simd"
         },
         "avx512er": {
             "label": "AVX512 ER instructions",
-            "type": "compile",
-            "test": "avx512",
-            "args": "AVX512=ER"
+            "type": "x86Simd"
         },
         "avx512cd": {
             "label": "AVX512 CD instructions",
-            "type": "compile",
-            "test": "avx512",
-            "args": "AVX512=CD"
+            "type": "x86Simd"
         },
         "avx512pf": {
             "label": "AVX512 PF instructions",
-            "type": "compile",
-            "test": "avx512",
-            "args": "AVX512=PF"
+            "type": "x86Simd"
         },
         "avx512dq": {
             "label": "AVX512 DQ instructions",
-            "type": "compile",
-            "test": "avx512",
-            "args": "AVX512=DQ"
+            "type": "x86Simd"
         },
         "avx512bw": {
             "label": "AVX512 BW instructions",
-            "type": "compile",
-            "test": "avx512",
-            "args": "AVX512=BW"
+            "type": "x86Simd"
         },
         "avx512vl": {
             "label": "AVX512 VL instructions",
-            "type": "compile",
-            "test": "avx512",
-            "args": "AVX512=VL"
+            "type": "x86Simd"
         },
         "avx512ifma": {
             "label": "AVX512 IFMA instructions",
-            "type": "compile",
-            "test": "avx512",
-            "args": "AVX512=IFMA"
+            "type": "x86Simd"
         },
         "avx512vbmi": {
             "label": "AVX512 VBMI instructions",
-            "type": "compile",
-            "test": "avx512",
-            "args": "AVX512=VBMI"
+            "type": "x86Simd"
         },
-        "mips_dsp": {
-            "label": "MIPS DSP instructions",
-            "type": "subarch",
-            "subarch": "dsp"
-        },
-        "mips_dspr2": {
-            "label": "MIPS DSPr2 instructions",
-            "type": "subarch",
-            "subarch": "dspr2"
-        },
-        "neon": {
-            "label": "NEON instructions",
-            "type": "subarch",
-            "subarch": "neon"
+        "x86SimdAlways": {
+            "label": "Intrinsics without -mXXX argument",
+            "type": "x86SimdAlways",
+            "test": "x86_simd"
         },
         "posix_fallocate": {
             "label": "POSIX fallocate()",
@@ -646,14 +620,15 @@
 
     "features": {
         "prepare": {
+            "condition": "features.gcc-sysroot || true",
             "output": [ "prepareSpec", "prepareOptions", "preparePaths", "reloadSpec" ]
         },
         "machineTuple": {
-            "condition": "!config.linux || config.android || tests.machineTuple",
+            "condition": "config.linux && !config.android && tests.machineTuple",
             "output": [ "machineTuple" ]
         },
         "commit": {
-            "condition": "features.machineTuple",
+            "condition": "features.machineTuple || true",
             "output": [ "commitOptions" ]
         },
         "android-style-assets": {
@@ -665,7 +640,7 @@
         "shared": {
             "label": "Building shared libraries",
             "autoDetect": "!config.uikit",
-            "condition": "!config.integrity",
+            "condition": "!config.integrity && !config.wasm",
             "output": [
                 "shared",
                 "publicFeature",
@@ -689,6 +664,10 @@
         "compiler-flags": {
             "output": [ "compilerFlags" ]
         },
+        "gc_binaries": {
+            "condition": "!features.shared && tests.gc_binaries",
+            "output": [ "privateFeature" ]
+        },
         "gcc-sysroot": {
             "output": [ "gccSysroot" ],
             "condition": "input.sysroot != ''"
@@ -697,13 +676,37 @@
             "output": [ "qmakeArgs" ],
             "condition": "input.qmakeArgs != ''"
         },
+        "use_bfd_linker": {
+            "label": "bfd",
+            "autoDetect": "false",
+            "enable" : "input.linker == 'bfd'",
+            "disable" : "input.linker == 'gold' || input.linker == 'lld'",
+            "condition": "!config.win32 && !config.integrity && !config.wasm && tests.use_bfd_linker",
+            "output": [ "privateConfig", "useBFDLinker" ]
+        },
+        "use_gold_linker_alias": {
+            "autoDetect": "false",
+            "condition": "!config.win32 && !config.integrity && !config.wasm && tests.use_gold_linker"
+        },
         "use_gold_linker": {
-            "label": "Using gold linker",
-            "condition": "!config.win32 && !config.integrity && tests.use_gold_linker",
+            "label": "gold",
+            "autoDetect": "false",
+            "enable" : "input.linker == 'gold' || features.use_gold_linker_alias" ,
+            "disable" : "input.linker == 'bfd' || input.linker == 'lld'",
+            "condition": "!config.win32 && !config.integrity && !config.wasm && tests.use_gold_linker",
             "output": [ "privateConfig", "useGoldLinker" ]
+        },
+        "use_lld_linker": {
+            "label": "lld",
+            "autoDetect": "false",
+            "enable" : "input.linker == 'lld'",
+            "disable" : "input.linker == 'bfd' || input.linker == 'gold'",
+            "condition": "!config.win32 && !config.integrity && !config.wasm && tests.use_lld_linker",
+            "output": [ "privateConfig", "useLLDLinker" ]
         },
         "optimize_debug": {
             "label": "Optimize debug build",
+            "autoDetect": "!features.developer-build",
             "condition": "!config.msvc && !config.clang && (features.debug || features.debug_and_release) && tests.optimize_debug",
             "output": [ "privateConfig" ]
         },
@@ -809,6 +812,7 @@
         "headersclean": {
             "label": "Check for clean headers",
             "autoDetect": "features.developer-build",
+            "condition": "!config.wasm",
             "output": [ "privateConfig" ]
         },
         "framework": {
@@ -869,6 +873,16 @@
             "condition": "features.sanitize_address || features.sanitize_thread || features.sanitize_memory || features.sanitize_undefined",
             "output": [ "sanitizer", "publicConfig" ]
         },
+        "coverage_trace_pc_guard": {
+            "label": "trace-pc-guard",
+            "autoDetect": false,
+            "output": [ "publicConfig" ]
+        },
+        "coverage": {
+            "label": "Code Coverage Instrumentation",
+            "condition": "features.coverage_trace_pc_guard",
+            "output": [ "publicConfig" ]
+        },
         "GNUmake": {
             "label": "GNU make",
             "autoDetect": false,
@@ -910,13 +924,32 @@
             "output": [ "publicFeature", "publicQtConfig" ]
         },
         "c++1z": {
-            "label": "C++1z",
+            "label": "C++17",
             "condition": "features.c++14 && tests.c++1z",
             "output": [ "publicFeature", "publicQtConfig" ]
         },
+        "c++2a": {
+            "label": "C++2a",
+            "autoDetect": false,
+            "condition": "features.c++1z && tests.c++2a",
+            "output": [ "publicFeature", "publicQtConfig" ]
+        },
+        "c89": {
+            "label": "C89"
+        },
+        "c99": {
+            "label": "C99",
+            "condition": "tests.c99",
+            "output": [ "publicFeature" ]
+        },
+        "c11": {
+            "label": "C11",
+            "condition": "features.c99 && tests.c11",
+            "output": [ "publicFeature" ]
+        },
         "precompile_header": {
             "label": "Using precompiled headers",
-            "condition": "config.msvc || tests.precompile_header",
+            "condition": "tests.precompile_header",
             "output": [
                 "privateConfig",
                 { "type": "varRemove", "negative": true, "name": "CONFIG", "value": "'precompile_header'" }
@@ -930,6 +963,12 @@
         "enable_new_dtags": {
             "label": "Using new DTAGS",
             "condition": "config.linux && tests.enable_new_dtags",
+            "output": [ "privateConfig" ]
+        },
+        "enable_gdb_index": {
+            "label": "Generating GDB index",
+            "autoDetect": "features.developer-build",
+            "condition": "config.gcc && !config.clang && (features.debug || features.force_debug_info || features.debug_and_release) && tests.gdb_index",
             "output": [ "privateConfig" ]
         },
         "reduce_exports": {
@@ -1112,9 +1151,17 @@
                 { "type": "define", "name": "QT_COMPILER_SUPPORTS_SHA", "value": 1 }
             ]
         },
+        "x86SimdAlways": {
+            "label": "Intrinsics without -mXXX option",
+            "condition": "(arch.i386 || arch.x86_64) && tests.x86SimdAlways",
+            "output": [
+                "privateConfig",
+                { "type": "define", "name": "QT_COMPILER_SUPPORTS_SIMD_ALWAYS", "value": 1 }
+            ]
+        },
         "mips_dsp": {
             "label": "DSP",
-            "condition": "arch.mips && tests.mips_dsp",
+            "condition": "arch.mips && subarch.dsp",
             "output": [
                 "privateConfig",
                 { "type": "define", "name": "QT_COMPILER_SUPPORTS_MIPS_DSP", "value": 1 }
@@ -1122,7 +1169,7 @@
         },
         "mips_dspr2": {
             "label": "DSPr2",
-            "condition": "arch.mips && tests.mips_dspr2",
+            "condition": "arch.mips && subarch.dspr2",
             "output": [
                 "privateConfig",
                 { "type": "define", "name": "QT_COMPILER_SUPPORTS_MIPS_DSPR2", "value": 1 }
@@ -1130,7 +1177,7 @@
         },
         "neon": {
             "label": "NEON",
-            "condition": "(arch.arm || arch.arm64) && tests.neon",
+            "condition": "(arch.arm || arch.arm64) && subarch.neon",
             "output": [
                 "privateConfig",
                 { "type": "define", "name": "QT_COMPILER_SUPPORTS_NEON", "value": 1 }
@@ -1166,15 +1213,36 @@
             "condition": "libs.zlib",
             "output": [ "privateFeature" ]
         },
+        "zstd": {
+            "label": "Zstandard support",
+            "condition": "libs.zstd",
+            "output": [ "privateFeature" ]
+        },
+        "thread": {
+            "label": "Thread support",
+            "purpose": "Provides QThread and related classes.",
+            "section": "Kernel",
+            "autoDetect": "!config.wasm",
+            "output": [ "publicFeature" ]
+        },
+        "future": {
+            "label": "QFuture",
+            "purpose": "Provides QFuture and related classes.",
+            "section": "Kernel",
+            "condition": "features.thread",
+            "output": [ "publicFeature" ]
+        },
         "concurrent": {
             "label": "Qt Concurrent",
             "purpose": "Provides a high-level multi-threading API.",
             "section": "Kernel",
+            "condition": "features.future",
             "output": [ "publicFeature", "feature" ]
         },
         "dbus": {
             "label": "Qt D-Bus",
             "autoDetect": "!config.uikit && !config.android && !config.winrt",
+            "condition": "features.thread",
             "output": [ "privateFeature", "feature" ]
         },
         "dbus-linked": {
@@ -1210,6 +1278,7 @@
         },
         "sql": {
             "label": "Qt Sql",
+            "condition": "features.thread",
             "output": [ "privateFeature" ]
         },
         "testlib": {
@@ -1235,15 +1304,9 @@
             "condition": "libs.libudev",
             "output": [ "privateFeature" ]
         },
-        "qml-debug": {
-            "label": "QML debugging",
-            "output": [
-                "privateFeature",
-                { "type": "publicQtConfig", "negative": true }
-            ]
-        },
         "compile_examples": {
             "label": "Compile examples",
+            "autoDetect": "!config.wasm",
             "output": [ "privateConfig" ]
         },
         "incredibuild_xge": {
@@ -1255,7 +1318,7 @@
         "ccache": {
             "label": "Using ccache",
             "autoDetect": false,
-            "condition": "config.unix && tests.ccache",
+            "condition": "tests.ccache",
             "output": [ "privateConfig" ]
         },
         "msvc_mp": {
@@ -1309,6 +1372,11 @@ Qt can be built in release mode with separate debug information, so
             "type": "error",
             "condition": "(features.rpath || features.rpath_dir) && var.QMAKE_LFLAGS_RPATH == ''",
             "message": "This platform does not support RPATH"
+        },
+        {
+            "type": "error",
+            "condition": "features.coverage && !config.clang",
+            "message": "Command line option -coverage is only supported with clang compilers."
         }
     ],
 
@@ -1361,20 +1429,35 @@ Configure with '-qreal float' to create a build that is binary-compatible with 5
                 },
                 "shared",
                 {
+                    "message": "Using C standard",
+                    "type": "firstAvailableFeature",
+                    "args": "c11 c99 c89"
+                },
+                {
                     "message": "Using C++ standard",
                     "type": "firstAvailableFeature",
-                    "args": "c++1z c++14 c++11"
+                    "args": "c++2a c++1z c++14 c++11"
                 },
                 {
                     "type": "feature",
                     "args": "ccache",
                     "condition": "config.unix"
                 },
-                "use_gold_linker",
+                {
+                    "message": "Linker",
+                    "type": "firstAvailableFeature",
+                    "args": "use_bfd_linker use_gold_linker use_lld_linker",
+                    "condition": "features.use_bfd_linker || features.use_gold_linker || features.use_lld_linker"
+                },
                 {
                     "type": "feature",
                     "args": "enable_new_dtags",
                     "condition": "config.linux"
+                },
+                {
+                    "type": "feature",
+                    "args": "enable_gdb_index",
+                    "condition": "config.gcc && !config.clang && (features.debug || features.force_debug_info || features.debug_and_release)"
                 },
                 "precompile_header",
                 "ltcg",
@@ -1407,6 +1490,11 @@ Configure with '-qreal float' to create a build that is binary-compatible with 5
                         },
                         {
                             "type": "feature",
+                            "args": "x86SimdAlways",
+                            "condition": "(arch.i386 || arch.x86_64) && !config.msvc"
+                        },
+                        {
+                            "type": "feature",
                             "args": "neon",
                             "condition": "arch.arm || arch.arm64"
                         },
@@ -1426,6 +1514,12 @@ Configure with '-qreal float' to create a build that is binary-compatible with 5
                     "section": "Sanitizers",
                     "condition": "features.sanitizer",
                     "entries": [ "sanitize_address", "sanitize_thread", "sanitize_memory", "sanitize_undefined" ]
+                },
+                {
+                    "message": "Code Coverage Instrumentation",
+                    "type": "firstAvailableFeature",
+                    "args": "coverage_trace_pc_guard",
+                    "condition": "features.coverage"
                 },
                 {
                     "message": "Build parts",
@@ -1454,9 +1548,9 @@ Configure with '-qreal float' to create a build that is binary-compatible with 5
             "section": "Support enabled for",
             "entries": [
                 "pkg-config",
-                "qml-debug",
                 "libudev",
-                "system-zlib"
+                "system-zlib",
+                "zstd"
             ]
         }
     ]

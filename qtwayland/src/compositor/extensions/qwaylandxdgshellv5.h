@@ -44,6 +44,7 @@
 #include <QtWaylandCompositor/QWaylandResource>
 #include <QtWaylandCompositor/QWaylandShell>
 #include <QtWaylandCompositor/QWaylandShellSurface>
+#include <QtWaylandCompositor/qwaylandquickchildren.h>
 
 #include <QtCore/QRect>
 
@@ -98,6 +99,7 @@ class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandXdgSurfaceV5 : public QWaylandShellSur
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QWaylandXdgSurfaceV5)
+    Q_WAYLAND_COMPOSITOR_DECLARE_QUICK_CHILDREN(QWaylandXdgSurfaceV5)
     Q_PROPERTY(QWaylandXdgShellV5 *shell READ shell NOTIFY shellChanged)
     Q_PROPERTY(QWaylandSurface *surface READ surface NOTIFY surfaceChanged)
     Q_PROPERTY(QWaylandXdgSurfaceV5 *parentSurface READ parentSurface NOTIFY parentSurfaceChanged)
@@ -169,7 +171,7 @@ public:
     Q_INVOKABLE uint sendFullscreen(const QSize &size);
     Q_INVOKABLE uint sendResizing(const QSize &maxSize);
 
-#ifdef QT_WAYLAND_COMPOSITOR_QUICK
+#if QT_CONFIG(wayland_compositor_quick)
     QWaylandQuickShellIntegration *createIntegration(QWaylandQuickShellSurfaceItem *item) override;
 #endif
 
@@ -212,6 +214,7 @@ class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandXdgPopupV5 : public QWaylandShellSurfa
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QWaylandXdgPopupV5)
+    Q_WAYLAND_COMPOSITOR_DECLARE_QUICK_CHILDREN(QWaylandXdgPopupV5)
     Q_PROPERTY(QWaylandXdgShellV5 *shell READ shell NOTIFY shellChanged)
     Q_PROPERTY(QWaylandSurface *surface READ surface NOTIFY surfaceChanged)
     Q_PROPERTY(QWaylandSurface *parentSurface READ parentSurface NOTIFY parentSurfaceChanged)
@@ -240,7 +243,7 @@ public:
 
     Q_INVOKABLE void sendPopupDone();
 
-#ifdef QT_WAYLAND_COMPOSITOR_QUICK
+#if QT_CONFIG(wayland_compositor_quick)
     QWaylandQuickShellIntegration *createIntegration(QWaylandQuickShellSurfaceItem *item) override;
 #endif
 

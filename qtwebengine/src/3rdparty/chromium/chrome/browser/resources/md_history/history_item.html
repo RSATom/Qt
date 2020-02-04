@@ -1,32 +1,27 @@
-<link rel="import" href="chrome://resources/cr_elements/icons.html">
-<link rel="import" href="chrome://resources/html/cr/ui/focus_row.html">
 <link rel="import" href="chrome://resources/html/polymer.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/iron-icon/iron-icon.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-styles/shadow.html">
+
+<link rel="import" href="browser_service.html">
+<link rel="import" href="constants.html">
+<link rel="import" href="searched_label.html">
+<link rel="import" href="shared_style.html">
+<link rel="import" href="strings.html">
+<link rel="import" href="chrome://resources/cr_elements/cr_icons_css.html">
+<link rel="import" href="chrome://resources/cr_elements/icons.html">
+<link rel="import" href="chrome://resources/cr_elements/shared_vars_css.html">
+<link rel="import" href="chrome://resources/html/cr/ui/focus_row_behavior.html">
 <link rel="import" href="chrome://resources/html/icon.html">
 <link rel="import" href="chrome://resources/html/util.html">
-<link rel="import" href="chrome://history/browser_service.html">
-<link rel="import" href="chrome://history/constants.html">
-<link rel="import" href="chrome://history/searched_label.html">
-<link rel="import" href="chrome://history/shared_style.html">
+<link rel="import" href="chrome://resources/polymer/v1_0/iron-icon/iron-icon.html">
 
 <!-- Lazy loaded: paper-icon-button-light. -->
 
 <dom-module id="history-item">
   <template>
-    <style include="shared-style">
+    <style include="shared-style cr-icons">
       :host {
         display: block;
         outline: none;
         pointer-events: none;
-      }
-
-      /** Unresolved paper-icon-button-light styles. */
-      button {
-        background: none;
-        border: none;
-        outline: none;
-        padding: 0;
       }
 
       #main-container {
@@ -38,7 +33,7 @@
       }
 
       :host([is-card-start][is-card-end]) #main-container {
-        border-radius: 2px;
+        border-radius: var(--cr-card-border-radius);
       }
 
       #date-accessed {
@@ -47,13 +42,18 @@
 
       :host([is-card-start]) #date-accessed {
         display: block;
+        font-size: 123%;
+        font-weight: 400;
+        letter-spacing: .25px;
+        padding-bottom: 4px;
+        padding-top: 8px;
       }
 
       #item-container {
-        -webkit-padding-start: 10px;
         align-items: center;
         display: flex;
         min-height: var(--item-height);
+        padding-inline-start: 10px;
         pointer-events: auto;
       }
 
@@ -74,87 +74,61 @@
       }
 
       #checkbox {
-        height: 40px;
-        width: 40px;
-      }
-
-      :host([selected]) #checkbox {
-        color: var(--interactive-color);
-      }
-
-      #checkmark {
-        border: 2px solid var(--secondary-text-color);
-        border-radius: 2px;
-        height: 12px;
         margin: 12px;
+      }
+
+      /* #checkbox[unresolved] styling is necessary since cr-checkbox is being
+         lazy-loaded. */
+      #checkbox[unresolved] {
+        border: 2px solid var(--cr-secondary-text-color);
+        border-radius: 2px;
+        content: '';
+        display: block;
+        height: 12px;
         width: 12px;
       }
 
-      #checkmark::after {
-        border-color: inherit;
-        border-style: solid;
-        border-width: 0 2px 2px 0;
-        content: '';
-        display: block;
-        height: 70%;
-        transform: scale(0) rotate(45deg);
-        transform-origin: 97% 86%;
-        width: 36%;
-      }
-
-      :host-context([dir='rtl']) #checkmark::after {
-        transform-origin: 50% 14%;
-      }
-
-      :host([selected]) #checkmark {
-        background: var(--interactive-color);
-        border-color: var(--interactive-color);
-      }
-
-      :host([selected]) #checkmark::after {
-        border-color: white;
-        transform: scale(1) rotate(45deg);
-        /* Only animate when showing checkmark. */
-        transition: transform 140ms ease-out;
-      }
-
       #time-accessed {
-        -webkit-margin-start: 6px;
         color: var(--history-item-time-color);
+        margin-inline-start: 6px;
         min-width: 96px;
       }
 
       #domain {
-        -webkit-margin-start: 16px;
-        color: var(--secondary-text-color);
+        color: var(--cr-secondary-text-color);
         flex-shrink: 0;
+        margin-inline-start: 16px;
       }
 
-      #menu-button {
-        -webkit-margin-end: 12px;
+      #menu-button-container {
+        margin-inline-end: 12px;
       }
 
       #star-container {
-        -webkit-margin-end: 4px;
-        -webkit-margin-start: 12px;
+        margin-inline-end: 4px;
+        margin-inline-start: 12px;
         width: 32px;
       }
 
-      #bookmark-star {
+      #bookmark-star-container {
         color: var(--interactive-color);
         height: 32px;
         width: 32px;
       }
 
-      #bookmark-star iron-icon {
+      #bookmark-star-container iron-icon {
         height: 16px;
         width: 16px;
       }
 
       #time-gap-separator {
-        -webkit-border-start: 1px solid #888;
-        -webkit-margin-start: 77px;
+        border-inline-start: 1px solid #888;
         height: 15px;
+        margin-inline-start: 77px;
+      }
+
+      :host-context([dark]) #time-gap-separator {
+        border-color: var(--google-grey-refresh-500);
       }
 
       #background-clip {
@@ -174,8 +148,8 @@
       }
 
       #background {
-        @apply(--shadow-elevation-2dp);
-        background: #fff;
+        @apply --cr-card-elevation;
+        background-color: var(--cr-card-background-color);
         bottom: 0;
         left: 0;
         position: absolute;
@@ -188,15 +162,15 @@
       }
 
       :host([is-card-start]) #background {
-        border-radius: 2px 2px 0 0;
+        border-radius: var(--cr-card-border-radius) var(--cr-card-border-radius) 0 0;
       }
 
       :host([is-card-end]) #background {
-        border-radius: 0 0 2px 2px;
+        border-radius: 0 0 var(--cr-card-border-radius) var(--cr-card-border-radius);
       }
 
       :host([is-card-start][is-card-end]) #background {
-        border-radius: 2px;
+        border-radius: var(--cr-card-border-radius);
       }
     </style>
 
@@ -207,47 +181,53 @@
       <div id="date-accessed" class="card-title">
         [[cardTitle_(numberOfItems, item.dateRelativeDay, searchTerm)]]
       </div>
-      <div id="item-container"
+      <div id="item-container" focus-row-container
           on-mousedown="onItemMousedown_"
           on-click="onItemClick_">
-        <button is="paper-icon-button-light" id="checkbox"
+        <cr-checkbox id="checkbox" checked="[[selected]]" unresolved
+            focus-row-control focus-type="cr-checkbox"
+            on-mousedown="onCheckboxClick_" on-keydown="onCheckboxClick_"
+            on-change="onCheckboxChange_" class="no-label"
             hidden="[[selectionNotAllowed_]]"
-            role="checkbox"
-            aria-checked$="[[getAriaChecked_(selected)]]"
-            aria-label$="[[getEntrySummary_(item)]]">
-          <div id="checkmark"></div>
-        </button>
+            disabled="[[selectionNotAllowed_]]"
+            aria-label$="[[getEntrySummary_(item)]]"></cr-checkbox>
         <span id="time-accessed">
           [[item.readableTimestamp]]
         </span>
-        <div class="website-icon" id="icon"></div>
         <div id="title-and-domain">
-          <a href="[[item.url]]" id="title" class="website-title"
+          <a href="[[item.url]]" id="link" class="website-link"
+              focus-row-control focus-type="link"
               title="[[item.title]]" on-click="onLinkClick_"
               on-contextmenu="onLinkRightClick_">
-            <history-searched-label title="[[item.title]]"
+            <div class="website-icon" id="icon"></div>
+            <history-searched-label class="website-title" title="[[item.title]]"
                 search-term="[[searchTerm]]"></history-searched-label>
           </a>
           <span id="domain">[[item.domain]]</span>
         </div>
         <div id="star-container">
           <template is="dom-if" if="[[item.starred]]" notify-dom-change>
-            <button is="paper-icon-button-light" id="bookmark-star"
-                title="$i18n{removeBookmark}" on-click="onRemoveBookmarkTap_">
-              <iron-icon icon="cr:star"></iron-icon>
-            </button>
+            <paper-icon-button-light id="bookmark-star-container">
+              <button id="bookmark-star" focus-row-control focus-type="star"
+                  title="$i18n{removeBookmark}" on-click="onRemoveBookmarkTap_">
+                <iron-icon icon="cr:star"></iron-icon>
+              </button>
+            </paper-icon-button-light>
           </template>
         </div>
-        <button is="paper-icon-button-light" id="menu-button"
-            class="more-vert-button" title="$i18n{moreActionsButton}"
-            on-click="onMenuButtonTap_">
-          <div></div>
-          <div></div>
-          <div></div>
-        </button>
+        <paper-icon-button-light id="menu-button-container"
+            class="more-vert-button">
+          <button id="menu-button" focus-row-control focus-type="cr-menu-button"
+              title="$i18n{actionMenuDescription}" on-click="onMenuButtonTap_"
+              aria-haspopup="menu">
+            <div></div>
+            <div></div>
+            <div></div>
+          </button>
+        </paper-icon-button-light>
       </div>
       <div id="time-gap-separator" hidden="[[!hasTimeGap]]"></div>
     </div>
   </template>
-  <script src="chrome://history/history_item.js"></script>
+  <script src="history_item.js"></script>
 </dom-module>

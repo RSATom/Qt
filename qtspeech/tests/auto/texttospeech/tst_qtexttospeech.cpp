@@ -55,6 +55,7 @@ private slots:
     void speech_rate();
     void pitch();
     void set_voice();
+    void volume();
 };
 
 
@@ -136,6 +137,22 @@ void tst_QTextToSpeech::set_voice()
     spy.wait(10000);
     QCOMPARE(tts.state(), QTextToSpeech::Ready);
     QVERIFY(timer.elapsed() > 100);
+}
+
+void tst_QTextToSpeech::volume()
+{
+    QTextToSpeech tts;
+    double volumeSignalEmitted = -99.0;
+    connect(&tts, static_cast<void (QTextToSpeech::*)(double)>(&QTextToSpeech::volumeChanged),
+            [&volumeSignalEmitted](double volume){ volumeSignalEmitted = volume; } );
+    tts.setVolume(0.7);
+    QTRY_VERIFY(volumeSignalEmitted > 0.6);
+
+#ifndef HAVE_SPEECHD_BEFORE_090  // older speechd doesn't signal any volume changes
+    // engines use different systems (integers etc), even fuzzy compare is off
+    QVERIFY2(tts.volume() > 0.65, QByteArray::number(tts.volume()));
+    QVERIFY2(tts.volume() < 0.75, QByteArray::number(tts.volume()));
+#endif
 }
 
 QTEST_MAIN(tst_QTextToSpeech)

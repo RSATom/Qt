@@ -16,14 +16,7 @@
   right: 20px;
 }
 
-.ellipsis {
-  padding: 0 1%;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  width: 90%;
-}
-
-:host-context([dir='rtl']) #play-pause-volume-controls {
+:host-context([dir='rtl']) #play-pause-volume-hangouts-controls {
   transform: scaleX(-1);
 }
 
@@ -31,7 +24,7 @@
   transform: scaleX(-1);
 }
 
-:host-context([dir='rtl']) #route-volume-slider {
+:host-context([dir='rtl']) #volume-holder {
   transform: scaleX(-1);
 }
 
@@ -40,7 +33,7 @@
   margin: 0 8px;
 }
 
-#play-pause-volume-controls {
+#play-pause-volume-hangouts-controls {
   display: block;
   margin-top: 13px;
   overflow: hidden;
@@ -48,7 +41,7 @@
 
 #route-description {
   margin: 15px 8px 3px 8px;
-  overflow: hidden;
+  width: 90%;
 }
 
 #route-time-controls {
@@ -58,22 +51,21 @@
 }
 
 #route-time-slider {
-  --paper-slider-knob-color: rgb(16, 16, 16);
-  --paper-slider-active-color: rgb(16, 16, 16);
-  --paper-slider-pin-color: rgb(16, 16, 16);
+  --cr-slider-active-color: rgb(16, 16, 16);
+  --cr-slider-container-color: rgba(16, 16, 16, .24);
+  --cr-slider-knob-color: rgb(16, 16, 16);
   width: 100%;
 }
 
 #route-title {
   color: rgb(125, 125, 125);
   margin: 3px 8px;
-  overflow: hidden;
 }
 
 #route-volume-slider {
-  --paper-slider-knob-color: rgb(16, 16, 16);
-  --paper-slider-active-color: rgb(33, 150, 243);
-  --paper-slider-pin-color: rgb(16, 16, 16);
+  --cr-slider-active-color: rgb(33, 150, 243);
+  --cr-slider-container-color: rgba(16, 16, 16, .24);
+  --cr-slider-knob-color: rgb(16, 16, 16);
   width: 100%;
 }
 
@@ -85,4 +77,38 @@
   display: block;
   overflow: hidden;
   padding: 0.3em 0;
+}
+
+#hangouts-local-present-controls {
+  cursor: pointer;
+  display: inline-block;
+  float: right;
+  padding-top: 10.5px;
+  white-space: nowrap;
+}
+
+#hangouts-local-present-checkbox {
+  --cr-checkbox-label-container: {
+    padding-inline-start: 14px;
+  }
+  align-items: start;
+}
+
+#hangouts-local-present-checkbox-subtitle {
+  display: block;
+  font-size: 0.8em;
+  margin-top: 2px;
+  width: 249px;
+}
+
+#mirroring-fullscreen-video-controls {
+  display: inline-block;
+  font-size: 0.8em;
+  margin: 15px 8px 3px 8px;
+  vertical-align: middle;
+}
+
+#mirroring-fullscreen-video-dropdown {
+  margin-inline-start: 8px;
+  width: auto;
 }

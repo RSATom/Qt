@@ -44,6 +44,7 @@
 
 #include <QtNetwork/qnetworkrequest.h>
 #include <QtNetwork/qnetworkaccessmanager.h>
+#include <QtNetwork/qnetworkreply.h>
 
 #include <random>
 
@@ -91,7 +92,7 @@ QT_BEGIN_NAMESPACE
     \enum QAbstractOAuth::Stage
 
     Identifies an authentication stage.  It's passed to a
-    ModifyParametersFunction so that it can make different changes to
+    modifyParametersFunction so that it can make different changes to
     parameters at each call to it during the process of
     authentication.
 
@@ -510,8 +511,25 @@ void QAbstractOAuth::setReplyHandler(QAbstractOAuthReplyHandler *handler)
 }
 
 /*!
+    \since 5.13
+
+    Authorizes the given \a request by adding a header and \a body to
+    it required for authenticated requests.
+
+    The \a verb must be a valid HTTP verb and the same as the one that will be
+    used to send the \a request.
+*/
+void QAbstractOAuth::prepareRequest(QNetworkRequest *request,
+                                    const QByteArray &verb,
+                                    const QByteArray &body)
+{
+    Q_D(QAbstractOAuth);
+    d->prepareRequestImpl(request, verb, body);
+}
+
+/*!
     Returns the current parameter-modification function.
-    \sa ModifyParametersFunction, setModifyParametersFunction(), Stage
+    \sa setModifyParametersFunction(), Stage
 */
 QAbstractOAuth::ModifyParametersFunction QAbstractOAuth::modifyParametersFunction() const
 {
@@ -520,11 +538,11 @@ QAbstractOAuth::ModifyParametersFunction QAbstractOAuth::modifyParametersFunctio
 }
 
 /*!
-    Sets the parameter-modification function. This function is used
-    to customize the parameters sent to the server during a specified
-    authorization stage. The number of calls to this function
-    depends on the flow used during the authentication.
-    \sa modifyParametersFunction(), ModifyParametersFunction, Stage
+    Sets the parameter-modification function \a modifyParametersFunction.
+    This function is used to customize the parameters sent to the server
+    during a specified authorization stage. The number of calls to this
+    function depends on the flow used during the authentication.
+    \sa modifyParametersFunction(), Stage
 */
 void QAbstractOAuth::setModifyParametersFunction(
         const QAbstractOAuth::ModifyParametersFunction &modifyParametersFunction)

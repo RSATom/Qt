@@ -11,20 +11,17 @@
 #include <string>
 #include <vector>
 
-#include "base/id_map.h"
+#include "base/containers/id_map.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/strings/string16.h"
 #include "base/supports_user_data.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "base/values.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/wifi/wifi_service.h"
-#include "content/public/browser/utility_process_host.h"
-#include "content/public/browser/utility_process_host_client.h"
 #include "extensions/browser/api/networking_private/networking_private_delegate.h"
-#include "net/base/network_change_notifier.h"
+#include "services/network/public/cpp/network_connection_tracker.h"
 
 namespace base {
 class SequencedTaskRunner;
@@ -38,7 +35,7 @@ namespace extensions {
 // WiFiService on the worker thread. Created and called from the UI thread.
 class NetworkingPrivateServiceClient
     : public NetworkingPrivateDelegate,
-      net::NetworkChangeNotifier::NetworkChangeObserver {
+      network::NetworkConnectionTracker::NetworkConnectionObserver {
  public:
   // Takes ownership of |wifi_service| which is accessed and deleted on the
   // worker thread. The deletion task is posted from the destructor.
@@ -105,19 +102,23 @@ class NetworkingPrivateServiceClient
                            const std::string& new_pin,
                            const VoidCallback& success_callback,
                            const FailureCallback& failure_callback) override;
+  void SelectCellularMobileNetwork(
+      const std::string& guid,
+      const std::string& network_id,
+      const VoidCallback& success_callback,
+      const FailureCallback& failure_callback) override;
   std::unique_ptr<base::ListValue> GetEnabledNetworkTypes() override;
   std::unique_ptr<DeviceStateList> GetDeviceStateList() override;
   std::unique_ptr<base::DictionaryValue> GetGlobalPolicy() override;
   std::unique_ptr<base::DictionaryValue> GetCertificateLists() override;
   bool EnableNetworkType(const std::string& type) override;
   bool DisableNetworkType(const std::string& type) override;
-  bool RequestScan() override;
+  bool RequestScan(const std::string& type) override;
   void AddObserver(NetworkingPrivateDelegateObserver* observer) override;
   void RemoveObserver(NetworkingPrivateDelegateObserver* observer) override;
 
-  // NetworkChangeNotifier::NetworkChangeObserver implementation.
-  void OnNetworkChanged(
-      net::NetworkChangeNotifier::ConnectionType type) override;
+  // NetworkConnectionTracker::NetworkConnectionObserver implementation.
+  void OnConnectionChanged(network::mojom::ConnectionType type) override;
 
  private:
   // Callbacks to extension api function objects. Keep reference to API object
@@ -138,7 +139,7 @@ class NetworkingPrivateServiceClient
 
     ServiceCallbacksID id;
   };
-  using ServiceCallbacksMap = IDMap<std::unique_ptr<ServiceCallbacks>>;
+  using ServiceCallbacksMap = base::IDMap<std::unique_ptr<ServiceCallbacks>>;
 
   ~NetworkingPrivateServiceClient() override;
 
@@ -172,12 +173,10 @@ class NetworkingPrivateServiceClient
   // Callbacks to run when callback is called from WiFiService.
   ServiceCallbacksMap callbacks_map_;
   // Observers to Network Events.
-  base::ObserverList<NetworkingPrivateDelegateObserver>
+  base::ObserverList<NetworkingPrivateDelegateObserver>::Unchecked
       network_events_observers_;
   // Interface to WiFiService. Used and deleted on the worker thread.
   std::unique_ptr<wifi::WiFiService> wifi_service_;
-  // Sequence token associated with wifi tasks.
-  base::SequencedWorkerPool::SequenceToken sequence_token_;
   // Task runner for worker tasks.
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
   // Use WeakPtrs for callbacks from |wifi_service_|.

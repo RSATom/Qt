@@ -20,7 +20,7 @@ Polymer({
     },
 
     /** Set to true once changes are saved to avoid a reset/cancel on close. */
-    comitted_: Boolean,
+    committed_: Boolean,
   },
 
   /**
@@ -33,9 +33,9 @@ Polymer({
   open: function() {
     this.keyHandler_ = this.handleKeyEvent_.bind(this);
     // We need to attach the event listener to |window|, not |this| so that
-    // changing focus does not prevent key events from occuring.
+    // changing focus does not prevent key events from occurring.
     window.addEventListener('keydown', this.keyHandler_);
-    this.comitted_ = false;
+    this.committed_ = false;
     this.$.dialog.showModal();
     // Don't focus 'reset' by default. 'Tab' will focus 'OK'.
     this.$$('#reset').blur();
@@ -46,19 +46,21 @@ Polymer({
 
     this.displayId = '';  // Will trigger displayIdChanged_.
 
-    if (this.$.dialog.open)
+    if (this.$.dialog.open) {
       this.$.dialog.close();
+    }
   },
 
   /** @private */
   displayIdChanged_: function(newValue, oldValue) {
-    if (oldValue && !this.comitted_) {
+    if (oldValue && !this.committed_) {
       settings.display.systemDisplayApi.overscanCalibrationReset(oldValue);
       settings.display.systemDisplayApi.overscanCalibrationComplete(oldValue);
     }
-    if (!newValue)
+    if (!newValue) {
       return;
-    this.comitted_ = false;
+    }
+    this.committed_ = false;
     settings.display.systemDisplayApi.overscanCalibrationStart(newValue);
   },
 
@@ -71,7 +73,7 @@ Polymer({
   onSaveTap_: function() {
     settings.display.systemDisplayApi.overscanCalibrationComplete(
         this.displayId);
-    this.comitted_ = true;
+    this.committed_ = true;
     this.close();
   },
 
@@ -80,32 +82,37 @@ Polymer({
    * @private
    */
   handleKeyEvent_: function(event) {
-    if (event.altKey || event.ctrlKey || event.metaKey)
+    if (event.altKey || event.ctrlKey || event.metaKey) {
       return;
+    }
     switch (event.keyCode) {
       case 37:  // left arrow
-        if (event.shiftKey)
+        if (event.shiftKey) {
           this.move_(-1, 0);
-        else
+        } else {
           this.resize_(1, 0);
+        }
         break;
       case 38:  // up arrow
-        if (event.shiftKey)
+        if (event.shiftKey) {
           this.move_(0, -1);
-        else
+        } else {
           this.resize_(0, -1);
+        }
         break;
       case 39:  // right arrow
-        if (event.shiftKey)
+        if (event.shiftKey) {
           this.move_(1, 0);
-        else
+        } else {
           this.resize_(-1, 0);
+        }
         break;
       case 40:  // down arrow
-        if (event.shiftKey)
+        if (event.shiftKey) {
           this.move_(0, 1);
-        else
+        } else {
           this.resize_(0, 1);
+        }
         break;
       default:
         // Allow unhandled key events to propagate.
@@ -120,7 +127,7 @@ Polymer({
    * @private
    */
   move_: function(x, y) {
-    /** @type {!chrome.system.display.Insets} */ var delta = {
+    /** @type {!chrome.system.display.Insets} */ const delta = {
       left: x,
       top: y,
       right: x ? -x : 0,  // negating 0 will produce a double.
@@ -136,7 +143,7 @@ Polymer({
    * @private
    */
   resize_: function(x, y) {
-    /** @type {!chrome.system.display.Insets} */ var delta = {
+    /** @type {!chrome.system.display.Insets} */ const delta = {
       left: x,
       top: y,
       right: x,

@@ -3,11 +3,12 @@
 # found in the LICENSE file.
 
 import("//build/config/android/rules.gni")
+import("//build/config/jumbo.gni")
 import("//testing/test.gni")
 
 assert(is_android)
 
-component("android") {
+jumbo_component("android") {
   output_name = "android_window"
   sources = [
     "android_window_export.h",
@@ -24,11 +25,13 @@ component("android") {
     ":platform_window_java",
     "//base",
     "//skia",
+    "//ui/events:dom_keycode_converter",
     "//ui/events:events",
     "//ui/events:events_base",
     "//ui/gfx",
     "//ui/gfx/geometry",
     "//ui/platform_window",
+    "//ui/platform_window/stub",
   ]
 
   libs = [ "android" ]

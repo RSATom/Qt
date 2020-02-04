@@ -76,7 +76,7 @@ public:
 
     void calculateForces();
 
-    bool advance();
+    bool advanceAnimation();
     QRectF boundingRect() const override;
     void paint(QPainter *, const QStyleOptionGraphicsItem *, QWidget *) override;
 

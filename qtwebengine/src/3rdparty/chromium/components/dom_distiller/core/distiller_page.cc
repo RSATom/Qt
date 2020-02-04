@@ -6,6 +6,8 @@
 
 #include <stddef.h>
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/json/json_writer.h"
 #include "base/location.h"
@@ -32,7 +34,7 @@ const char* kStringifyPlaceholder = "$$STRINGIFY";
 std::string GetDistillerScriptWithOptions(
     const dom_distiller::proto::DomDistillerOptions& options,
     bool stringify_output) {
-  std::string script = ResourceBundle::GetSharedInstance()
+  std::string script = ui::ResourceBundle::GetSharedInstance()
                            .GetRawDataResource(IDR_DISTILLER_JS)
                            .as_string();
   if (script.empty()) {
@@ -94,7 +96,7 @@ void DistillerPage::OnDistillationDone(const GURL& page_url,
   std::unique_ptr<dom_distiller::proto::DomDistillerResult> distiller_result(
       new dom_distiller::proto::DomDistillerResult());
   bool found_content;
-  if (value->IsType(base::Value::Type::NONE)) {
+  if (value->is_none()) {
     found_content = false;
   } else {
     found_content =
@@ -155,8 +157,8 @@ void DistillerPage::OnDistillationDone(const GURL& page_url,
   }
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(distiller_page_callback_,
-                            base::Passed(&distiller_result), found_content));
+      FROM_HERE, base::BindOnce(distiller_page_callback_,
+                                std::move(distiller_result), found_content));
 }
 
 }  // namespace dom_distiller

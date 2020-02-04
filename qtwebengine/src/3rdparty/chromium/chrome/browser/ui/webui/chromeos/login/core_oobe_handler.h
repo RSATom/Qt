@@ -9,18 +9,23 @@
 #include <string>
 #include <vector>
 
+#include "ash/public/interfaces/cros_display_config.mojom.h"
 #include "base/callback.h"
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
 #include "chrome/browser/chromeos/login/demo_mode/demo_mode_detector.h"
+#include "chrome/browser/chromeos/login/oobe_configuration.h"
 #include "chrome/browser/chromeos/login/screens/core_oobe_view.h"
 #include "chrome/browser/chromeos/login/version_info_updater.h"
+#include "chrome/browser/ui/ash/tablet_mode_client_observer.h"
 #include "chrome/browser/ui/webui/chromeos/login/base_webui_handler.h"
 #include "ui/events/event_source.h"
 
 namespace base {
 class ListValue;
+class Value;
 }
 
 namespace ui {
@@ -36,7 +41,9 @@ class OobeUI;
 class CoreOobeHandler : public BaseWebUIHandler,
                         public VersionInfoUpdater::Delegate,
                         public CoreOobeView,
-                        public ui::EventSource {
+                        public ui::EventSource,
+                        public TabletModeClientObserver,
+                        public OobeConfiguration::Observer {
  public:
   explicit CoreOobeHandler(OobeUI* oobe_ui,
                            JSCallsContainer* js_calls_container);
@@ -46,6 +53,9 @@ class CoreOobeHandler : public BaseWebUIHandler,
   void DeclareLocalizedValues(
       ::login::LocalizedValuesBuilder* builder) override;
   void Initialize() override;
+
+  // BaseScreenHandler implementation:
+  void GetAdditionalParameters(base::DictionaryValue* dict) override;
 
   // WebUIMessageHandler implementation.
   void RegisterMessages() override;
@@ -72,6 +82,12 @@ class CoreOobeHandler : public BaseWebUIHandler,
   // false.
   void UpdateShutdownAndRebootVisibility(bool reboot_on_shutdown);
 
+  // Notify WebUI of the user count on the views login screen.
+  void SetLoginUserCount(int user_count);
+
+  // Forwards an accelerator value to cr.ui.Oobe.handleAccelerator.
+  void ForwardAccelerator(std::string accelerator_name);
+
  private:
   // CoreOobeView implementation:
   void ShowSignInError(int login_attempts,
@@ -86,7 +102,6 @@ class CoreOobeHandler : public BaseWebUIHandler,
   void ShowPasswordChangedScreen(bool show_password_error,
                                  const std::string& email) override;
   void SetUsageStats(bool checked) override;
-  void SetOemEulaUrl(const std::string& oem_eula_url) override;
   void SetTpmPassword(const std::string& tmp_password) override;
   void ClearErrors() override;
   void ReloadContent(const base::DictionaryValue& dictionary) override;
@@ -103,23 +118,40 @@ class CoreOobeHandler : public BaseWebUIHandler,
   void StopDemoModeDetection() override;
   void UpdateKeyboardState() override;
 
+  // TabletModeClientObserver:
+  void OnTabletModeToggled(bool enabled) override;
+
+  // OobeConfiguration::Observer:
+  void OnOobeConfigurationChanged() override;
+
   // Handlers for JS WebUI messages.
   void HandleEnableLargeCursor(bool enabled);
   void HandleEnableHighContrast(bool enabled);
   void HandleEnableVirtualKeyboard(bool enabled);
   void HandleEnableScreenMagnifier(bool enabled);
   void HandleEnableSpokenFeedback(bool /* enabled */);
+  void HandleEnableSelectToSpeak(bool /* enabled */);
+  void HandleEnableDockedMagnifier(bool /* enabled */);
   void HandleInitialized();
   void HandleSkipUpdateEnrollAfterEula();
   void HandleUpdateCurrentScreen(const std::string& screen);
   void HandleSetDeviceRequisition(const std::string& requisition);
   void HandleScreenAssetsLoaded(const std::string& screen_async_load_id);
   void HandleSkipToLoginForTesting(const base::ListValue* args);
+  void HandleSkipToUpdateForTesting();
   void HandleLaunchHelpApp(double help_topic_id);
   void HandleToggleResetScreen();
   void HandleEnableDebuggingScreen();
   void HandleHeaderBarVisible();
   void HandleSetOobeBootstrappingSlave();
+  void HandleGetPrimaryDisplayNameForTesting(const base::ListValue* args);
+  void GetPrimaryDisplayNameCallback(
+      const base::Value& callback_id,
+      std::vector<ash::mojom::DisplayUnitInfoPtr> info_list);
+  void HandleSetupDemoMode();
+  // Handles demo mode setup for tests. Accepts 'online' and 'offline' as
+  // |demo_config|.
+  void HandleStartDemoModeSetupForTesting(const std::string& demo_config);
 
   // When keyboard_utils.js arrow key down event is reached, raise it
   // to tab/shift-tab event.
@@ -159,6 +191,10 @@ class CoreOobeHandler : public BaseWebUIHandler,
   std::unique_ptr<AccessibilityStatusSubscription> accessibility_subscription_;
 
   DemoModeDetector demo_mode_detector_;
+
+  ash::mojom::CrosDisplayConfigControllerPtr cros_display_config_ptr_;
+
+  base::WeakPtrFactory<CoreOobeHandler> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(CoreOobeHandler);
 };

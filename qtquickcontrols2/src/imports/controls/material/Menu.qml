@@ -34,25 +34,25 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Controls 2.3
-import QtQuick.Templates 2.3 as T
-import QtQuick.Controls.Material 2.3
-import QtQuick.Controls.Material.impl 2.3
+import QtQuick 2.12
+import QtQuick.Controls 2.12
+import QtQuick.Templates 2.12 as T
+import QtQuick.Controls.Material 2.12
+import QtQuick.Controls.Material.impl 2.12
+import QtQuick.Window 2.12
 
 T.Menu {
     id: control
 
     Material.elevation: 8
 
-    implicitWidth: Math.max(background ? background.implicitWidth : 0,
-                            contentItem ? contentItem.implicitWidth + leftPadding + rightPadding : 0)
-    implicitHeight: Math.max(background ? background.implicitHeight : 0,
-                             contentItem ? contentItem.implicitHeight : 0) + topPadding + bottomPadding
+    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                            contentWidth + leftPadding + rightPadding)
+    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                             contentHeight + topPadding + bottomPadding)
 
     margins: 0
-    topPadding: 8
-    bottomPadding: 8
+    verticalPadding: 8
 
     transformOrigin: !cascade ? Item.Top : (mirrored ? Item.TopRight : Item.TopLeft)
 
@@ -74,8 +74,7 @@ T.Menu {
         implicitHeight: contentHeight
 
         model: control.contentModel
-        // TODO: improve this?
-        interactive: ApplicationWindow.window ? contentHeight > ApplicationWindow.window.height : false
+        interactive: Window.window ? contentHeight > Window.window.height : false
         clip: true
         currentIndex: control.currentIndex
 
@@ -84,7 +83,7 @@ T.Menu {
 
     background: Rectangle {
         implicitWidth: 200
-        implicitHeight: 48
+        implicitHeight: control.Material.menuItemHeight
 
         radius: 3
         color: control.Material.dialogColor

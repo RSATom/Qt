@@ -5,6 +5,7 @@
 #ifndef UI_KEYBOARD_KEYBOARD_UI_H_
 #define UI_KEYBOARD_KEYBOARD_UI_H_
 
+#include "base/callback_forward.h"
 #include "base/macros.h"
 #include "ui/base/ime/text_input_type.h"
 #include "ui/keyboard/keyboard_export.h"
@@ -12,8 +13,11 @@
 namespace aura {
 class Window;
 }
+namespace base {
+class UnguessableToken;
+}
 namespace gfx {
-class Rect;
+class Size;
 }
 namespace ui {
 class InputMethod;
@@ -23,47 +27,39 @@ namespace keyboard {
 
 class KeyboardController;
 
-// An interface implemented by an object that implements a keyboard UI.
+// Interface representing a window containing virtual keyboard UI.
 class KEYBOARD_EXPORT KeyboardUI {
  public:
+  using LoadCallback = base::OnceCallback<void()>;
+
   KeyboardUI();
   virtual ~KeyboardUI();
 
-  // Gets the virtual keyboard contents window i.e. the WebContents window where
-  // keyboard extensions are loaded. May return null if the window has not yet
-  // been created.
-  virtual aura::Window* GetContentsWindow() = 0;
+  // Begin loading the virtual keyboard window asynchronously.
+  // Returns a window immediately, but the UI within the window is not
+  // guaranteed to be fully loaded until |callback| is called.
+  // |callback| must be called after this function returns.
+  // This function can only be called once.
+  virtual aura::Window* LoadKeyboardWindow(LoadCallback callback) = 0;
 
-  // Whether the keyboard contents window has been created.
-  virtual bool HasContentsWindow() const = 0;
-
-  // Whether this window should do an overscroll to avoid occlusion by the
-  // virtual keyboard. IME windows and virtual keyboard windows should always
-  // avoid overscroll.
-  virtual bool ShouldWindowOverscroll(aura::Window* window) const = 0;
+  // Gets the virtual keyboard window i.e. the WebContents window where
+  // keyboard extensions are loaded. Returns null if the window has not started
+  // loading.
+  virtual aura::Window* GetKeyboardWindow() const = 0;
 
   // Gets the InputMethod that will provide notifications about changes in the
   // text input context.
   virtual ui::InputMethod* GetInputMethod() = 0;
 
-  // Shows the container window of the keyboard. The default implementation
-  // simply shows the container. An overridden implementation can set up
-  // necessary animation, or delay the visibility change as it desires.
-  virtual void ShowKeyboardContainer(aura::Window* container);
+  // Shows the keyboard window. The default implementation simply calls |Show|
+  // on the window. An overridden implementation can set up animations or delay
+  // the visibility change.
+  virtual void ShowKeyboardWindow();
 
-  // Hides the container window of the keyboard. The default implementation
-  // simply hides the container. An overridden implementation can set up
-  // necesasry animation, or delay the visibility change as it desires.
-  virtual void HideKeyboardContainer(aura::Window* container);
-
-  // Ensures caret in current work area (not occluded by virtual keyboard
-  // window).
-  virtual void EnsureCaretInWorkArea();
-
-  // KeyboardController owns the KeyboardUI instance so KeyboardUI subclasses
-  // should not take ownership of the |controller|. |controller| can be null
-  // when KeyboardController is destroying.
-  virtual void SetController(KeyboardController* controller);
+  // Hides the keyboard window. The default implementation simply calls |Hide|
+  // on the window. An overridden implementation can set up animations or delay
+  // the visibility change.
+  virtual void HideKeyboardWindow();
 
   // Reloads virtual keyboard URL if the current keyboard's web content URL is
   // different. The URL can be different if user switch from password field to
@@ -74,20 +70,22 @@ class KEYBOARD_EXPORT KeyboardUI {
   // other input fields, the virtual keyboard should switch back to the IME
   // provided keyboard, or keep using the system virtual keyboard if IME doesn't
   // provide one.
+  // TODO(https://crbug.com/845780): Change this to accept a callback.
   virtual void ReloadKeyboardIfNeeded() = 0;
 
-  // When the embedder changes the keyboard bounds, asks the keyboard to adjust
-  // insets for windows affected by this.
-  virtual void InitInsets(const gfx::Rect& keyboard_bounds) = 0;
+  // When the window service is running, this will be called with |token| for
+  // embedding the window and the initial window size.
+  virtual void KeyboardContentsLoaded(const base::UnguessableToken& token,
+                                      const gfx::Size& size);
 
-  // Resets insets for affected windows.
-  virtual void ResetInsets() = 0;
+  // |controller| may be null when KeyboardController is being destroyed.
+  void SetController(KeyboardController* controller);
 
  protected:
   KeyboardController* keyboard_controller() { return keyboard_controller_; }
 
  private:
-  keyboard::KeyboardController* keyboard_controller_;
+  keyboard::KeyboardController* keyboard_controller_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(KeyboardUI);
 };

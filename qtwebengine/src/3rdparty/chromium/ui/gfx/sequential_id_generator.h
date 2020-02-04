@@ -8,8 +8,8 @@
 #include <stdint.h>
 
 #include <map>
+#include <unordered_map>
 
-#include "base/containers/hash_tables.h"
 #include "base/macros.h"
 #include "ui/gfx/gfx_export.h"
 
@@ -32,19 +32,14 @@ class GFX_EXPORT SequentialIDGenerator {
   // |number|.
   bool HasGeneratedIDFor(uint32_t number) const;
 
-  // Removes the generated ID |id| from the internal mapping. Since the ID is
-  // no longer mapped to any number, subsequent calls to |GetGeneratedID()| can
-  // use this ID.
-  void ReleaseGeneratedID(uint32_t id);
-
   // Removes the ID previously generated for |number| by calling
-  // |GetGeneratedID()|.
+  // |GetGeneratedID()| - does nothing if the number is not mapped.
   void ReleaseNumber(uint32_t number);
 
   void ResetForTest();
 
  private:
-  typedef base::hash_map<uint32_t, uint32_t> IDMap;
+  typedef std::unordered_map<uint32_t, uint32_t> IDMap;
 
   uint32_t GetNextAvailableID();
 

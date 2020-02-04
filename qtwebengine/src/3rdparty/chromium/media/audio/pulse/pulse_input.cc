@@ -10,6 +10,7 @@
 #include "media/audio/audio_device_description.h"
 #include "media/audio/pulse/audio_manager_pulse.h"
 #include "media/audio/pulse/pulse_util.h"
+#include "media/base/audio_timestamp_helper.h"
 
 namespace media {
 
@@ -51,6 +52,10 @@ PulseAudioInputStream::~PulseAudioInputStream() {
 
 bool PulseAudioInputStream::Open() {
   DCHECK(thread_checker_.CalledOnValidThread());
+  if (device_name_ == AudioDeviceDescription::kDefaultDeviceId &&
+      audio_manager_->DefaultSourceIsMonitor())
+    return false;
+
   AutoPulseLock auto_lock(pa_mainloop_);
   if (!pulse::CreateInputStream(pa_mainloop_, pa_context_, &handle_, params_,
                                 device_name_, &StreamNotifyCallback, this)) {
@@ -198,6 +203,11 @@ bool PulseAudioInputStream::IsMuted() {
   return muted_;
 }
 
+void PulseAudioInputStream::SetOutputDeviceForAec(
+    const std::string& output_device_id) {
+  // Not supported. Do nothing.
+}
+
 // static, used by pa_stream_set_read_callback.
 void PulseAudioInputStream::ReadCallback(pa_stream* handle,
                                          size_t length,
@@ -263,16 +273,13 @@ void PulseAudioInputStream::StreamNotifyCallback(pa_stream* s,
 
   if (s && stream->callback_ &&
       pa_stream_get_state(s) == PA_STREAM_FAILED) {
-    stream->callback_->OnError(stream);
+    stream->callback_->OnError();
   }
 
   pa_threaded_mainloop_signal(stream->pa_mainloop_, 0);
 }
 
 void PulseAudioInputStream::ReadData() {
-  uint32_t hardware_delay = pulse::GetHardwareLatencyInBytes(
-      handle_, params_.sample_rate(), params_.GetBytesPerFrame());
-
   // Update the AGC volume level once every second. Note that,
   // |volume| is also updated each time SetVolume() is called
   // through IPC by the render-side AGC.
@@ -282,6 +289,14 @@ void PulseAudioInputStream::ReadData() {
   GetAgcVolume(&normalized_volume);
   normalized_volume = volume_ / GetMaxVolume();
 
+  // Compensate the audio delay caused by the FIFO.
+  // TODO(dalecurtis): This should probably use pa_stream_get_time() so we can
+  // get the capture time directly.
+  base::TimeTicks capture_time =
+      base::TimeTicks::Now() -
+      (pulse::GetHardwareLatency(handle_) +
+       AudioTimestampHelper::FramesToTime(fifo_.GetAvailableFrames(),
+                                          params_.sample_rate()));
   do {
     size_t length = 0;
     const void* data = NULL;
@@ -289,17 +304,20 @@ void PulseAudioInputStream::ReadData() {
     if (!data || length == 0)
       break;
 
-    const int number_of_frames = length / params_.GetBytesPerFrame();
+    const int number_of_frames =
+        length / params_.GetBytesPerFrame(pulse::kInputSampleFormat);
     if (number_of_frames > fifo_.GetUnfilledFrames()) {
       // Dynamically increase capacity to the FIFO to handle larger buffer got
       // from Pulse.
-      const int increase_blocks_of_buffer = static_cast<int>(
-          (number_of_frames - fifo_.GetUnfilledFrames()) /
-              params_.frames_per_buffer()) + 1;
+      const int increase_blocks_of_buffer =
+          static_cast<int>((number_of_frames - fifo_.GetUnfilledFrames()) /
+                           params_.frames_per_buffer()) +
+          1;
       fifo_.IncreaseCapacity(increase_blocks_of_buffer);
     }
 
-    fifo_.Push(data, number_of_frames, params_.bits_per_sample() / 8);
+    fifo_.Push(data, number_of_frames,
+               SampleFormatToBytesPerChannel(pulse::kInputSampleFormat));
 
     // Checks if we still have data.
     pa_stream_drop(handle_);
@@ -308,12 +326,16 @@ void PulseAudioInputStream::ReadData() {
   while (fifo_.available_blocks()) {
     const AudioBus* audio_bus = fifo_.Consume();
 
-    // Compensate the audio delay caused by the FIFO.
-    hardware_delay += fifo_.GetAvailableFrames() * params_.GetBytesPerFrame();
-    callback_->OnData(this, audio_bus, hardware_delay, normalized_volume);
+    callback_->OnData(audio_bus, capture_time, normalized_volume);
+
+    // Move the capture time forward for each vended block.
+    capture_time += AudioTimestampHelper::FramesToTime(audio_bus->frames(),
+                                                       params_.sample_rate());
 
     // Sleep 5ms to wait until render consumes the data in order to avoid
     // back to back OnData() method.
+    // TODO(dalecurtis): Delete all this. It shouldn't be necessary now that we
+    // have a ring buffer and FIFO on the actual shared memory.,
     if (fifo_.available_blocks())
       base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(5));
   }

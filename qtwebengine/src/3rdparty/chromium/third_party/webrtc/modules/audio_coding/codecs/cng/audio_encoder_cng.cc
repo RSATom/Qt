@@ -8,12 +8,15 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_coding/codecs/cng/audio_encoder_cng.h"
+#include "modules/audio_coding/codecs/cng/audio_encoder_cng.h"
 
-#include <algorithm>
+#include <cstdint>
 #include <memory>
-#include <limits>
 #include <utility>
+
+#include "absl/memory/memory.h"
+#include "modules/audio_coding/codecs/cng/webrtc_cng.h"
+#include "rtc_base/checks.h"
 
 namespace webrtc {
 
@@ -21,42 +24,71 @@ namespace {
 
 const int kMaxFrameSizeMs = 60;
 
-}  // namespace
+class AudioEncoderCng final : public AudioEncoder {
+ public:
+  explicit AudioEncoderCng(AudioEncoderCngConfig&& config);
+  ~AudioEncoderCng() override;
 
-AudioEncoderCng::Config::Config() = default;
-AudioEncoderCng::Config::Config(Config&&) = default;
-AudioEncoderCng::Config::~Config() = default;
+  // Not copyable or moveable.
+  AudioEncoderCng(const AudioEncoderCng&) = delete;
+  AudioEncoderCng(AudioEncoderCng&&) = delete;
+  AudioEncoderCng& operator=(const AudioEncoderCng&) = delete;
+  AudioEncoderCng& operator=(AudioEncoderCng&&) = delete;
 
-bool AudioEncoderCng::Config::IsOk() const {
-  if (num_channels != 1)
-    return false;
-  if (!speech_encoder)
-    return false;
-  if (num_channels != speech_encoder->NumChannels())
-    return false;
-  if (sid_frame_interval_ms <
-      static_cast<int>(speech_encoder->Max10MsFramesInAPacket() * 10))
-    return false;
-  if (num_cng_coefficients > WEBRTC_CNG_MAX_LPC_ORDER ||
-      num_cng_coefficients <= 0)
-    return false;
-  return true;
-}
+  int SampleRateHz() const override;
+  size_t NumChannels() const override;
+  int RtpTimestampRateHz() const override;
+  size_t Num10MsFramesInNextPacket() const override;
+  size_t Max10MsFramesInAPacket() const override;
+  int GetTargetBitrate() const override;
+  EncodedInfo EncodeImpl(uint32_t rtp_timestamp,
+                         rtc::ArrayView<const int16_t> audio,
+                         rtc::Buffer* encoded) override;
+  void Reset() override;
+  bool SetFec(bool enable) override;
+  bool SetDtx(bool enable) override;
+  bool SetApplication(Application application) override;
+  void SetMaxPlaybackRate(int frequency_hz) override;
+  rtc::ArrayView<std::unique_ptr<AudioEncoder>> ReclaimContainedEncoders()
+      override;
+  void OnReceivedUplinkPacketLossFraction(
+      float uplink_packet_loss_fraction) override;
+  void OnReceivedUplinkRecoverablePacketLossFraction(
+      float uplink_recoverable_packet_loss_fraction) override;
+  void OnReceivedUplinkBandwidth(
+      int target_audio_bitrate_bps,
+      absl::optional<int64_t> bwe_period_ms) override;
 
-AudioEncoderCng::AudioEncoderCng(Config&& config)
-    : speech_encoder_(
-          ([&] { RTC_CHECK(config.IsOk()) << "Invalid configuration."; }(),
-           std::move(config.speech_encoder))),
+ private:
+  EncodedInfo EncodePassive(size_t frames_to_encode, rtc::Buffer* encoded);
+  EncodedInfo EncodeActive(size_t frames_to_encode, rtc::Buffer* encoded);
+  size_t SamplesPer10msFrame() const;
+
+  std::unique_ptr<AudioEncoder> speech_encoder_;
+  const int cng_payload_type_;
+  const int num_cng_coefficients_;
+  const int sid_frame_interval_ms_;
+  std::vector<int16_t> speech_buffer_;
+  std::vector<uint32_t> rtp_timestamps_;
+  bool last_frame_active_;
+  std::unique_ptr<Vad> vad_;
+  std::unique_ptr<ComfortNoiseEncoder> cng_encoder_;
+};
+
+AudioEncoderCng::AudioEncoderCng(AudioEncoderCngConfig&& config)
+    : speech_encoder_((static_cast<void>([&] {
+                         RTC_CHECK(config.IsOk()) << "Invalid configuration.";
+                       }()),
+                       std::move(config.speech_encoder))),
       cng_payload_type_(config.payload_type),
       num_cng_coefficients_(config.num_cng_coefficients),
       sid_frame_interval_ms_(config.sid_frame_interval_ms),
       last_frame_active_(true),
       vad_(config.vad ? std::unique_ptr<Vad>(config.vad)
-           : CreateVad(config.vad_mode)),
+                      : CreateVad(config.vad_mode)),
       cng_encoder_(new ComfortNoiseEncoder(SampleRateHz(),
                                            sid_frame_interval_ms_,
-                                           num_cng_coefficients_)) {
-}
+                                           num_cng_coefficients_)) {}
 
 AudioEncoderCng::~AudioEncoderCng() = default;
 
@@ -158,9 +190,8 @@ void AudioEncoderCng::Reset() {
   rtp_timestamps_.clear();
   last_frame_active_ = true;
   vad_->Reset();
-  cng_encoder_.reset(
-      new ComfortNoiseEncoder(SampleRateHz(), sid_frame_interval_ms_,
-                              num_cng_coefficients_));
+  cng_encoder_.reset(new ComfortNoiseEncoder(
+      SampleRateHz(), sid_frame_interval_ms_, num_cng_coefficients_));
 }
 
 bool AudioEncoderCng::SetFec(bool enable) {
@@ -198,9 +229,9 @@ void AudioEncoderCng::OnReceivedUplinkRecoverablePacketLossFraction(
 
 void AudioEncoderCng::OnReceivedUplinkBandwidth(
     int target_audio_bitrate_bps,
-    rtc::Optional<int64_t> probing_interval_ms) {
+    absl::optional<int64_t> bwe_period_ms) {
   speech_encoder_->OnReceivedUplinkBandwidth(target_audio_bitrate_bps,
-                                             probing_interval_ms);
+                                             bwe_period_ms);
 }
 
 AudioEncoder::EncodedInfo AudioEncoderCng::EncodePassive(
@@ -217,11 +248,10 @@ AudioEncoder::EncodedInfo AudioEncoderCng::EncodePassive(
     // that value, in which case we don't want to overwrite any value from
     // an earlier iteration.
     size_t encoded_bytes_tmp =
-        cng_encoder_->Encode(
-            rtc::ArrayView<const int16_t>(
-                &speech_buffer_[i * samples_per_10ms_frame],
-                samples_per_10ms_frame),
-            force_sid, encoded);
+        cng_encoder_->Encode(rtc::ArrayView<const int16_t>(
+                                 &speech_buffer_[i * samples_per_10ms_frame],
+                                 samples_per_10ms_frame),
+                             force_sid, encoded);
 
     if (encoded_bytes_tmp > 0) {
       RTC_CHECK(!output_produced);
@@ -238,9 +268,8 @@ AudioEncoder::EncodedInfo AudioEncoderCng::EncodePassive(
   return info;
 }
 
-AudioEncoder::EncodedInfo AudioEncoderCng::EncodeActive(
-    size_t frames_to_encode,
-    rtc::Buffer* encoded) {
+AudioEncoder::EncodedInfo AudioEncoderCng::EncodeActive(size_t frames_to_encode,
+                                                        rtc::Buffer* encoded) {
   const size_t samples_per_10ms_frame = SamplesPer10msFrame();
   AudioEncoder::EncodedInfo info;
   for (size_t i = 0; i < frames_to_encode; ++i) {
@@ -262,6 +291,33 @@ AudioEncoder::EncodedInfo AudioEncoderCng::EncodeActive(
 
 size_t AudioEncoderCng::SamplesPer10msFrame() const {
   return rtc::CheckedDivExact(10 * SampleRateHz(), 1000);
+}
+
+}  // namespace
+
+AudioEncoderCngConfig::AudioEncoderCngConfig() = default;
+AudioEncoderCngConfig::AudioEncoderCngConfig(AudioEncoderCngConfig&&) = default;
+AudioEncoderCngConfig::~AudioEncoderCngConfig() = default;
+
+bool AudioEncoderCngConfig::IsOk() const {
+  if (num_channels != 1)
+    return false;
+  if (!speech_encoder)
+    return false;
+  if (num_channels != speech_encoder->NumChannels())
+    return false;
+  if (sid_frame_interval_ms <
+      static_cast<int>(speech_encoder->Max10MsFramesInAPacket() * 10))
+    return false;
+  if (num_cng_coefficients > WEBRTC_CNG_MAX_LPC_ORDER ||
+      num_cng_coefficients <= 0)
+    return false;
+  return true;
+}
+
+std::unique_ptr<AudioEncoder> CreateComfortNoiseEncoder(
+    AudioEncoderCngConfig&& config) {
+  return absl::make_unique<AudioEncoderCng>(std::move(config));
 }
 
 }  // namespace webrtc

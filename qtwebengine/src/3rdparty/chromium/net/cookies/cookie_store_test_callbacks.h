@@ -8,12 +8,13 @@
 #include <string>
 #include <vector>
 
+#include "base/memory/scoped_refptr.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "net/cookies/canonical_cookie.h"
 #include "net/cookies/cookie_store.h"
 
 namespace base {
-class MessageLoop;
 class Thread;
 }
 
@@ -43,7 +44,7 @@ class CookieCallback {
 
  private:
   base::Thread* run_in_thread_;
-  base::MessageLoop* run_in_loop_;
+  scoped_refptr<base::SingleThreadTaskRunner> run_in_task_runner_;
   base::RunLoop loop_to_quit_;
 };
 
@@ -67,22 +68,6 @@ class ResultSavingCookieCallback : public CookieCallback {
 
  private:
   T result_;
-};
-
-class StringResultCookieCallback : public CookieCallback {
- public:
-  StringResultCookieCallback();
-  explicit StringResultCookieCallback(base::Thread* run_in_thread);
-
-  void Run(const std::string& result) {
-    result_ = result;
-    CallbackEpilogue();
-  }
-
-  const std::string& result() { return result_; }
-
- private:
-  std::string result_;
 };
 
 class NoResultCookieCallback : public CookieCallback {

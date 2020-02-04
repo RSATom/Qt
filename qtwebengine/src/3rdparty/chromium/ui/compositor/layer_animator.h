@@ -5,13 +5,12 @@
 #ifndef UI_COMPOSITOR_LAYER_ANIMATOR_H_
 #define UI_COMPOSITOR_LAYER_ANIMATOR_H_
 
-#include <deque>
 #include <vector>
 
 #include "base/compiler_specific.h"
+#include "base/containers/circular_deque.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
-#include "base/memory/linked_ptr.h"
 #include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
 #include "base/time/time.h"
@@ -24,9 +23,9 @@
 
 namespace cc {
 class Animation;
-class AnimationPlayer;
 class AnimationTimeline;
 class Layer;
+class SingleKeyframeEffectAnimation;
 }
 
 namespace gfx {
@@ -37,6 +36,7 @@ class Transform;
 
 namespace ui {
 class Compositor;
+class ImplicitAnimationObserver;
 class Layer;
 class LayerAnimationSequence;
 class LayerAnimationDelegate;
@@ -53,10 +53,9 @@ class ScopedLayerAnimationSettings;
 // ensure that it is not disposed of until it finishes executing. It does this
 // by holding a reference to itself for the duration of methods for which it
 // must guarantee that |this| is valid.
-class COMPOSITOR_EXPORT LayerAnimator
-    : public base::RefCounted<LayerAnimator>,
-      public LayerThreadedAnimationDelegate,
-      NON_EXPORTED_BASE(public cc::AnimationDelegate) {
+class COMPOSITOR_EXPORT LayerAnimator : public base::RefCounted<LayerAnimator>,
+                                        public LayerThreadedAnimationDelegate,
+                                        public cc::AnimationDelegate {
  public:
   enum PreemptionStrategy {
     IMMEDIATELY_SET_NEW_TARGET,
@@ -101,11 +100,6 @@ class COMPOSITOR_EXPORT LayerAnimator
   virtual void SetColor(SkColor color);
   SkColor GetTargetColor() const;
 
-  // Sets the color temperature on the delegate. May cause an implicit
-  // animation.
-  virtual void SetTemperature(float temperature);
-  float GetTargetTemperature() const;
-
   // Returns the default length of animations, including adjustment for slow
   // animation mode if set.
   base::TimeDelta GetTransitionDuration() const;
@@ -119,12 +113,12 @@ class COMPOSITOR_EXPORT LayerAnimator
   // Unsubscribe from |cc_layer_| and subscribe to |new_layer|.
   void SwitchToLayer(scoped_refptr<cc::Layer> new_layer);
 
-  // Attach AnimationPlayer to Layer and AnimationTimeline
+  // Attach Animation to Layer and AnimationTimeline
   void AttachLayerAndTimeline(Compositor* compositor);
-  // Detach AnimationPlayer from Layer and AnimationTimeline
+  // Detach Animation from Layer and AnimationTimeline
   void DetachLayerAndTimeline(Compositor* compositor);
 
-  cc::AnimationPlayer* GetAnimationPlayerForTesting() const;
+  cc::SingleKeyframeEffectAnimation* GetAnimationForTesting() const;
 
   // Sets the animation preemption strategy. This determines the behaviour if
   // a property is set during an animation. The default is
@@ -176,7 +170,15 @@ class COMPOSITOR_EXPORT LayerAnimator
   // property (animations remain in the queue until they complete, so this
   // includes running animations).
   bool IsAnimatingProperty(
-      LayerAnimationElement::AnimatableProperty property) const;
+      LayerAnimationElement::AnimatableProperty property) const {
+    return IsAnimatingOnePropertyOf(property);
+  }
+
+  // Returns true if there is an animation in the queue that animates at least
+  // one of the given property (animations remain in the queue until they
+  // complete, so this includes running animations).
+  bool IsAnimatingOnePropertyOf(
+      LayerAnimationElement::AnimatableProperties properties) const;
 
   // Stops animating the given property. No effect if there is no running
   // animation for the given property. Skips to the final state of the
@@ -192,10 +194,17 @@ class COMPOSITOR_EXPORT LayerAnimator
   // animations and notifies all observers.
   void AbortAllAnimations() { StopAnimatingInternal(true); }
 
-  // These functions are used for adding or removing observers from the observer
-  // list. The observers are notified when animations end.
+  // Adds/remove |observer| from the observer list. Observers are notified when
+  // animations are scheduled, start, end or are aborted. They may also be
+  // notified when they're attached/detached from a LayerAnimationSequence (see
+  // LayerAnimationObserver).
   void AddObserver(LayerAnimationObserver* observer);
   void RemoveObserver(LayerAnimationObserver* observer);
+
+  void AddOwnedObserver(
+      std::unique_ptr<ImplicitAnimationObserver> animation_observer);
+  void RemoveAndDestroyOwnedObserver(
+      ImplicitAnimationObserver* animation_observer);
 
   // Called when a threaded animation is actually started.
   void OnThreadedAnimationStarted(base::TimeTicks monotonic_time,
@@ -261,8 +270,9 @@ class COMPOSITOR_EXPORT LayerAnimator
     // Copy and assign are allowed.
   };
 
-  typedef std::vector<RunningAnimation> RunningAnimations;
-  typedef std::deque<linked_ptr<LayerAnimationSequence> > AnimationQueue;
+  using RunningAnimations = std::vector<RunningAnimation>;
+  using AnimationQueue =
+      base::circular_deque<std::unique_ptr<LayerAnimationSequence>>;
 
   // Finishes all animations by either advancing them to their final state or by
   // aborting them.
@@ -345,26 +355,27 @@ class COMPOSITOR_EXPORT LayerAnimator
 
   // cc::AnimationDelegate implementation.
   void NotifyAnimationStarted(base::TimeTicks monotonic_time,
-                              cc::TargetProperty::Type target_property,
+                              int target_property,
                               int group_id) override;
   void NotifyAnimationFinished(base::TimeTicks monotonic_time,
-                               cc::TargetProperty::Type target_property,
+                               int target_property,
                                int group_id) override {}
   void NotifyAnimationAborted(base::TimeTicks monotonic_time,
-                              cc::TargetProperty::Type target_property,
+                              int target_property,
                               int group_id) override {}
   void NotifyAnimationTakeover(
       base::TimeTicks monotonic_time,
-      cc::TargetProperty::Type target_property,
-      double animation_start_time,
+      int target_property,
+      base::TimeTicks animation_start_time,
       std::unique_ptr<cc::AnimationCurve> curve) override {}
 
   // Implementation of LayerThreadedAnimationDelegate.
-  void AddThreadedAnimation(std::unique_ptr<cc::Animation> animation) override;
-  void RemoveThreadedAnimation(int animation_id) override;
+  void AddThreadedAnimation(
+      std::unique_ptr<cc::KeyframeModel> keyframe_model) override;
+  void RemoveThreadedAnimation(int keyframe_model_id) override;
 
-  void AttachLayerToAnimationPlayer(int layer_id);
-  void DetachLayerFromAnimationPlayer();
+  void AttachLayerToAnimation(int layer_id);
+  void DetachLayerFromAnimation();
 
   void set_animation_metrics_reporter(AnimationMetricsReporter* reporter) {
     animation_metrics_reporter_ = reporter;
@@ -377,7 +388,7 @@ class COMPOSITOR_EXPORT LayerAnimator
   LayerAnimationDelegate* delegate_;
 
   // Plays CC animations.
-  scoped_refptr<cc::AnimationPlayer> animation_player_;
+  scoped_refptr<cc::SingleKeyframeEffectAnimation> animation_;
 
   // The currently running animations.
   RunningAnimations running_animations_;
@@ -414,7 +425,9 @@ class COMPOSITOR_EXPORT LayerAnimator
 
   // Observers are notified when layer animations end, are scheduled or are
   // aborted.
-  base::ObserverList<LayerAnimationObserver> observers_;
+  base::ObserverList<LayerAnimationObserver>::Unchecked observers_;
+
+  std::vector<std::unique_ptr<ImplicitAnimationObserver>> owned_observer_list_;
 
   DISALLOW_COPY_AND_ASSIGN(LayerAnimator);
 };

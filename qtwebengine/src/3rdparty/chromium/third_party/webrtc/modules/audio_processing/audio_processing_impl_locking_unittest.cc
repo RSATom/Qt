@@ -8,22 +8,20 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_processing/audio_processing_impl.h"
+#include "modules/audio_processing/audio_processing_impl.h"
 
 #include <algorithm>
 #include <memory>
 #include <vector>
 
-#include "webrtc/config.h"
-#include "webrtc/modules/audio_processing/test/test_utils.h"
-#include "webrtc/modules/include/module_common_types.h"
-#include "webrtc/rtc_base/array_view.h"
-#include "webrtc/rtc_base/criticalsection.h"
-#include "webrtc/rtc_base/event.h"
-#include "webrtc/rtc_base/platform_thread.h"
-#include "webrtc/rtc_base/random.h"
-#include "webrtc/system_wrappers/include/sleep.h"
-#include "webrtc/test/gtest.h"
+#include "api/array_view.h"
+#include "modules/audio_processing/test/test_utils.h"
+#include "rtc_base/critical_section.h"
+#include "rtc_base/event.h"
+#include "rtc_base/platform_thread.h"
+#include "rtc_base/random.h"
+#include "system_wrappers/include/sleep.h"
+#include "test/gtest.h"
 
 namespace webrtc {
 
@@ -84,7 +82,7 @@ class RandomGenerator {
 
  private:
   rtc::CriticalSection crit_;
-  Random rand_gen_ GUARDED_BY(crit_);
+  Random rand_gen_ RTC_GUARDED_BY(crit_);
 };
 
 // Variables related to the audio data and formats.
@@ -148,8 +146,7 @@ struct TestConfig {
 
       // Create test config for the first processing API function set.
       test_configs.push_back(test_config);
-      test_config.render_api_function =
-          RenderApiImpl::AnalyzeReverseStreamImpl;
+      test_config.render_api_function = RenderApiImpl::AnalyzeReverseStreamImpl;
       test_config.capture_api_function = CaptureApiImpl::ProcessStreamImpl3;
       test_configs.push_back(test_config);
     }
@@ -301,8 +298,8 @@ class FrameCounters {
 
  private:
   rtc::CriticalSection crit_;
-  int render_count GUARDED_BY(crit_) = 0;
-  int capture_count GUARDED_BY(crit_) = 0;
+  int render_count RTC_GUARDED_BY(crit_) = 0;
+  int capture_count RTC_GUARDED_BY(crit_) = 0;
 };
 
 // Class for handling the capture side processing.
@@ -484,20 +481,16 @@ void PopulateAudioFrame(AudioFrame* frame,
     for (size_t k = 0; k < frame->samples_per_channel_; k++) {
       // Store random 16 bit number between -(amplitude+1) and
       // amplitude.
-      frame_data[k * ch] =
-          rand_gen->RandInt(2 * amplitude + 1) - amplitude - 1;
+      frame_data[k * ch] = rand_gen->RandInt(2 * amplitude + 1) - amplitude - 1;
     }
   }
 }
 
 AudioProcessingImplLockTest::AudioProcessingImplLockTest()
-    : test_complete_(false, false),
-      render_call_event_(false, false),
-      capture_call_event_(false, false),
-      render_thread_(RenderProcessorThreadFunc, this, "render"),
+    : render_thread_(RenderProcessorThreadFunc, this, "render"),
       capture_thread_(CaptureProcessorThreadFunc, this, "capture"),
       stats_thread_(StatsProcessorThreadFunc, this, "stats"),
-      apm_(AudioProcessingImpl::Create()),
+      apm_(AudioProcessingBuilder().Create()),
       render_thread_state_(kMaxFrameSize,
                            &rand_gen_,
                            &render_call_event_,
@@ -534,41 +527,32 @@ bool AudioProcessingImplLockTest::MaybeEndTest() {
 void AudioProcessingImplLockTest::SetUp() {
   test_config_ = static_cast<TestConfig>(GetParam());
 
-  ASSERT_EQ(apm_->kNoError, apm_->level_estimator()->Enable(true));
   ASSERT_EQ(apm_->kNoError, apm_->gain_control()->Enable(true));
 
   ASSERT_EQ(apm_->kNoError,
             apm_->gain_control()->set_mode(GainControl::kAdaptiveDigital));
   ASSERT_EQ(apm_->kNoError, apm_->gain_control()->Enable(true));
 
-  ASSERT_EQ(apm_->kNoError, apm_->noise_suppression()->Enable(true));
-  ASSERT_EQ(apm_->kNoError, apm_->voice_detection()->Enable(true));
+  AudioProcessing::Config apm_config = apm_->GetConfig();
+  apm_config.echo_canceller.enabled =
+      (test_config_.aec_type != AecType::AecTurnedOff);
+  apm_config.echo_canceller.mobile_mode =
+      (test_config_.aec_type == AecType::BasicWebRtcAecSettingsWithAecMobile);
+  apm_config.noise_suppression.enabled = true;
+  apm_config.voice_detection.enabled = true;
+  apm_config.level_estimation.enabled = true;
+  apm_->ApplyConfig(apm_config);
 
   Config config;
-  if (test_config_.aec_type == AecType::AecTurnedOff) {
-    ASSERT_EQ(apm_->kNoError, apm_->echo_control_mobile()->Enable(false));
-    ASSERT_EQ(apm_->kNoError, apm_->echo_cancellation()->Enable(false));
-  } else if (test_config_.aec_type ==
-             AecType::BasicWebRtcAecSettingsWithAecMobile) {
-    ASSERT_EQ(apm_->kNoError, apm_->echo_control_mobile()->Enable(true));
-    ASSERT_EQ(apm_->kNoError, apm_->echo_cancellation()->Enable(false));
-  } else {
-    ASSERT_EQ(apm_->kNoError, apm_->echo_control_mobile()->Enable(false));
-    ASSERT_EQ(apm_->kNoError, apm_->echo_cancellation()->Enable(true));
-    ASSERT_EQ(apm_->kNoError, apm_->echo_cancellation()->enable_metrics(true));
-    ASSERT_EQ(apm_->kNoError,
-              apm_->echo_cancellation()->enable_delay_logging(true));
+  config.Set<ExtendedFilter>(
+      new ExtendedFilter(test_config_.aec_type ==
+                         AecType::BasicWebRtcAecSettingsWithExtentedFilter));
 
-    config.Set<ExtendedFilter>(
-        new ExtendedFilter(test_config_.aec_type ==
-                           AecType::BasicWebRtcAecSettingsWithExtentedFilter));
+  config.Set<DelayAgnostic>(
+      new DelayAgnostic(test_config_.aec_type ==
+                        AecType::BasicWebRtcAecSettingsWithDelayAgnosticAec));
 
-    config.Set<DelayAgnostic>(
-        new DelayAgnostic(test_config_.aec_type ==
-                          AecType::BasicWebRtcAecSettingsWithDelayAgnosticAec));
-
-    apm_->SetExtraOptions(config);
-  }
+  apm_->SetExtraOptions(config);
 }
 
 void AudioProcessingImplLockTest::TearDown() {
@@ -589,21 +573,23 @@ StatsProcessor::StatsProcessor(RandomGenerator* rand_gen,
 bool StatsProcessor::Process() {
   SleepRandomMs(100, rand_gen_);
 
-  EXPECT_EQ(apm_->echo_cancellation()->is_enabled(),
-            ((test_config_->aec_type != AecType::AecTurnedOff) &&
-             (test_config_->aec_type !=
-              AecType::BasicWebRtcAecSettingsWithAecMobile)));
-  apm_->echo_cancellation()->stream_drift_samples();
-  EXPECT_EQ(apm_->echo_control_mobile()->is_enabled(),
-            (test_config_->aec_type != AecType::AecTurnedOff) &&
-                (test_config_->aec_type ==
-                 AecType::BasicWebRtcAecSettingsWithAecMobile));
+  AudioProcessing::Config apm_config = apm_->GetConfig();
+  if (test_config_->aec_type != AecType::AecTurnedOff) {
+    EXPECT_TRUE(apm_config.echo_canceller.enabled);
+    EXPECT_EQ(apm_config.echo_canceller.mobile_mode,
+              (test_config_->aec_type ==
+               AecType::BasicWebRtcAecSettingsWithAecMobile));
+  } else {
+    EXPECT_FALSE(apm_config.echo_canceller.enabled);
+  }
   EXPECT_TRUE(apm_->gain_control()->is_enabled());
-  EXPECT_TRUE(apm_->noise_suppression()->is_enabled());
+  EXPECT_TRUE(apm_config.noise_suppression.enabled);
 
   // The below return values are not testable.
   apm_->noise_suppression()->speech_probability();
   apm_->voice_detection()->is_enabled();
+
+  apm_->GetStatistics(/*has_remote_tracks=*/true);
 
   return true;
 }

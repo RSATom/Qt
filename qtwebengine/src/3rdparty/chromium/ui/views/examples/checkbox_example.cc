@@ -20,9 +20,8 @@ CheckboxExample::~CheckboxExample() {
 }
 
 void CheckboxExample::CreateExampleView(View* container) {
-  button_ = new Checkbox(base::ASCIIToUTF16("Checkbox"));
-  button_->set_listener(this);
-  container->SetLayoutManager(new FillLayout);
+  button_ = new Checkbox(base::ASCIIToUTF16("Checkbox"), this);
+  container->SetLayoutManager(std::make_unique<FillLayout>());
   container->AddChildView(button_);
 }
 

@@ -10,13 +10,15 @@
 #include <memory>
 #include <vector>
 
+#include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
+#include "third_party/base/span.h"
 
 class CPDF_PSEngine;
-class CPDF_PSOP;
+class CPDF_PSProc;
 class CPDF_SimpleParser;
 
-enum PDF_PSOP {
+enum PDF_PSOP : uint8_t {
   PSOP_ADD,
   PSOP_SUB,
   PSOP_MUL,
@@ -63,7 +65,22 @@ enum PDF_PSOP {
   PSOP_CONST
 };
 
-constexpr uint32_t PSENGINE_STACKSIZE = 100;
+class CPDF_PSOP {
+ public:
+  CPDF_PSOP();
+  explicit CPDF_PSOP(PDF_PSOP op);
+  explicit CPDF_PSOP(float value);
+  ~CPDF_PSOP();
+
+  float GetFloatValue() const;
+  CPDF_PSProc* GetProc() const;
+  PDF_PSOP GetOp() const { return m_op; }
+
+ private:
+  const PDF_PSOP m_op;
+  const float m_value;
+  std::unique_ptr<CPDF_PSProc> m_proc;
+};
 
 class CPDF_PSProc {
  public:
@@ -73,8 +90,18 @@ class CPDF_PSProc {
   bool Parse(CPDF_SimpleParser* parser, int depth);
   bool Execute(CPDF_PSEngine* pEngine);
 
+  // These methods are exposed for testing.
+  void AddOperatorForTesting(ByteStringView word);
+  size_t num_operators() const { return m_Operators.size(); }
+  const std::unique_ptr<CPDF_PSOP>& last_operator() {
+    return m_Operators.back();
+  }
+
  private:
   static const int kMaxDepth = 128;
+
+  void AddOperator(ByteStringView word);
+
   std::vector<std::unique_ptr<CPDF_PSOP>> m_Operators;
 };
 
@@ -83,18 +110,21 @@ class CPDF_PSEngine {
   CPDF_PSEngine();
   ~CPDF_PSEngine();
 
-  bool Parse(const char* str, int size);
+  bool Parse(pdfium::span<const uint8_t> input);
   bool Execute();
   bool DoOperator(PDF_PSOP op);
   void Reset() { m_StackCount = 0; }
   void Push(float value);
   float Pop();
+  int PopInt();
   uint32_t GetStackSize() const { return m_StackCount; }
 
  private:
-  float m_Stack[PSENGINE_STACKSIZE];
-  uint32_t m_StackCount;
+  static constexpr uint32_t kPSEngineStackSize = 100;
+
+  uint32_t m_StackCount = 0;
   CPDF_PSProc m_MainProc;
+  float m_Stack[kPSEngineStackSize];
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_PSENGINE_H_

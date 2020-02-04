@@ -139,7 +139,7 @@ public:
     \row    \li \l Qt::AccessibleDescriptionRole \li QString
     \row    \li \l Qt::AccessibleTextRole \li QString
     \endomit
-    \row    \li \l Qt::BackgroundRole \li QBrush
+    \row    \li \l Qt::BackgroundRole \li QBrush (\since 4.2)
     \row    \li \l Qt::BackgroundColorRole \li QColor (obsolete; use Qt::BackgroundRole instead)
     \row    \li \l Qt::CheckStateRole \li Qt::CheckState
     \row    \li \l Qt::DecorationRole \li QIcon, QPixmap, QImage and QColor
@@ -151,7 +151,7 @@ public:
     \row    \li \l Qt::StatusTipRole \li
     \endomit
     \row    \li \l Qt::TextAlignmentRole \li Qt::Alignment
-    \row    \li \l Qt::ForegroundRole \li QBrush
+    \row    \li \l Qt::ForegroundRole \li QBrush (\since 4.2)
     \row    \li \l Qt::TextColorRole \li QColor (obsolete; use Qt::ForegroundRole instead)
     \omit
     \row    \li \l Qt::ToolTipRole
@@ -514,14 +514,6 @@ void QStyledItemDelegate::updateEditorGeometry(QWidget *editor,
 
     QStyle *style = widget ? widget->style() : QApplication::style();
     QRect geom = style->subElementRect(QStyle::SE_ItemViewItemText, &opt, widget);
-    if ( editor->layoutDirection() == Qt::RightToLeft) {
-        const int delta = qSmartMinSize(editor).width() - geom.width();
-        if (delta > 0) {
-            //we need to widen the geometry
-            geom.adjust(-delta, 0, 0, 0);
-        }
-    }
-
     editor->setGeometry(geom);
 }
 
@@ -570,7 +562,7 @@ void QStyledItemDelegate::setItemEditorFactory(QItemEditorFactory *factory)
     \uicontrol Return keys are \e not handled.
 
     In the case of \uicontrol Tab, \uicontrol Backtab, \uicontrol Enter and \uicontrol Return
-    key press events, the \a editor's data is comitted to the model
+    key press events, the \a editor's data is committed to the model
     and the editor is closed. If the \a event is a \uicontrol Tab key press
     the view will open an editor on the next item in the
     view. Likewise, if the \a event is a \uicontrol Backtab key press the

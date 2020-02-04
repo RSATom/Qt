@@ -7,42 +7,45 @@
 #ifndef XFA_FXFA_PARSER_XFA_BASIC_DATA_H_
 #define XFA_FXFA_PARSER_XFA_BASIC_DATA_H_
 
+#include <stddef.h>
+
+#include "core/fxcrt/widestring.h"
+#include "fxjs/xfa/cjx_object.h"
+#include "third_party/base/optional.h"
 #include "xfa/fxfa/fxfa_basic.h"
 
-extern const XFA_PACKETINFO g_XFAPacketData[];
-extern const int32_t g_iXFAPacketCount;
+struct XFA_PACKETINFO {
+  const wchar_t* name;
+  XFA_PacketType packet_type;
+  const wchar_t* uri;
+  uint32_t flags;
+};
 
-extern const XFA_ATTRIBUTEENUMINFO g_XFAEnumData[];
-extern const int32_t g_iXFAEnumCount;
+struct XFA_ATTRIBUTEINFO {
+  XFA_Attribute attribute;
+  XFA_ScriptType eValueType;
+};
 
-extern const XFA_ATTRIBUTEINFO g_XFAAttributeData[];
-extern const int32_t g_iXFAAttributeCount;
+struct XFA_SCRIPTATTRIBUTEINFO {
+  XFA_Attribute attribute;
+  XFA_ScriptType eValueType;
+  XFA_ATTRIBUTE_CALLBACK callback = nullptr;
+};
 
-extern const XFA_NOTSUREATTRIBUTE g_XFANotsureAttributes[];
-extern const int32_t g_iXFANotsureCount;
+XFA_PACKETINFO XFA_GetPacketByIndex(XFA_PacketType ePacket);
+Optional<XFA_PACKETINFO> XFA_GetPacketByName(WideStringView wsName);
 
-extern const XFA_ELEMENTINFO g_XFAElementData[];
-extern const int32_t g_iXFAElementCount;
+ByteStringView XFA_ElementToName(XFA_Element elem);
+XFA_Element XFA_GetElementByName(WideStringView name);
 
-extern const XFA_ELEMENTHIERARCHY g_XFAElementChildrenIndex[];
-extern const uint16_t g_XFAElementChildrenData[];
+ByteStringView XFA_AttributeToName(XFA_Attribute attr);
+Optional<XFA_ATTRIBUTEINFO> XFA_GetAttributeByName(WideStringView name);
 
-extern const XFA_ELEMENTHIERARCHY g_XFAElementAttributeIndex[];
-extern const uint8_t g_XFAElementAttributeData[];
+ByteStringView XFA_AttributeValueToName(XFA_AttributeValue item);
+Optional<XFA_AttributeValue> XFA_GetAttributeValueByName(WideStringView name);
 
-extern const XFA_ELEMENTHIERARCHY g_XFAElementPropertyIndex[];
-extern const XFA_PROPERTY g_XFAElementPropertyData[];
-
-extern const XFA_SCRIPTHIERARCHY g_XFAScriptIndex[];
-extern const int32_t g_iScriptIndexCount;
-
-extern const XFA_NOTSUREATTRIBUTE g_XFANotsureAttributes[];
-extern const int32_t g_iXFANotsureCount;
-
-extern const XFA_METHODINFO g_SomMethodData[];
-extern const int32_t g_iSomMethodCount;
-
-extern const XFA_SCRIPTATTRIBUTEINFO g_SomAttributeData[];
-extern const int32_t g_iSomAttributeCount;
+Optional<XFA_SCRIPTATTRIBUTEINFO> XFA_GetScriptAttributeByName(
+    XFA_Element eElement,
+    WideStringView wsAttributeName);
 
 #endif  // XFA_FXFA_PARSER_XFA_BASIC_DATA_H_

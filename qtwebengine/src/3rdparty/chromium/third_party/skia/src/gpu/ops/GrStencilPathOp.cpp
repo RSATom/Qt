@@ -7,14 +7,35 @@
 
 #include "GrStencilPathOp.h"
 
+#include "GrContext.h"
+#include "GrContextPriv.h"
 #include "GrGpu.h"
+#include "GrMemoryPool.h"
 #include "GrOpFlushState.h"
+#include "GrRenderTargetPriv.h"
 
-void GrStencilPathOp::onExecute(GrOpFlushState* state) {
-    SkASSERT(state->drawOpArgs().fRenderTarget);
+std::unique_ptr<GrOp> GrStencilPathOp::Make(GrContext* context,
+                                            const SkMatrix& viewMatrix,
+                                            bool useHWAA,
+                                            GrPathRendering::FillType fillType,
+                                            bool hasStencilClip,
+                                            const GrScissorState& scissor,
+                                            const GrPath* path) {
+    GrOpMemoryPool* pool = context->contextPriv().opMemoryPool();
 
-    GrPathRendering::StencilPathArgs args(fUseHWAA, state->drawOpArgs().fRenderTarget,
-                                          &fViewMatrix, &fScissor, &fStencil);
-    state->gpu()->pathRendering()->stencilPath(args, fPath.get());
+    return pool->allocate<GrStencilPathOp>(viewMatrix, useHWAA, fillType,
+                                           hasStencilClip, scissor, path);
 }
 
+void GrStencilPathOp::onExecute(GrOpFlushState* state, const SkRect& chainBounds) {
+    GrRenderTarget* rt = state->drawOpArgs().renderTarget();
+    SkASSERT(rt);
+
+    int numStencilBits = rt->renderTargetPriv().numStencilBits();
+    GrStencilSettings stencil(GrPathRendering::GetStencilPassSettings(fFillType),
+                              fHasStencilClip, numStencilBits);
+
+    GrPathRendering::StencilPathArgs args(fUseHWAA, state->drawOpArgs().fProxy,
+                                          &fViewMatrix, &fScissor, &stencil);
+    state->gpu()->pathRendering()->stencilPath(args, fPath.get());
+}

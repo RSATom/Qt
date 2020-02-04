@@ -49,71 +49,29 @@
 ****************************************************************************/
 
 import QtQuick 2.0
-import QtWayland.Compositor 1.1
+import QtWayland.Compositor 1.3
 
 WaylandCompositor {
-    id: comp
+    id: waylandCompositor
 
-    property var primarySurfacesArea: null
+    Screen { id: screen; compositor: waylandCompositor }
 
-    Screen {
-        compositor: comp
+    // Shell surface extension. Needed to provide a window concept for Wayland clients.
+    // I.e. requests and events for maximization, minimization, resizing, closing etc.
+    XdgShell {
+        onToplevelCreated: screen.handleShellSurface(xdgSurface)
     }
 
-    Component {
-        id: chromeComponent
-        Chrome {
-        }
-    }
-
-    Component {
-        id: surfaceComponent
-        WaylandSurface {
-        }
-    }
-
-    QtWindowManager {
-        id: qtWindowManager
-        onShowIsFullScreenChanged: console.debug("Show is fullscreen hint for Qt applications:", showIsFullScreen)
-    }
-
-    WlShell {
-        onWlShellSurfaceCreated: {
-            chromeComponent.createObject(defaultOutput.surfaceArea, { "shellSurface": shellSurface } );
-        }
-    }
-
-    property variant viewsBySurface: ({})
-
-    XdgShellV5 {
-        onXdgSurfaceCreated: {
-            var item = chromeComponent.createObject(defaultOutput.surfaceArea, { "shellSurface": xdgSurface } );
-            viewsBySurface[xdgSurface.surface] = item;
-        }
-        onXdgPopupCreated: {
-            var parentView = viewsBySurface[xdgPopup.parentSurface];
-            var item = chromeComponent.createObject(parentView, { "shellSurface": xdgPopup } );
-            viewsBySurface[xdgPopup.surface] = item;
-        }
-    }
-
+    // Unstable version of xdg-shell still used by some clients
     XdgShellV6 {
-        onToplevelCreated: {
-            var item = chromeComponent.createObject(defaultOutput.surfaceArea, { "shellSurface": xdgSurface } );
-            viewsBySurface[xdgSurface.surface] = item;
-        }
-        onPopupCreated: {
-            var parentView = viewsBySurface[popup.parentXdgSurface.surface];
-            var item = chromeComponent.createObject(parentView, { "shellSurface": xdgSurface } );
-            viewsBySurface[xdgSurface.surface] = item;
-        }
+        onToplevelCreated: screen.handleShellSurface(xdgSurface)
     }
 
-    TextInputManager {
+    // Deprecated shell extension, still used by some clients
+    WlShell {
+        onWlShellSurfaceCreated: screen.handleShellSurface(shellSurface)
     }
 
-    onSurfaceRequested: {
-        var surface = surfaceComponent.createObject(comp, { } );
-        surface.initialize(comp, client, id, version);
-    }
+    // Extension for Input Method (QT_IM_MODULE) support at compositor-side
+    TextInputManager {}
 }

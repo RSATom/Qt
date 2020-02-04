@@ -13,6 +13,7 @@ SUBDIRS += \
     custom-mesh-update-data-cpp \
     custom-mesh-update-data-qml \
     cylinder-cpp \
+    cylinder-parent-test \
     cylinder-qml \
     deferred-renderer-cpp \
     deferred-renderer-qml \
@@ -53,9 +54,21 @@ SUBDIRS += \
     animation-keyframe-programmatic \
     layerfilter-qml \
     skinned-mesh \
+    rigged-simple \
     proximityfilter \
     rendercapture-qml-fbo \
-    blitframebuffer-qml
+    blitframebuffer-qml \
+    raycasting-qml \
+    shared_texture_image \
+    texture_property_updates \
+    qtbug-72236 \
+    qtbug-76766
+
+qtHaveModule(multimedia): {
+    SUBDIRS += \
+        sharedtexture \
+        sharedtextureqml
+}
 
 qtHaveModule(widgets): {
     SUBDIRS += \

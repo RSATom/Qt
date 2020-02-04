@@ -6,22 +6,24 @@
  */
 
 
-#include "SkGlyphCache.h"
+#include "SkStrike.h"
 
 #include "Benchmark.h"
 #include "SkCanvas.h"
-#include "SkGlyphCache_Globals.h"
+#include "SkStrikeCache.h"
 #include "SkGraphics.h"
 #include "SkTaskGroup.h"
 #include "SkTypeface.h"
 #include "sk_tool_utils.h"
 
 
-static void do_font_stuff(SkPaint* paint) {
+static void do_font_stuff(SkFont* font) {
+    SkPaint defaultPaint;
     for (SkScalar i = 8; i < 64; i++) {
-        paint->setTextSize(i);
-        SkAutoGlyphCacheNoGamma autoCache(*paint, nullptr, nullptr);
-        SkGlyphCache* cache = autoCache.getCache();
+        font->setSize(i);
+        auto cache = SkStrikeCache::FindOrCreateStrikeExclusive(
+                *font,  defaultPaint, SkSurfaceProps(0, kUnknown_SkPixelGeometry),
+                SkScalerContextFlags::kNone, SkMatrix::I());
         uint16_t glyphs['z'];
         for (int c = ' '; c < 'z'; c++) {
             glyphs[c] = cache->unicharToGlyph(c);
@@ -53,14 +55,13 @@ protected:
     void onDraw(int loops, SkCanvas*) override {
         size_t oldCacheLimitSize = SkGraphics::GetFontCacheLimit();
         SkGraphics::SetFontCacheLimit(fCacheSize);
-        SkPaint paint;
-        paint.setAntiAlias(true);
-        paint.setSubpixelText(true);
-        paint.setTypeface(sk_tool_utils::create_portable_typeface(
-                              "serif", SkFontStyle::FromOldStyle(SkTypeface::kItalic)));
+        SkFont font;
+        font.setEdging(SkFont::Edging::kAntiAlias);
+        font.setSubpixel(true);
+        font.setTypeface(sk_tool_utils::create_portable_typeface("serif", SkFontStyle::Italic()));
 
         for (int work = 0; work < loops; work++) {
-            do_font_stuff(&paint);
+            do_font_stuff(&font);
         }
         SkGraphics::SetFontCacheLimit(oldCacheLimitSize);
     }
@@ -89,18 +90,16 @@ protected:
         size_t oldCacheLimitSize = SkGraphics::GetFontCacheLimit();
         SkGraphics::SetFontCacheLimit(fCacheSize);
         sk_sp<SkTypeface> typefaces[] =
-            {sk_tool_utils::create_portable_typeface("serif",
-                  SkFontStyle::FromOldStyle(SkTypeface::kItalic)),
-             sk_tool_utils::create_portable_typeface("sans-serif",
-                  SkFontStyle::FromOldStyle(SkTypeface::kItalic))};
+            {sk_tool_utils::create_portable_typeface("serif", SkFontStyle::Italic()),
+             sk_tool_utils::create_portable_typeface("sans-serif", SkFontStyle::Italic())};
 
         for (int work = 0; work < loops; work++) {
             SkTaskGroup().batch(16, [&](int threadIndex) {
-                SkPaint paint;
-                paint.setAntiAlias(true);
-                paint.setSubpixelText(true);
-                paint.setTypeface(typefaces[threadIndex % 2]);
-                do_font_stuff(&paint);
+                SkFont font;
+                font.setEdging(SkFont::Edging::kAntiAlias);
+                font.setSubpixel(true);
+                font.setTypeface(typefaces[threadIndex % 2]);
+                do_font_stuff(&font);
             });
         }
         SkGraphics::SetFontCacheLimit(oldCacheLimitSize);

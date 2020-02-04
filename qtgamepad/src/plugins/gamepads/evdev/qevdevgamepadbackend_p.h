@@ -34,8 +34,8 @@
 **
 ****************************************************************************/
 
-#ifndef QEVDEVGAMEPADCONTROLLER_H
-#define QEVDEVGAMEPADCONTROLLER_H
+#ifndef QEVDEVGAMEPADBACKEND_P_H
+#define QEVDEVGAMEPADBACKEND_P_H
 
 #include <QtGamepad/QGamepadManager>
 #include <QtGamepad/private/qgamepadbackend_p.h>
@@ -135,4 +135,4 @@ private:
 
 QT_END_NAMESPACE
 
-#endif // QEVDEVGAMEPADCONTROLLER_H
+#endif // QEVDEVGAMEPADBACKEND_P_H

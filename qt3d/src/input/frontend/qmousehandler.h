@@ -51,7 +51,7 @@ namespace Qt3DInput {
 class QMouseDevice;
 class QMouseHandlerPrivate;
 
-class QT3DINPUTSHARED_EXPORT QMouseHandler : public Qt3DCore::QComponent
+class Q_3DINPUTSHARED_EXPORT QMouseHandler : public Qt3DCore::QComponent
 {
     Q_OBJECT
     Q_PROPERTY(Qt3DInput::QMouseDevice *sourceDevice READ sourceDevice WRITE setSourceDevice NOTIFY sourceDeviceChanged)
@@ -87,12 +87,12 @@ Q_SIGNALS:
 #endif
 
 protected:
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
     void setContainsMouse(bool contains);
 
 private:
     Q_DECLARE_PRIVATE(QMouseHandler)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DInput

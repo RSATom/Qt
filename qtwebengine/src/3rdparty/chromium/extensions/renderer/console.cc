@@ -11,8 +11,8 @@
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "content/public/child/worker_thread.h"
 #include "content/public/renderer/render_frame.h"
+#include "content/public/renderer/worker_thread.h"
 #include "extensions/renderer/extension_frame_helper.h"
 #include "extensions/renderer/script_context.h"
 #include "extensions/renderer/script_context_set.h"
@@ -29,10 +29,7 @@ namespace {
 
 // Writes |message| to stack to show up in minidump, then crashes.
 void CheckWithMinidump(const std::string& message) {
-  char minidump[1024];
-  base::debug::Alias(&minidump);
-  base::snprintf(
-      minidump, arraysize(minidump), "e::console: %s", message.c_str());
+  DEBUG_ALIAS_FOR_CSTR(minidump, message.c_str(), 1024);
   CHECK(false) << message;
 }
 
@@ -41,7 +38,7 @@ void BoundLogMethodCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
   for (int i = 0; i < info.Length(); ++i) {
     if (i > 0)
       message += " ";
-    message += *v8::String::Utf8Value(info[i]);
+    message += *v8::String::Utf8Value(info.GetIsolate(), info[i]);
   }
 
   // A worker's ScriptContext neither lives in ScriptContextSet nor it has a

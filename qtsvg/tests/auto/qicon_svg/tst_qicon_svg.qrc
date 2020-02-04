@@ -5,5 +5,6 @@
 <file>./icons/image.png</file>
 <file>./icons/rect.svg</file>
 <file>./icons/trash.svg</file>
+<file>./icons/rect_size_100percent.svg</file>
 </qresource>
 </RCC>

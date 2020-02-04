@@ -51,14 +51,14 @@ Polymer({
      * @type {!NetworkingPrivate}
      */
     networkingPrivate: Object,
-  },
 
-  /**
-   * @return {string}
-   * @private
-   */
-  getNetworkName_: function() {
-    return CrOncStrings['OncType' + this.activeNetworkState.Type];
+    /**
+     * Title line describing the network type to appear in the row's top line.
+     * If it is undefined, the title text is a default from CrOncStrings (see
+     * this.getTitleText_() below).
+     * @type {string|undefined}
+     */
+    networkTitleText: String,
   },
 
   /**
@@ -68,40 +68,64 @@ Polymer({
    * @private
    */
   getNetworkStateText_: function(activeNetworkState, deviceState) {
-    var state = activeNetworkState.ConnectionState;
-    var name = CrOnc.getNetworkName(activeNetworkState);
-    if (state)
-      return this.getConnectionStateText_(state, name);
-    if (deviceState) {
-      if (deviceState.State == CrOnc.DeviceState.ENABLING)
-        return this.i18n('internetDeviceEnabling');
-      if (deviceState.Type == CrOnc.Type.CELLULAR && deviceState.Scanning)
-        return this.i18n('internetMobileSearching');
-      if (deviceState.Type == CrOnc.Type.TETHER &&
-          deviceState.State == CrOnc.DeviceState.UNINITIALIZED) {
-        return this.i18n('tetherEnableBluetooth');
-      }
-      if (deviceState.State == CrOnc.DeviceState.ENABLED)
-        return CrOncStrings.networkListItemNotConnected;
+    const stateText = this.getConnectionStateText_(activeNetworkState);
+    if (stateText) {
+      return stateText;
     }
+    // No network state, use device state.
+    if (deviceState) {
+      // Type specific scanning or initialization states.
+      if (deviceState.Type == CrOnc.Type.CELLULAR) {
+        if (deviceState.Scanning) {
+          return this.i18n('internetMobileSearching');
+        }
+        if (deviceState.State == CrOnc.DeviceState.UNINITIALIZED) {
+          return this.i18n('internetDeviceInitializing');
+        }
+      } else if (deviceState.Type == CrOnc.Type.TETHER) {
+        if (deviceState.State == CrOnc.DeviceState.UNINITIALIZED) {
+          return this.i18n('tetherEnableBluetooth');
+        }
+      }
+      // Enabled or enabling states.
+      if (deviceState.State == CrOnc.DeviceState.ENABLED) {
+        if (this.networkStateList.length > 0) {
+          return CrOncStrings.networkListItemNotConnected;
+        }
+        return CrOncStrings.networkListItemNoNetwork;
+      }
+      if (deviceState.State == CrOnc.DeviceState.ENABLING) {
+        return this.i18n('internetDeviceEnabling');
+      }
+    }
+    // No device or unknown device state, use 'off'.
     return this.i18n('deviceOff');
   },
 
   /**
-   * @param {CrOnc.ConnectionState} state
-   * @param {string} name
+   * @param {!CrOnc.NetworkStateProperties} networkState
    * @return {string}
    * @private
    */
-  getConnectionStateText_: function(state, name) {
+  getConnectionStateText_: function(networkState) {
+    const state = networkState ? networkState.ConnectionState : null;
+    if (!state) {
+      return '';
+    }
+    const name = CrOnc.getNetworkName(networkState);
     switch (state) {
       case CrOnc.ConnectionState.CONNECTED:
         return name;
       case CrOnc.ConnectionState.CONNECTING:
-        if (name)
+        if (name) {
           return CrOncStrings.networkListItemConnectingTo.replace('$1', name);
+        }
         return CrOncStrings.networkListItemConnecting;
       case CrOnc.ConnectionState.NOT_CONNECTED:
+        if (networkState.Type == CrOnc.Type.CELLULAR && networkState.Cellular &&
+            networkState.Cellular.Scanning) {
+          return this.i18n('internetMobileSearching');
+        }
         return CrOncStrings.networkListItemNotConnected;
     }
     assertNotReached();
@@ -114,26 +138,40 @@ Polymer({
    * @private
    */
   showPolicyIndicator_: function(activeNetworkState) {
-    return activeNetworkState.ConnectionState ==
-        CrOnc.ConnectionState.CONNECTED ||
+    return (activeNetworkState !== undefined &&
+            activeNetworkState.ConnectionState ==
+                CrOnc.ConnectionState.CONNECTED) ||
         this.isPolicySource(activeNetworkState.Source);
   },
 
   /**
-   * Show the <network-siminfo> element if this is a disabled and locked
-   * cellular device.
    * @param {!CrOnc.DeviceStateProperties|undefined} deviceState
    * @return {boolean}
    * @private
    */
   showSimInfo_: function(deviceState) {
-    if (!deviceState || deviceState.Type != CrOnc.Type.CELLULAR ||
-        this.deviceIsEnabled_(deviceState)) {
+    if (!deviceState || deviceState.Type != CrOnc.Type.CELLULAR) {
       return false;
     }
-    return deviceState.SimPresent === false ||
-        deviceState.SimLockType == CrOnc.LockType.PIN ||
-        deviceState.SimLockType == CrOnc.LockType.PUK;
+    return this.simLockedOrAbsent_(deviceState);
+  },
+
+  /**
+   * @param {!CrOnc.DeviceStateProperties} deviceState
+   * @return {boolean}
+   * @private
+   */
+  simLockedOrAbsent_: function(deviceState) {
+    if (this.deviceIsEnabled_(deviceState)) {
+      return false;
+    }
+    if (deviceState.SIMPresent === false) {
+      return true;
+    }
+    const simLockType =
+        deviceState.SIMLockStatus ? deviceState.SIMLockStatus.LockType : '';
+    return simLockType == CrOnc.LockType.PIN ||
+        simLockType == CrOnc.LockType.PUK;
   },
 
   /**
@@ -144,17 +182,15 @@ Polymer({
    * @private
    */
   getCellularState_: function(deviceState) {
-    if (!deviceState)
+    if (!deviceState) {
       return undefined;
+    }
     return {
       GUID: '',
       Type: CrOnc.Type.CELLULAR,
       Cellular: {
-        SIMLockStatus: {
-          LockType: deviceState.SimLockType || '',
-          LockEnabled: deviceState.SimLockType != CrOnc.LockType.NONE,
-        },
-        SIMPresent: deviceState.SimPresent,
+        SIMLockStatus: deviceState.SIMLockStatus,
+        SIMPresent: deviceState.SIMPresent,
       },
     };
   },
@@ -174,10 +210,24 @@ Polymer({
    * @private
    */
   enableToggleIsVisible_: function(deviceState) {
-    return !!deviceState && deviceState.Type != CrOnc.Type.ETHERNET &&
-        deviceState.Type != CrOnc.Type.VPN &&
-        (deviceState.Type == CrOnc.Type.TETHER ||
-         deviceState.State != CrOnc.DeviceState.UNINITIALIZED);
+    if (!deviceState) {
+      return false;
+    }
+    switch (deviceState.Type) {
+      case CrOnc.Type.ETHERNET:
+      case CrOnc.Type.VPN:
+        return false;
+      case CrOnc.Type.TETHER:
+        return true;
+      case CrOnc.Type.WI_FI:
+      case CrOnc.Type.WI_MAX:
+        return deviceState.State != CrOnc.DeviceState.UNINITIALIZED;
+      case CrOnc.Type.CELLULAR:
+        return deviceState.State != CrOnc.DeviceState.UNINITIALIZED &&
+            !this.simLockedOrAbsent_(deviceState);
+    }
+    assertNotReached();
+    return false;
   },
 
   /**
@@ -197,8 +247,9 @@ Polymer({
    * @private
    */
   getToggleA11yString_: function(deviceState) {
-    if (!this.enableToggleIsVisible_(deviceState))
+    if (!this.enableToggleIsVisible_(deviceState)) {
       return '';
+    }
     switch (deviceState.Type) {
       case CrOnc.Type.TETHER:
       case CrOnc.Type.CELLULAR:
@@ -232,16 +283,17 @@ Polymer({
    * @private
    */
   shouldShowSubpage_: function(deviceState, networkStateList) {
-    if (!deviceState)
+    if (!deviceState) {
       return false;
-    var type = deviceState.Type;
+    }
+    const type = deviceState.Type;
     if (type == CrOnc.Type.TETHER ||
         (type == CrOnc.Type.CELLULAR && this.tetherDeviceState)) {
       // The "Mobile data" subpage should always be shown if Tether networks are
       // available, even if there are currently no associated networks.
       return true;
     }
-    var minlen = (type == CrOnc.Type.WI_FI || type == CrOnc.Type.VPN) ? 1 : 2;
+    const minlen = (type == CrOnc.Type.WI_FI || type == CrOnc.Type.VPN) ? 1 : 2;
     return networkStateList.length >= minlen;
   },
 
@@ -258,7 +310,7 @@ Polymer({
       }
     } else if (this.shouldShowSubpage_(
                    this.deviceState, this.networkStateList)) {
-      this.fire('show-networks', this.deviceState);
+      this.fire('show-networks', {type: this.deviceState.Type});
     } else if (this.activeNetworkState.GUID) {
       this.fire('show-detail', this.activeNetworkState);
     } else if (this.networkStateList.length > 0) {
@@ -291,12 +343,28 @@ Polymer({
    * @param {!Event} event
    * @private
    */
-  onDeviceEnabledTap_: function(event) {
-    var deviceIsEnabled = this.deviceIsEnabled_(this.deviceState);
-    var type = this.deviceState ? this.deviceState.Type : '';
+  onDeviceEnabledChange_: function(event) {
+    const deviceIsEnabled = this.deviceIsEnabled_(this.deviceState);
+    const type = this.deviceState ? this.deviceState.Type : '';
     this.fire(
         'device-enabled-toggled', {enabled: !deviceIsEnabled, type: type});
-    // Make sure this does not propagate to onDetailsTap_.
+  },
+
+  /**
+   * @return {string}
+   * @private
+   */
+  getTitleText_: function() {
+    return this.networkTitleText ||
+        CrOncStrings['OncType' + this.activeNetworkState.Type];
+  },
+
+  /**
+   * Make sure events in embedded components do not propagate to onDetailsTap_.
+   * @param {!Event} event
+   * @private
+   */
+  doNothing_: function(event) {
     event.stopPropagation();
   },
 });

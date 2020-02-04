@@ -13,13 +13,13 @@
 namespace cc {
 
 scoped_refptr<NinePatchLayer> NinePatchLayer::Create() {
-  return make_scoped_refptr(new NinePatchLayer());
+  return base::WrapRefCounted(new NinePatchLayer());
 }
 
 NinePatchLayer::NinePatchLayer()
     : UIResourceLayer(), fill_center_(false), nearest_neighbor_(false) {}
 
-NinePatchLayer::~NinePatchLayer() {}
+NinePatchLayer::~NinePatchLayer() = default;
 
 std::unique_ptr<LayerImpl> NinePatchLayer::CreateLayerImpl(
     LayerTreeImpl* tree_impl) {

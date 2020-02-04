@@ -4,7 +4,6 @@
 
 #include "content/browser/renderer_host/input/synthetic_pointer_driver.h"
 
-#include "base/memory/ptr_util.h"
 #include "content/browser/renderer_host/input/synthetic_mouse_driver.h"
 #include "content/browser/renderer_host/input/synthetic_pen_driver.h"
 #include "content/browser/renderer_host/input/synthetic_touch_driver.h"
@@ -19,22 +18,16 @@ std::unique_ptr<SyntheticPointerDriver> SyntheticPointerDriver::Create(
     SyntheticGestureParams::GestureSourceType gesture_source_type) {
   switch (gesture_source_type) {
     case SyntheticGestureParams::TOUCH_INPUT:
-      return base::MakeUnique<SyntheticTouchDriver>();
+      return std::make_unique<SyntheticTouchDriver>();
     case SyntheticGestureParams::MOUSE_INPUT:
-      return base::MakeUnique<SyntheticMouseDriver>();
+      return std::make_unique<SyntheticMouseDriver>();
     case SyntheticGestureParams::PEN_INPUT:
-      return base::MakeUnique<SyntheticPenDriver>();
+      return std::make_unique<SyntheticPenDriver>();
     case SyntheticGestureParams::DEFAULT_INPUT:
       return std::unique_ptr<SyntheticPointerDriver>();
   }
   NOTREACHED();
   return std::unique_ptr<SyntheticPointerDriver>();
-}
-
-// static
-double SyntheticPointerDriver::ConvertTimestampToSeconds(
-    const base::TimeTicks& timestamp) {
-  return (timestamp - base::TimeTicks()).InSecondsF();
 }
 
 }  // namespace content

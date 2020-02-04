@@ -4,6 +4,18 @@
 
 static_library("browser") {
   sources = [
+    "baseline_language_model.cc",
+    "baseline_language_model.h",
+    "heuristic_language_model.cc",
+    "heuristic_language_model.h",
+    "language_model.cc",
+    "language_model.h",
+    "language_model_manager.cc",
+    "language_model_manager.h",
+    "locale_util.cc",
+    "locale_util.h",
+    "pref_names.cc",
+    "pref_names.h",
     "url_language_histogram.cc",
     "url_language_histogram.h",
   ]
@@ -13,12 +25,15 @@ static_library("browser") {
     "//components/keyed_service/core",
     "//components/pref_registry",
     "//components/prefs",
+    "//ui/base",
   ]
 }
 
 source_set("unit_tests") {
   testonly = true
   sources = [
+    "baseline_language_model_unittest.cc",
+    "heuristic_language_model_unittest.cc",
     "url_language_histogram_unittest.cc",
   ]
   deps = [
@@ -28,6 +43,7 @@ source_set("unit_tests") {
     "//components/prefs",
     "//components/prefs:test_support",
     "//net:test_support",
+    "//testing/gmock",
     "//testing/gtest",
   ]
 }

@@ -9,64 +9,63 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "device/vr/public/mojom/isolated_xr_service.mojom.h"
+#include "device/vr/public/mojom/vr_service.mojom.h"
 #include "device/vr/vr_device.h"
 #include "device/vr/vr_export.h"
-#include "device/vr/vr_service.mojom.h"
+#include "mojo/public/cpp/bindings/associated_binding.h"
 #include "mojo/public/cpp/bindings/binding.h"
+#include "ui/display/display.h"
 
 namespace device {
 
-class VRServiceImpl;
+class VRDeviceBase;
 
-// Browser process representation of a VRDevice within a WebVR site session
-// (see VRServiceImpl). VRDisplayImpl receives/sends VR device events
-// from/to mojom::VRDisplayClient (the render process representation of a VR
-// device).
-// VRDisplayImpl objects are owned by their respective VRServiceImpl instances.
-class DEVICE_VR_EXPORT VRDisplayImpl : public mojom::VRDisplay {
+// VR device process implementation of a XRFrameDataProvider within a WebVR
+// or WebXR site session.
+// VRDisplayImpl objects are owned by their respective XRRuntime instances.
+// TODO(http://crbug.com/842025): Rename this.
+class DEVICE_VR_EXPORT VRDisplayImpl
+    : public mojom::XRFrameDataProvider,
+      public mojom::XREnvironmentIntegrationProvider,
+      public mojom::XRSessionController {
  public:
-  VRDisplayImpl(device::VRDevice* device,
-                int render_frame_process_id,
-                int render_frame_routing_id,
-                mojom::VRServiceClient* service_client,
-                mojom::VRDisplayInfoPtr display_info);
+  VRDisplayImpl(VRDeviceBase* device,
+                mojom::XRFrameDataProviderRequest,
+                mojom::XRSessionControllerRequest);
   ~VRDisplayImpl() override;
 
-  virtual void OnChanged(mojom::VRDisplayInfoPtr vr_device_info);
-  virtual void OnExitPresent();
-  virtual void OnBlur();
-  virtual void OnFocus();
-  virtual void OnActivate(mojom::VRDisplayEventReason reason,
-                          const base::Callback<void(bool)>& on_handled);
-  virtual void OnDeactivate(mojom::VRDisplayEventReason reason);
+  void GetEnvironmentIntegrationProvider(
+      mojom::XREnvironmentIntegrationProviderAssociatedRequest
+          environment_provider) override;
+  gfx::Size sessionFrameSize() { return session_frame_size_; };
+  display::Display::Rotation sessionRotation() { return session_rotation_; };
 
-  void SetListeningForActivate(bool listening);
-  bool ListeningForActivate() { return listening_for_activate_; }
-  int ProcessId() { return render_frame_process_id_; }
-  int RoutingId() { return render_frame_routing_id_; }
+  device::VRDeviceBase* device() { return device_; };
 
- private:
-  friend class VRDisplayImplTest;
+  // Accessible to tests.
+ protected:
+  // mojom::XRFrameDataProvider
+  void GetFrameData(GetFrameDataCallback callback) override;
+  void UpdateSessionGeometry(const gfx::Size& frame_size,
+                             display::Display::Rotation rotation) override;
+  void RequestHitTest(mojom::XRRayPtr ray,
+                      RequestHitTestCallback callback) override;
 
-  void RequestPresent(bool secure_origin,
-                      mojom::VRSubmitFrameClientPtr submit_client,
-                      mojom::VRPresentationProviderRequest request,
-                      RequestPresentCallback callback) override;
-  void ExitPresent() override;
-  void GetNextMagicWindowPose(GetNextMagicWindowPoseCallback callback) override;
+  // mojom::XRSessionController
+  void SetFrameDataRestricted(bool paused) override;
 
-  void RequestPresentResult(RequestPresentCallback callback,
-                            bool secure_origin,
-                            bool success);
+  void OnMojoConnectionError();
 
-  mojo::Binding<mojom::VRDisplay> binding_;
-  mojom::VRDisplayClientPtr client_;
-  device::VRDevice* device_;
-  const int render_frame_process_id_;
-  const int render_frame_routing_id_;
-  bool listening_for_activate_ = false;
+  mojo::Binding<mojom::XRFrameDataProvider> magic_window_binding_;
+  mojo::AssociatedBinding<mojom::XREnvironmentIntegrationProvider>
+      environment_binding_;
+  mojo::Binding<mojom::XRSessionController> session_controller_binding_;
+  device::VRDeviceBase* device_;
+  bool restrict_frame_data_ = true;
 
-  base::WeakPtrFactory<VRDisplayImpl> weak_ptr_factory_;
+  gfx::Size session_frame_size_ = gfx::Size(0, 0);
+  display::Display::Rotation session_rotation_ = display::Display::ROTATE_0;
 };
 
 }  // namespace device

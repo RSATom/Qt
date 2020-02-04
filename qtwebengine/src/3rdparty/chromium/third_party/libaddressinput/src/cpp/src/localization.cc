@@ -32,7 +32,7 @@
 namespace {
 
 void PushBackUrl(const std::string& url, std::vector<std::string>* parameters) {
-  assert(parameters != NULL);
+  assert(parameters != nullptr);
   // TODO: HTML-escape the "url".
   parameters->push_back("<a href=\"" + url + "\">");
   parameters->push_back("</a>");
@@ -49,14 +49,14 @@ namespace {
 
 std::string GetEnglishString(int message_id) {
   const char* str = GetString(message_id);
-  return str != NULL ? std::string(str) : std::string();
+  return str != nullptr ? std::string(str) : std::string();
 }
 
 }  // namespace
 
 Localization::Localization() : get_string_(&GetEnglishString) {}
 
-Localization::~Localization() {}
+Localization::~Localization() = default;
 
 std::string Localization::GetString(int message_id) const {
   return get_string_(message_id);
@@ -91,8 +91,7 @@ std::string Localization::GetErrorMessage(const AddressData& address,
     bool uses_postal_code_as_label =
         rule.GetPostalCodeNameMessageId() ==
         IDS_LIBADDRESSINPUT_POSTAL_CODE_LABEL;
-    return GetErrorMessageForPostalCode(address, problem,
-                                        uses_postal_code_as_label,
+    return GetErrorMessageForPostalCode(problem, uses_postal_code_as_label,
                                         postal_code_example, post_service_url);
   } else {
     if (problem == MISSING_REQUIRED_FIELD) {
@@ -100,7 +99,7 @@ std::string Localization::GetErrorMessage(const AddressData& address,
     } else if (problem == UNKNOWN_VALUE) {
       std::vector<std::string> parameters;
       if (AddressData::IsRepeatedFieldValue(field)) {
-        std::vector<std::string> values = address.GetRepeatedFieldValue(field);
+        const auto& values = address.GetRepeatedFieldValue(field);
         assert(!values.empty());
         parameters.push_back(values.front());
       } else {
@@ -120,16 +119,15 @@ std::string Localization::GetErrorMessage(const AddressData& address,
 }
 
 void Localization::SetGetter(std::string (*getter)(int)) {
-  assert(getter != NULL);
+  assert(getter != nullptr);
   get_string_ = getter;
 }
 
 std::string Localization::GetErrorMessageForPostalCode(
-    const AddressData& address,
     AddressProblem problem,
     bool uses_postal_code_as_label,
-    std::string postal_code_example,
-    std::string post_service_url) const {
+    const std::string& postal_code_example,
+    const std::string& post_service_url) const {
   int message_id;
   std::vector<std::string> parameters;
   if (problem == MISSING_REQUIRED_FIELD) {
@@ -142,7 +140,7 @@ std::string Localization::GetErrorMessageForPostalCode(
     } else if (!postal_code_example.empty()) {
       message_id = uses_postal_code_as_label ?
           IDS_LIBADDRESSINPUT_MISSING_REQUIRED_POSTAL_CODE_EXAMPLE :
-          IDS_LIBADDRESSINPUT_MISSING_REQUIRED_ZIP_CODE_EXAMPLE ;
+          IDS_LIBADDRESSINPUT_MISSING_REQUIRED_ZIP_CODE_EXAMPLE;
       parameters.push_back(postal_code_example);
     } else {
       message_id = IDS_LIBADDRESSINPUT_MISSING_REQUIRED_FIELD;

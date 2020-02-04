@@ -13,19 +13,14 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/sequenced_task_runner_helpers.h"
-#include "base/synchronization/lock.h"
 #include "content/public/browser/host_zoom_map.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
 
 namespace content {
 
 class WebContentsImpl;
 
-// HostZoomMap needs to be deleted on the UI thread because it listens
-// to notifications on there (and holds a NotificationRegistrar).
-class CONTENT_EXPORT HostZoomMapImpl : public NON_EXPORTED_BASE(HostZoomMap),
-                                       public NotificationObserver {
+// HostZoomMap lives on the UI thread.
+class CONTENT_EXPORT HostZoomMapImpl : public HostZoomMap {
  public:
   HostZoomMapImpl();
   ~HostZoomMapImpl() override;
@@ -43,6 +38,9 @@ class CONTENT_EXPORT HostZoomMapImpl : public NON_EXPORTED_BASE(HostZoomMap),
                     const std::string& host) const override;
   ZoomLevelVector GetAllZoomLevels() const override;
   void SetZoomLevelForHost(const std::string& host, double level) override;
+  void InitializeZoomLevelForHost(const std::string& host,
+                                  double level,
+                                  base::Time last_modified) override;
   void SetZoomLevelForHostAndScheme(const std::string& scheme,
                                     const std::string& host,
                                     double level) override;
@@ -51,7 +49,7 @@ class CONTENT_EXPORT HostZoomMapImpl : public NON_EXPORTED_BASE(HostZoomMap),
   void SetTemporaryZoomLevel(int render_process_id,
                              int render_view_id,
                              double level) override;
-
+  void ClearZoomLevels(base::Time delete_begin, base::Time delete_end) override;
   void ClearTemporaryZoomLevel(int render_process_id,
                                int render_view_id) override;
   double GetDefaultZoomLevel() const override;
@@ -61,16 +59,15 @@ class CONTENT_EXPORT HostZoomMapImpl : public NON_EXPORTED_BASE(HostZoomMap),
 
   // Returns the current zoom level for the specified WebContents. This may
   // be a temporary zoom level, depending on UsesTemporaryZoomLevel().
-  double GetZoomLevelForWebContents(
-      const WebContentsImpl& web_contents_impl) const;
+  double GetZoomLevelForWebContents(WebContentsImpl* web_contents_impl) const;
 
   bool PageScaleFactorIsOneForWebContents(
-      const WebContentsImpl& web_contents_impl) const;
+      WebContentsImpl* web_contents_impl) const;
 
   // Sets the zoom level for this WebContents. If this WebContents is using
   // a temporary zoom level, then level is only applied to this WebContents.
   // Otherwise, the level will be applied on a host level.
-  void SetZoomLevelForWebContents(const WebContentsImpl& web_contents_impl,
+  void SetZoomLevelForWebContents(WebContentsImpl* web_contents_impl,
                                   double level);
 
   // Sets the zoom level for the specified view. The level may be set for only
@@ -83,28 +80,27 @@ class CONTENT_EXPORT HostZoomMapImpl : public NON_EXPORTED_BASE(HostZoomMap),
   // Returns the temporary zoom level that's only valid for the lifetime of
   // the given WebContents (i.e. isn't saved and doesn't affect other
   // WebContentses) if it exists, the default zoom level otherwise.
-  //
-  // This may be called on any thread.
   double GetTemporaryZoomLevel(int render_process_id,
                                int render_view_id) const;
 
   // Returns the zoom level regardless of whether it's temporary, host-keyed or
   // scheme+host-keyed.
-  //
-  // This may be called on any thread.
   double GetZoomLevelForView(const GURL& url,
                              int render_process_id,
                              int render_view_id) const;
 
-  // NotificationObserver implementation.
-  void Observe(int type,
-               const NotificationSource& source,
-               const NotificationDetails& details) override;
-
   void SendErrorPageZoomLevelRefresh();
 
+  void WillCloseRenderView(int render_process_id, int render_view_id);
+
+  void SetClockForTesting(base::Clock* clock) override;
+
  private:
-  typedef std::map<std::string, double> HostZoomLevels;
+  struct ZoomLevel {
+    double level;
+    base::Time last_modified;
+  };
+  typedef std::map<std::string, ZoomLevel> HostZoomLevels;
   typedef std::map<std::string, HostZoomLevels> SchemeHostZoomLevels;
 
   struct RenderViewKey {
@@ -124,24 +120,24 @@ class CONTENT_EXPORT HostZoomMapImpl : public NON_EXPORTED_BASE(HostZoomMap),
 
   double GetZoomLevelForHost(const std::string& host) const;
 
-  // Non-locked versions for internal use. These should only be called within
-  // a scope where a lock has been acquired.
-  double GetZoomLevelForHostInternal(const std::string& host) const;
-  double GetZoomLevelForHostAndSchemeInternal(const std::string& scheme,
-                                              const std::string& host) const;
+  // Set a zoom level for |host| and store the |last_modified| timestamp.
+  // Use only to explicitly set a timestamp.
+  void SetZoomLevelForHostInternal(const std::string& host,
+                                   double level,
+                                   base::Time last_modified);
 
   // Notifies the renderers from this browser context to change the zoom level
   // for the specified host and scheme.
+  // |zoom level| will be extracted from |host_zoom_levels_| when needed, so no
+  // need to pass them in.
   // TODO(wjmaclean) Should we use a GURL here? crbug.com/384486
-  void SendZoomLevelChange(const std::string& scheme,
-                           const std::string& host,
-                           double level);
+  void SendZoomLevelChange(const std::string& scheme, const std::string& host);
 
   // Callbacks called when zoom level changes.
   base::CallbackList<void(const ZoomLevelChange&)>
       zoom_level_changed_callbacks_;
 
-  // Copy of the pref data, so that we can read it on the IO thread.
+  // Copy of the pref data.
   HostZoomLevels host_zoom_levels_;
   SchemeHostZoomLevels scheme_host_zoom_levels_;
   double default_zoom_level_;
@@ -151,12 +147,7 @@ class CONTENT_EXPORT HostZoomMapImpl : public NON_EXPORTED_BASE(HostZoomMap),
 
   TemporaryZoomLevels temporary_zoom_levels_;
 
-  // Used around accesses to |host_zoom_levels_|, |default_zoom_level_|,
-  // |temporary_zoom_levels_|, and |view_page_scale_factors_are_one_| to
-  // guarantee thread safety.
-  mutable base::Lock lock_;
-
-  NotificationRegistrar registrar_;
+  base::Clock* clock_;
 
   DISALLOW_COPY_AND_ASSIGN(HostZoomMapImpl);
 };

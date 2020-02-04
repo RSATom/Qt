@@ -31,7 +31,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'paletteeditor.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -40,9 +40,7 @@
 #define PALETTEEDITOR_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QDialogButtonBox>
 #include <QtWidgets/QGridLayout>
@@ -81,9 +79,9 @@ public:
     void setupUi(QDialog *qdesigner_internal__PaletteEditor)
     {
         if (qdesigner_internal__PaletteEditor->objectName().isEmpty())
-            qdesigner_internal__PaletteEditor->setObjectName(QStringLiteral("qdesigner_internal__PaletteEditor"));
+            qdesigner_internal__PaletteEditor->setObjectName(QString::fromUtf8("qdesigner_internal__PaletteEditor"));
         qdesigner_internal__PaletteEditor->resize(365, 409);
-        QSizePolicy sizePolicy(static_cast<QSizePolicy::Policy>(7), static_cast<QSizePolicy::Policy>(7));
+        QSizePolicy sizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         sizePolicy.setHorizontalStretch(0);
         sizePolicy.setVerticalStretch(0);
         sizePolicy.setHeightForWidth(qdesigner_internal__PaletteEditor->sizePolicy().hasHeightForWidth());
@@ -95,9 +93,9 @@ public:
 #ifndef Q_OS_MAC
         vboxLayout->setContentsMargins(9, 9, 9, 9);
 #endif
-        vboxLayout->setObjectName(QStringLiteral("vboxLayout"));
+        vboxLayout->setObjectName(QString::fromUtf8("vboxLayout"));
         advancedBox = new QGroupBox(qdesigner_internal__PaletteEditor);
-        advancedBox->setObjectName(QStringLiteral("advancedBox"));
+        advancedBox->setObjectName(QString::fromUtf8("advancedBox"));
         advancedBox->setMinimumSize(QSize(0, 0));
         advancedBox->setMaximumSize(QSize(16777215, 16777215));
         gridLayout = new QGridLayout(advancedBox);
@@ -107,10 +105,10 @@ public:
 #ifndef Q_OS_MAC
         gridLayout->setContentsMargins(9, 9, 9, 9);
 #endif
-        gridLayout->setObjectName(QStringLiteral("gridLayout"));
+        gridLayout->setObjectName(QString::fromUtf8("gridLayout"));
         buildButton = new QtColorButton(advancedBox);
-        buildButton->setObjectName(QStringLiteral("buildButton"));
-        QSizePolicy sizePolicy1(static_cast<QSizePolicy::Policy>(7), static_cast<QSizePolicy::Policy>(13));
+        buildButton->setObjectName(QString::fromUtf8("buildButton"));
+        QSizePolicy sizePolicy1(QSizePolicy::Expanding, QSizePolicy::Ignored);
         sizePolicy1.setHorizontalStretch(0);
         sizePolicy1.setVerticalStretch(0);
         sizePolicy1.setHeightForWidth(buildButton->sizePolicy().hasHeightForWidth());
@@ -119,24 +117,24 @@ public:
         gridLayout->addWidget(buildButton, 0, 1, 1, 1);
 
         paletteView = new QTreeView(advancedBox);
-        paletteView->setObjectName(QStringLiteral("paletteView"));
+        paletteView->setObjectName(QString::fromUtf8("paletteView"));
         paletteView->setMinimumSize(QSize(0, 200));
 
         gridLayout->addWidget(paletteView, 1, 0, 1, 4);
 
         detailsRadio = new QRadioButton(advancedBox);
-        detailsRadio->setObjectName(QStringLiteral("detailsRadio"));
+        detailsRadio->setObjectName(QString::fromUtf8("detailsRadio"));
 
         gridLayout->addWidget(detailsRadio, 0, 3, 1, 1);
 
         computeRadio = new QRadioButton(advancedBox);
-        computeRadio->setObjectName(QStringLiteral("computeRadio"));
+        computeRadio->setObjectName(QString::fromUtf8("computeRadio"));
         computeRadio->setChecked(true);
 
         gridLayout->addWidget(computeRadio, 0, 2, 1, 1);
 
         label = new QLabel(advancedBox);
-        label->setObjectName(QStringLiteral("label"));
+        label->setObjectName(QString::fromUtf8("label"));
 
         gridLayout->addWidget(label, 0, 0, 1, 1);
 
@@ -144,8 +142,8 @@ public:
         vboxLayout->addWidget(advancedBox);
 
         GroupBox126 = new QGroupBox(qdesigner_internal__PaletteEditor);
-        GroupBox126->setObjectName(QStringLiteral("GroupBox126"));
-        QSizePolicy sizePolicy2(static_cast<QSizePolicy::Policy>(5), static_cast<QSizePolicy::Policy>(7));
+        GroupBox126->setObjectName(QString::fromUtf8("GroupBox126"));
+        QSizePolicy sizePolicy2(QSizePolicy::Preferred, QSizePolicy::Expanding);
         sizePolicy2.setHorizontalStretch(0);
         sizePolicy2.setVerticalStretch(0);
         sizePolicy2.setHeightForWidth(GroupBox126->sizePolicy().hasHeightForWidth());
@@ -155,25 +153,25 @@ public:
         gridLayout1->setSpacing(6);
 #endif
         gridLayout1->setContentsMargins(8, 8, 8, 8);
-        gridLayout1->setObjectName(QStringLiteral("gridLayout1"));
+        gridLayout1->setObjectName(QString::fromUtf8("gridLayout1"));
         disabledRadio = new QRadioButton(GroupBox126);
-        disabledRadio->setObjectName(QStringLiteral("disabledRadio"));
+        disabledRadio->setObjectName(QString::fromUtf8("disabledRadio"));
 
         gridLayout1->addWidget(disabledRadio, 0, 2, 1, 1);
 
         inactiveRadio = new QRadioButton(GroupBox126);
-        inactiveRadio->setObjectName(QStringLiteral("inactiveRadio"));
+        inactiveRadio->setObjectName(QString::fromUtf8("inactiveRadio"));
 
         gridLayout1->addWidget(inactiveRadio, 0, 1, 1, 1);
 
         activeRadio = new QRadioButton(GroupBox126);
-        activeRadio->setObjectName(QStringLiteral("activeRadio"));
+        activeRadio->setObjectName(QString::fromUtf8("activeRadio"));
         activeRadio->setChecked(true);
 
         gridLayout1->addWidget(activeRadio, 0, 0, 1, 1);
 
         previewFrame = new qdesigner_internal::PreviewFrame(GroupBox126);
-        previewFrame->setObjectName(QStringLiteral("previewFrame"));
+        previewFrame->setObjectName(QString::fromUtf8("previewFrame"));
         sizePolicy.setHeightForWidth(previewFrame->sizePolicy().hasHeightForWidth());
         previewFrame->setSizePolicy(sizePolicy);
 
@@ -183,7 +181,7 @@ public:
         vboxLayout->addWidget(GroupBox126);
 
         buttonBox = new QDialogButtonBox(qdesigner_internal__PaletteEditor);
-        buttonBox->setObjectName(QStringLiteral("buttonBox"));
+        buttonBox->setObjectName(QString::fromUtf8("buttonBox"));
         buttonBox->setOrientation(Qt::Horizontal);
         buttonBox->setStandardButtons(QDialogButtonBox::Cancel|QDialogButtonBox::NoButton|QDialogButtonBox::Ok);
 
@@ -199,16 +197,16 @@ public:
 
     void retranslateUi(QDialog *qdesigner_internal__PaletteEditor)
     {
-        qdesigner_internal__PaletteEditor->setWindowTitle(QApplication::translate("qdesigner_internal::PaletteEditor", "Edit Palette", nullptr));
-        advancedBox->setTitle(QApplication::translate("qdesigner_internal::PaletteEditor", "Tune Palette", nullptr));
+        qdesigner_internal__PaletteEditor->setWindowTitle(QCoreApplication::translate("qdesigner_internal::PaletteEditor", "Edit Palette", nullptr));
+        advancedBox->setTitle(QCoreApplication::translate("qdesigner_internal::PaletteEditor", "Tune Palette", nullptr));
         buildButton->setText(QString());
-        detailsRadio->setText(QApplication::translate("qdesigner_internal::PaletteEditor", "Show Details", nullptr));
-        computeRadio->setText(QApplication::translate("qdesigner_internal::PaletteEditor", "Compute Details", nullptr));
-        label->setText(QApplication::translate("qdesigner_internal::PaletteEditor", "Quick", nullptr));
-        GroupBox126->setTitle(QApplication::translate("qdesigner_internal::PaletteEditor", "Preview", nullptr));
-        disabledRadio->setText(QApplication::translate("qdesigner_internal::PaletteEditor", "Disabled", nullptr));
-        inactiveRadio->setText(QApplication::translate("qdesigner_internal::PaletteEditor", "Inactive", nullptr));
-        activeRadio->setText(QApplication::translate("qdesigner_internal::PaletteEditor", "Active", nullptr));
+        detailsRadio->setText(QCoreApplication::translate("qdesigner_internal::PaletteEditor", "Show Details", nullptr));
+        computeRadio->setText(QCoreApplication::translate("qdesigner_internal::PaletteEditor", "Compute Details", nullptr));
+        label->setText(QCoreApplication::translate("qdesigner_internal::PaletteEditor", "Quick", nullptr));
+        GroupBox126->setTitle(QCoreApplication::translate("qdesigner_internal::PaletteEditor", "Preview", nullptr));
+        disabledRadio->setText(QCoreApplication::translate("qdesigner_internal::PaletteEditor", "Disabled", nullptr));
+        inactiveRadio->setText(QCoreApplication::translate("qdesigner_internal::PaletteEditor", "Inactive", nullptr));
+        activeRadio->setText(QCoreApplication::translate("qdesigner_internal::PaletteEditor", "Active", nullptr));
     } // retranslateUi
 
 };

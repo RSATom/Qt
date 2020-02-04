@@ -2080,6 +2080,14 @@ void tst_QGeoRectangle::unite_data()
             << QGeoRectangle(QGeoCoordinate(30.0, -180.0),
                                QGeoCoordinate(-30.0, 180.0));
 
+    QTest::newRow("wrapping and one containing other")
+            << QGeoRectangle(QGeoCoordinate(30.0, 40.0),
+                               QGeoCoordinate(-30.0, -40.0))
+            << QGeoRectangle(QGeoCoordinate(30.0, 160.0),
+                               QGeoCoordinate(-30.0, 170.0))
+            << QGeoRectangle(QGeoCoordinate(30.0, 40.0),
+                               QGeoCoordinate(-30.0, -40.0));
+
     QTest::newRow("small gap over zero line")
             <<  QGeoRectangle(QGeoCoordinate(30.0, -20.0),
                                 QGeoCoordinate(-30.0, -10.0))

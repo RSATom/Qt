@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2017 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtGui module of the Qt Toolkit.
@@ -56,14 +56,22 @@
 
 QT_BEGIN_NAMESPACE
 
+class QPlatformScreen;
+
+#ifndef QT_NO_DEBUG_STREAM
+class QDebug;
+#endif
 
 class Q_GUI_EXPORT QPlatformSurface
 {
 public:
+    Q_DISABLE_COPY_MOVE(QPlatformSurface)
+
     virtual ~QPlatformSurface();
     virtual QSurfaceFormat format() const = 0;
 
     QSurface *surface() const;
+    virtual QPlatformScreen *screen() const = 0;
 
 private:
     explicit QPlatformSurface(QSurface *surface);
@@ -73,6 +81,11 @@ private:
     friend class QPlatformWindow;
     friend class QPlatformOffscreenSurface;
 };
+
+
+#ifndef QT_NO_DEBUG_STREAM
+Q_GUI_EXPORT QDebug operator<<(QDebug debug, const QPlatformSurface *surface);
+#endif
 
 QT_END_NAMESPACE
 

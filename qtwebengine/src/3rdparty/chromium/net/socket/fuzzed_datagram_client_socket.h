@@ -14,6 +14,7 @@
 #include "net/base/ip_endpoint.h"
 #include "net/base/network_change_notifier.h"
 #include "net/log/net_log_with_source.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 
 namespace base {
 class FuzzedDataProvider;
@@ -38,28 +39,49 @@ class FuzzedDatagramClientSocket : public DatagramClientSocket {
                           const IPEndPoint& address) override;
   int ConnectUsingDefaultNetwork(const IPEndPoint& address) override;
   NetworkChangeNotifier::NetworkHandle GetBoundNetwork() const override;
+  void ApplySocketTag(const SocketTag& tag) override;
 
   // DatagramSocket implementation:
   void Close() override;
   int GetPeerAddress(IPEndPoint* address) const override;
   int GetLocalAddress(IPEndPoint* address) const override;
   void UseNonBlockingIO() override;
+  int WriteAsync(
+      const char* buffer,
+      size_t buf_len,
+      CompletionOnceCallback callback,
+      const NetworkTrafficAnnotationTag& traffic_annotation) override;
+  int WriteAsync(
+      DatagramBuffers buffers,
+      CompletionOnceCallback callback,
+      const NetworkTrafficAnnotationTag& traffic_annotation) override;
+  DatagramBuffers GetUnwrittenBuffers() override;
+  void SetWriteAsyncEnabled(bool enabled) override;
+  void SetMaxPacketSize(size_t max_packet_size) override;
+  bool WriteAsyncEnabled() override;
+  void SetWriteMultiCoreEnabled(bool enabled) override;
+  void SetSendmmsgEnabled(bool enabled) override;
+  void SetWriteBatchingActive(bool active) override;
+  int SetMulticastInterface(uint32_t interface_index) override;
+
   const NetLogWithSource& NetLog() const override;
 
   // Socket implementation:
   int Read(IOBuffer* buf,
            int buf_len,
-           const CompletionCallback& callback) override;
+           CompletionOnceCallback callback) override;
   int Write(IOBuffer* buf,
             int buf_len,
-            const CompletionCallback& callback) override;
+            CompletionOnceCallback callback,
+            const NetworkTrafficAnnotationTag& traffic_annotation) override;
   int SetReceiveBufferSize(int32_t size) override;
   int SetSendBufferSize(int32_t size) override;
   int SetDoNotFragment() override;
+  void SetMsgConfirm(bool confirm) override {}
 
  private:
-  void OnReadComplete(const net::CompletionCallback& callback, int result);
-  void OnWriteComplete(const net::CompletionCallback& callback, int result);
+  void OnReadComplete(net::CompletionOnceCallback callback, int result);
+  void OnWriteComplete(net::CompletionOnceCallback callback, int result);
 
   base::FuzzedDataProvider* data_provider_;
 

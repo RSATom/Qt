@@ -1,30 +1,32 @@
-<link rel="import" href="chrome://resources/cr_elements/icons.html">
-<link rel="import" href="chrome://resources/html/cr/ui/focus_row.html">
 <link rel="import" href="chrome://resources/html/polymer.html">
+
+<link rel="import" href="chrome://resources/cr_elements/icons.html">
+<link rel="import" href="chrome://resources/cr_elements/shared_vars_css.html">
+<link rel="import" href="chrome://resources/html/cr/ui/focus_row.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-collapse/iron-collapse.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/iron-icon/iron-icon.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button-light.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-styles/shadow.html">
 <link rel="import" href="chrome://resources/html/icon.html">
-<link rel="import" href="chrome://history/browser_service.html">
-<link rel="import" href="chrome://history/constants.html">
-<link rel="import" href="chrome://history/searched_label.html">
-<link rel="import" href="chrome://history/shared_style.html">
+<link rel="import" href="browser_service.html">
+<link rel="import" href="constants.html">
+<link rel="import" href="searched_label.html">
+<link rel="import" href="shared_style.html">
+<link rel="import" href="strings.html">
 
 <dom-module id="history-synced-device-card">
   <template>
     <style include="shared-style">
       :host {
-        @apply(--card-sizing);
+        @apply --card-sizing;
         -webkit-tap-highlight-color: transparent;
         display: block;
         padding-bottom: var(--card-padding-between);
       }
 
       #card-heading {
-        -webkit-padding-end: 0;
         cursor: pointer;
         justify-content: space-between;
+        padding-inline-end: 0;
       }
 
       #tab-item-list {
@@ -32,7 +34,7 @@
       }
 
       #last-update-time {
-        color: var(--secondary-text-color);
+        color: var(--cr-secondary-text-color);
       }
 
       #title-left-content {
@@ -47,12 +49,8 @@
       }
 
       #right-buttons {
-        -webkit-margin-end: 4px;
-        color: var(--secondary-text-color);
-      }
-
-      #menu-button {
-        -webkit-margin-end: 8px;
+        color: var(--cr-secondary-text-color);
+        margin-inline-end: 12px;
       }
 
       #collapse {
@@ -60,9 +58,9 @@
       }
 
       #history-item-container {
-        @apply(--shadow-elevation-2dp);
-        background: #fff;
-        border-radius: 2px;
+        @apply --cr-card-elevation;
+        background-color: var(--cr-card-background-color);
+        border-radius: var(--cr-card-border-radius);
       }
 
       .item-container {
@@ -89,19 +87,21 @@
           <span id="last-update-time">[[lastUpdateTime]]</span>
         </div>
         <div id="right-buttons">
-          <button is="paper-icon-button-light" id="menu-button"
-              class="more-vert-button" on-click="onMenuButtonTap_"
-              title="$i18n{moreActionsButton}">
-            <div></div>
-            <div></div>
-            <div></div>
-          </button>
-          <button is="paper-icon-button-light" class="icon-button"
-              id="collapse-button" title$="[[getCollapseTitle_(opened)]]">
-            <iron-icon icon="[[getCollapseIcon_(opened)]]"
-                id="dropdown-indicator">
-            </iron-icon>
-          </button>
+          <paper-icon-button-light class="more-vert-button">
+            <button id="menu-button" on-click="onMenuButtonTap_"
+                title="$i18n{actionMenuDescription}">
+              <div></div>
+              <div></div>
+              <div></div>
+            </button>
+          </paper-icon-button-light>
+          <paper-icon-button-light>
+            <button id="collapse-button" title$="[[getCollapseTitle_(opened)]]">
+              <iron-icon icon="[[getCollapseIcon_(opened)]]"
+                  id="dropdown-indicator">
+              </iron-icon>
+            </button>
+          </paper-icon-button-light>
         </div>
       </div>
 
@@ -110,11 +110,12 @@
           <template is="dom-repeat" items="[[tabs]]" as="tab" id="tab-list"
               notify-dom-change>
             <div class="item-container">
-              <div class="website-icon"></div>
-              <a href="[[tab.url]]" class="website-title" title="[[tab.title]]"
+              <a href="[[tab.url]]" class="website-link" title="[[tab.title]]"
                   on-click="openTab_" on-contextmenu="onLinkRightClick_">
-                <history-searched-label title="[[tab.title]]"
-                    search-term="[[searchTerm]]"></history-searched-label>
+              <div class="website-icon"></div>
+              <history-searched-label class="website-title"
+                  title="[[tab.title]]"
+                  search-term="[[searchTerm]]"></history-searched-label>
               </a>
             </div>
             <div class="window-separator"
@@ -125,5 +126,5 @@
       </iron-collapse>
     </div>
   </template>
-  <script src="chrome://history/synced_device_card.js"></script>
+  <script src="synced_device_card.js"></script>
 </dom-module>

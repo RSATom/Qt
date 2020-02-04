@@ -73,6 +73,7 @@
 #include <wayland-util.h>
 
 #include <QtWaylandCompositor/private/qwayland-server-wayland.h>
+#include <QtWaylandCompositor/private/qwaylandviewporter_p.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -92,7 +93,7 @@ public:
     static QWaylandSurfacePrivate *get(QWaylandSurface *surface);
 
     QWaylandSurfacePrivate();
-    ~QWaylandSurfacePrivate();
+    ~QWaylandSurfacePrivate() override;
 
     void ref();
     void deref();
@@ -101,9 +102,6 @@ public:
     void derefView(QWaylandView *view);
 
     using QtWaylandServer::wl_surface::resource;
-
-    void setSize(const QSize &size);
-    void setBufferScale(int bufferScale);
 
     void removeFrameCallback(QtWayland::FrameCallback *callback);
 
@@ -140,21 +138,25 @@ protected:
     QtWayland::ClientBuffer *getBuffer(struct ::wl_resource *buffer);
 
 public: //member variables
-    QWaylandCompositor *compositor;
-    int refCount;
-    QWaylandClient *client;
+    QWaylandCompositor *compositor = nullptr;
+    int refCount = 1;
+    QWaylandClient *client = nullptr;
     QList<QWaylandView *> views;
     QRegion damage;
     QWaylandBufferRef bufferRef;
-    QWaylandSurfaceRole *role;
+    QWaylandSurfaceRole *role = nullptr;
+    QWaylandViewporterPrivate::Viewport *viewport = nullptr;
 
     struct {
         QWaylandBufferRef buffer;
         QRegion damage;
         QPoint offset;
-        bool newlyAttached;
+        bool newlyAttached = false;
         QRegion inputRegion;
-        int bufferScale;
+        int bufferScale = 1;
+        QRectF sourceGeometry;
+        QSize destinationSize;
+        QRegion opaqueRegion;
     } pending;
 
     QPoint lastLocalMousePos;
@@ -163,19 +165,23 @@ public: //member variables
     QList<QtWayland::FrameCallback *> pendingFrameCallbacks;
     QList<QtWayland::FrameCallback *> frameCallbacks;
 
+    QList<QPointer<QWaylandSurface>> subsurfaceChildren;
+
     QRegion inputRegion;
     QRegion opaqueRegion;
 
-    QSize size;
-    int bufferScale;
-    bool isCursorSurface;
-    bool destroyed;
-    bool hasContent;
-    bool isInitialized;
-    Qt::ScreenOrientation contentOrientation;
+    QRectF sourceGeometry;
+    QSize destinationSize;
+    QSize bufferSize;
+    int bufferScale = 1;
+    bool isCursorSurface = false;
+    bool destroyed = false;
+    bool hasContent = false;
+    bool isInitialized = false;
+    Qt::ScreenOrientation contentOrientation = Qt::PrimaryOrientation;
     QWindow::Visibility visibility;
 #if QT_CONFIG(im)
-    QWaylandInputMethodControl *inputMethodControl;
+    QWaylandInputMethodControl *inputMethodControl = nullptr;
 #endif
 
     class Subsurface : public QtWaylandServer::wl_subsurface
@@ -185,20 +191,20 @@ public: //member variables
         QWaylandSurfacePrivate *surfaceFromResource();
 
     protected:
-        void subsurface_set_position(wl_subsurface::Resource *resource, int32_t x, int32_t y);
-        void subsurface_place_above(wl_subsurface::Resource *resource, struct wl_resource *sibling);
-        void subsurface_place_below(wl_subsurface::Resource *resource, struct wl_resource *sibling);
-        void subsurface_set_sync(wl_subsurface::Resource *resource);
-        void subsurface_set_desync(wl_subsurface::Resource *resource);
+        void subsurface_set_position(wl_subsurface::Resource *resource, int32_t x, int32_t y) override;
+        void subsurface_place_above(wl_subsurface::Resource *resource, struct wl_resource *sibling) override;
+        void subsurface_place_below(wl_subsurface::Resource *resource, struct wl_resource *sibling) override;
+        void subsurface_set_sync(wl_subsurface::Resource *resource) override;
+        void subsurface_set_desync(wl_subsurface::Resource *resource) override;
 
     private:
         friend class QWaylandSurfacePrivate;
-        QWaylandSurfacePrivate *surface;
-        QWaylandSurfacePrivate *parentSurface;
+        QWaylandSurfacePrivate *surface = nullptr;
+        QWaylandSurfacePrivate *parentSurface = nullptr;
         QPoint position;
     };
 
-    Subsurface *subsurface;
+    Subsurface *subsurface = nullptr;
 
 #ifndef QT_NO_DEBUG
     static QList<QWaylandSurfacePrivate *> uninitializedSurfaces;

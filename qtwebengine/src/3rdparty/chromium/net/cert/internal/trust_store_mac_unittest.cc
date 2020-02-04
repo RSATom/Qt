@@ -273,7 +273,7 @@ TEST(TrustStoreMacTest, SystemCerts) {
         x509_util::CreateSecCertificateFromBytes(cert->der_cert().UnsafeData(),
                                                  cert->der_cert().Length()));
     if (!cert_handle) {
-      ADD_FAILURE() << "CreateOSCertHandleFromBytes " << hash_text;
+      ADD_FAILURE() << "CreateCertBufferFromBytes " << hash_text;
       continue;
     }
     base::ScopedCFTypeRef<SecTrustRef> trust;
@@ -283,9 +283,9 @@ TEST(TrustStoreMacTest, SystemCerts) {
                 SecTrustCreateWithCertificates(cert_handle, sec_policy,
                                                trust.InitializeInto()));
       ASSERT_EQ(noErr,
-                SecTrustSetOptions(
-                    trust,
-                    kSecTrustOptionLeafIsCA | kSecTrustOptionAllowExpiredRoot));
+                SecTrustSetOptions(trust, kSecTrustOptionLeafIsCA |
+                                              kSecTrustOptionAllowExpired |
+                                              kSecTrustOptionAllowExpiredRoot));
 
       SecTrustResultType trust_result;
       ASSERT_EQ(noErr, SecTrustEvaluate(trust, &trust_result));

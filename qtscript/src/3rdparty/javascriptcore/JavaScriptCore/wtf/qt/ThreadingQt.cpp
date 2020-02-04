@@ -36,10 +36,10 @@
 #include "MainThread.h"
 #include "RandomNumberSeed.h"
 
-#include <QCoreApplication>
-#include <QMutex>
-#include <QThread>
-#include <QWaitCondition>
+#include <QtCore/qcoreapplication.h>
+#include <QtCore/qmutex.h>
+#include <QtCore/qthread.h>
+#include <QtCore/qwaitcondition.h>
 
 namespace WTF {
 

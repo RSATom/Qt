@@ -4,7 +4,7 @@
 
 #include <stdint.h>
 
-#include "ipc/ipc_features.h"
+#include "ipc/ipc_buildflags.h"
 
 #if BUILDFLAG(IPC_MESSAGE_LOG_ENABLED)
 #define IPC_MESSAGE_MACROS_LOG_ENABLED
@@ -14,20 +14,19 @@
 #include "content/common/all_messages.h"
 
 
-#include "base/containers/hash_tables.h"
 #include "base/lazy_instance.h"
 
 namespace content {
 
 namespace {
 
-base::LazyInstance<base::hash_map<uint32_t, LogFunction>>::Leaky
+base::LazyInstance<std::unordered_map<uint32_t, LogFunction>>::Leaky
     g_log_function_mapping = LAZY_INSTANCE_INITIALIZER;
 
 }  // namespace
 
 void RegisterIPCLogger(uint32_t msg_id, LogFunction logger) {
-  if (g_log_function_mapping == NULL)
+  if (!g_log_function_mapping.IsCreated())
     IPC::Logging::set_log_function_map(g_log_function_mapping.Pointer());
   g_log_function_mapping.Get()[msg_id] = logger;
 }

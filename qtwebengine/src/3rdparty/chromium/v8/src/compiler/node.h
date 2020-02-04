@@ -52,7 +52,7 @@ class V8_EXPORT_PRIVATE Node final {
   const Operator* op() const { return op_; }
 
   IrOpcode::Value opcode() const {
-    DCHECK(op_->opcode() <= IrOpcode::kLast);
+    DCHECK_GE(IrOpcode::kLast, op_->opcode());
     return static_cast<IrOpcode::Value>(op_->opcode());
   }
 
@@ -63,14 +63,14 @@ class V8_EXPORT_PRIVATE Node final {
                                : inputs_.outline_->count_;
   }
 
-#if DEBUG
+#ifdef DEBUG
   void Verify();
-#define BOUNDS_CHECK(index)                                                  \
-  do {                                                                       \
-    if (index < 0 || index >= InputCount()) {                                \
-      V8_Fatal(__FILE__, __LINE__, "Node #%d:%s->InputAt(%d) out of bounds", \
-               id(), op()->mnemonic(), index);                               \
-    }                                                                        \
+#define BOUNDS_CHECK(index)                                                   \
+  do {                                                                        \
+    if (index < 0 || index >= InputCount()) {                                 \
+      FATAL("Node #%d:%s->InputAt(%d) out of bounds", id(), op()->mnemonic(), \
+            index);                                                           \
+    }                                                                         \
   } while (false)
 #else
   // No bounds checks or verification in release mode.
@@ -159,10 +159,8 @@ class V8_EXPORT_PRIVATE Node final {
   // Returns true if {owner1} and {owner2} are the only users of {this} node.
   bool OwnedBy(Node const* owner1, Node const* owner2) const;
 
-  // Returns true if addressing related operands (such as load, store, lea)
-  // are the only users of {this} node.
-  bool OwnedByAddressingOperand() const;
   void Print() const;
+  void Print(std::ostream&) const;
 
  private:
   struct Use;
@@ -264,8 +262,8 @@ class V8_EXPORT_PRIVATE Node final {
   void set_op(const Operator* op) { op_ = op; }
 
   // Only NodeProperties should manipulate the type.
-  Type* type() const { return type_; }
-  void set_type(Type* type) { type_ = type; }
+  Type type() const { return type_; }
+  void set_type(Type type) { type_ = type; }
 
   // Only NodeMarkers should manipulate the marks on nodes.
   Mark mark() const { return mark_; }
@@ -285,7 +283,7 @@ class V8_EXPORT_PRIVATE Node final {
   static const int kMaxInlineCapacity = InlineCapacityField::kMax - 1;
 
   const Operator* op_;
-  Type* type_;
+  Type type_;
   Mark mark_;
   uint32_t bit_field_;
   Use* first_use_;
@@ -312,12 +310,6 @@ typedef ZoneSet<Node*> NodeSet;
 typedef ZoneVector<Node*> NodeVector;
 typedef ZoneVector<NodeVector> NodeVectorVector;
 
-
-// Helper to extract parameters from Operator1<*> nodes.
-template <typename T>
-static inline const T& OpParameter(const Node* node) {
-  return OpParameter<T>(node->op());
-}
 
 class Node::InputEdges final {
  public:
@@ -438,8 +430,7 @@ class Node::InputEdges::iterator final {
   typedef Edge& reference;
 
   iterator() : use_(nullptr), input_ptr_(nullptr) {}
-  iterator(const iterator& other)
-      : use_(other.use_), input_ptr_(other.input_ptr_) {}
+  iterator(const iterator& other) = default;
 
   Edge operator*() const { return Edge(use_, input_ptr_); }
   bool operator==(const iterator& other) const {
@@ -497,7 +488,7 @@ class Node::Inputs::const_iterator final {
   typedef const value_type* pointer;
   typedef value_type& reference;
 
-  const_iterator(const const_iterator& other) : input_ptr_(other.input_ptr_) {}
+  const_iterator(const const_iterator& other) = default;
 
   Node* operator*() const { return *input_ptr_; }
   bool operator==(const const_iterator& other) const {
@@ -545,8 +536,7 @@ Node* Node::Inputs::operator[](int index) const { return input_root_[index]; }
 // A forward iterator to visit the uses edges of a node.
 class Node::UseEdges::iterator final {
  public:
-  iterator(const iterator& other)
-      : current_(other.current_), next_(other.next_) {}
+  iterator(const iterator& other) = default;
 
   Edge operator*() const { return Edge(current_, current_->input_ptr()); }
   bool operator==(const iterator& other) const {
@@ -593,8 +583,6 @@ class Node::Uses::const_iterator final {
   typedef Node** pointer;
   typedef Node*& reference;
 
-  const_iterator(const const_iterator& other) : current_(other.current_) {}
-
   Node* operator*() const { return current_->from(); }
   bool operator==(const const_iterator& other) const {
     return other.current_ == current_;
@@ -604,7 +592,13 @@ class Node::Uses::const_iterator final {
   }
   const_iterator& operator++() {
     DCHECK_NOT_NULL(current_);
+    // Checking no use gets mutated while iterating through them, a potential
+    // very tricky cause of bug.
     current_ = current_->next;
+#ifdef DEBUG
+    DCHECK_EQ(current_, next_);
+    next_ = current_ ? current_->next : nullptr;
+#endif
     return *this;
   }
   const_iterator operator++(int);
@@ -613,9 +607,19 @@ class Node::Uses::const_iterator final {
   friend class Node::Uses;
 
   const_iterator() : current_(nullptr) {}
-  explicit const_iterator(Node* node) : current_(node->first_use_) {}
+  explicit const_iterator(Node* node)
+      : current_(node->first_use_)
+#ifdef DEBUG
+        ,
+        next_(current_ ? current_->next : nullptr)
+#endif
+  {
+  }
 
   Node::Use* current_;
+#ifdef DEBUG
+  Node::Use* next_;
+#endif
 };
 
 

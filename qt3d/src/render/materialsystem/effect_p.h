@@ -70,14 +70,14 @@ public:
     ~Effect();
     void cleanup();
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
     void appendRenderTechnique(Qt3DCore::QNodeId t);
 
     QVector<Qt3DCore::QNodeId> techniques() const;
     QVector<Qt3DCore::QNodeId> parameters() const;
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
 
     QVector<Qt3DCore::QNodeId> m_techniques;
     ParameterPack m_parameterPack;

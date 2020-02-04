@@ -5,127 +5,121 @@
 #include "content/child/child_process_sandbox_support_impl_linux.h"
 
 #include <stddef.h>
-#include <sys/stat.h>
 
 #include <limits>
 #include <memory>
 
-#include "base/pickle.h"
-#include "base/posix/eintr_wrapper.h"
-#include "base/posix/unix_domain_socket_linux.h"
-#include "base/sys_byteorder.h"
-#include "base/trace_event/trace_event.h"
-#include "content/common/sandbox_linux/sandbox_linux.h"
-#include "third_party/WebKit/public/platform/linux/WebFallbackFont.h"
-#include "third_party/WebKit/public/platform/linux/WebFontRenderStyle.h"
+#include "base/logging.h"
+#include "components/services/font/public/cpp/font_loader.h"
+#include "components/services/font/public/interfaces/font_service.mojom.h"
+#include "third_party/blink/public/platform/linux/out_of_process_font.h"
+#include "third_party/blink/public/platform/web_font_render_style.h"
+#include "third_party/blink/public/platform/web_string.h"
+#include "third_party/blink/public/platform/web_vector.h"
 
 namespace content {
 
-void GetFallbackFontForCharacter(int32_t character,
-                                 const char* preferred_locale,
-                                 blink::WebFallbackFont* fallbackFont) {
-  TRACE_EVENT0("sandbox_ipc", "GetFontFamilyForCharacter");
+WebSandboxSupportLinux::WebSandboxSupportLinux(
+    sk_sp<font_service::FontLoader> font_loader)
+    : font_loader_(font_loader) {}
 
-  base::Pickle request;
-  request.WriteInt(LinuxSandbox::METHOD_GET_FALLBACK_FONT_FOR_CHAR);
-  request.WriteInt(character);
-  request.WriteString(preferred_locale);
+WebSandboxSupportLinux::~WebSandboxSupportLinux() = default;
 
-  uint8_t buf[512];
-  const ssize_t n = base::UnixDomainSocket::SendRecvMsg(
-      GetSandboxFD(), buf, sizeof(buf), NULL, request);
-
-  std::string family_name;
-  std::string filename;
-  int fontconfigInterfaceId = 0;
-  int ttcIndex = 0;
-  bool isBold = false;
-  bool isItalic = false;
-  if (n != -1) {
-    base::Pickle reply(reinterpret_cast<char*>(buf), n);
-    base::PickleIterator pickle_iter(reply);
-    if (pickle_iter.ReadString(&family_name) &&
-        pickle_iter.ReadString(&filename) &&
-        pickle_iter.ReadInt(&fontconfigInterfaceId) &&
-        pickle_iter.ReadInt(&ttcIndex) && pickle_iter.ReadBool(&isBold) &&
-        pickle_iter.ReadBool(&isItalic)) {
-      fallbackFont->name = family_name;
-      fallbackFont->filename = filename;
-      fallbackFont->fontconfig_interface_id = fontconfigInterfaceId;
-      fallbackFont->ttc_index = ttcIndex;
-      fallbackFont->is_bold = isBold;
-      fallbackFont->is_italic = isItalic;
+void WebSandboxSupportLinux::GetFallbackFontForCharacter(
+    blink::WebUChar32 character,
+    const char* preferred_locale,
+    blink::OutOfProcessFont* fallback_font) {
+  {
+    base::AutoLock lock(lock_);
+    const auto iter = unicode_font_families_.find(character);
+    if (iter != unicode_font_families_.end()) {
+      *fallback_font = iter->second;
+      return;
     }
   }
-}
 
-void GetRenderStyleForStrike(const char* family,
-                             int size_and_style,
-                             blink::WebFontRenderStyle* out) {
-  TRACE_EVENT0("sandbox_ipc", "GetRenderStyleForStrike");
-
-  out->SetDefaults();
-
-  if (size_and_style < 0)
+  font_service::mojom::FontIdentityPtr font_identity;
+  bool is_bold = false;
+  bool is_italic = false;
+  std::string family_name;
+  if (!font_loader_->FallbackFontForCharacter(character, preferred_locale,
+                                              &font_identity, &family_name,
+                                              &is_bold, &is_italic)) {
+    LOG(ERROR) << "FontService fallback request does not receive a response.";
     return;
-
-  const bool bold = size_and_style & 1;
-  const bool italic = size_and_style & 2;
-  const int pixel_size = size_and_style >> 2;
-  if (pixel_size > std::numeric_limits<uint16_t>::max())
-    return;
-
-  base::Pickle request;
-  request.WriteInt(LinuxSandbox::METHOD_GET_STYLE_FOR_STRIKE);
-  request.WriteString(family);
-  request.WriteBool(bold);
-  request.WriteBool(italic);
-  request.WriteUInt16(pixel_size);
-
-  uint8_t buf[512];
-  const ssize_t n = base::UnixDomainSocket::SendRecvMsg(
-      GetSandboxFD(), buf, sizeof(buf), NULL, request);
-  if (n == -1)
-    return;
-
-  base::Pickle reply(reinterpret_cast<char*>(buf), n);
-  base::PickleIterator pickle_iter(reply);
-  int use_bitmaps, use_autohint, use_hinting, hint_style, use_antialias;
-  int use_subpixel_rendering, use_subpixel_positioning;
-  if (pickle_iter.ReadInt(&use_bitmaps) && pickle_iter.ReadInt(&use_autohint) &&
-      pickle_iter.ReadInt(&use_hinting) && pickle_iter.ReadInt(&hint_style) &&
-      pickle_iter.ReadInt(&use_antialias) &&
-      pickle_iter.ReadInt(&use_subpixel_rendering) &&
-      pickle_iter.ReadInt(&use_subpixel_positioning)) {
-    out->use_bitmaps = use_bitmaps;
-    out->use_auto_hint = use_autohint;
-    out->use_hinting = use_hinting;
-    out->hint_style = hint_style;
-    out->use_anti_alias = use_antialias;
-    out->use_subpixel_rendering = use_subpixel_rendering;
-    out->use_subpixel_positioning = use_subpixel_positioning;
   }
+
+  // TODO(drott): Perhaps take OutOfProcessFont out of the picture here and pass
+  // mojo FontIdentityPtr directly?
+  fallback_font->name =
+      blink::WebString::FromUTF8(family_name.c_str(), family_name.length());
+  fallback_font->fontconfig_interface_id = font_identity->id;
+  fallback_font->filename.Assign(font_identity->str_representation.c_str(),
+                                 font_identity->str_representation.length());
+  fallback_font->ttc_index = font_identity->ttc_index;
+  fallback_font->is_bold = is_bold;
+  fallback_font->is_italic = is_italic;
+
+  base::AutoLock lock(lock_);
+  unicode_font_families_.emplace(character, *fallback_font);
 }
 
-int MatchFontWithFallback(const std::string& face,
-                          bool bold,
-                          bool italic,
-                          int charset,
-                          PP_BrowserFont_Trusted_Family fallback_family) {
-  TRACE_EVENT0("sandbox_ipc", "MatchFontWithFallback");
+void WebSandboxSupportLinux::MatchFontByPostscriptNameOrFullFontName(
+    const char* font_unique_name,
+    blink::OutOfProcessFont* fallback_font) {
+  font_service::mojom::FontIdentityPtr font_identity;
+  std::string family_name;
+  if (!font_loader_->MatchFontByPostscriptNameOrFullFontName(font_unique_name,
+                                                             &font_identity)) {
+    LOG(ERROR) << "FontService unique font name matching request did not "
+                  "receive a response.";
+    return;
+  }
 
-  base::Pickle request;
-  request.WriteInt(LinuxSandbox::METHOD_MATCH_WITH_FALLBACK);
-  request.WriteString(face);
-  request.WriteBool(bold);
-  request.WriteBool(italic);
-  request.WriteUInt32(charset);
-  request.WriteUInt32(fallback_family);
-  uint8_t reply_buf[64];
-  int fd = -1;
-  base::UnixDomainSocket::SendRecvMsg(GetSandboxFD(), reply_buf,
-                                      sizeof(reply_buf), &fd, request);
-  return fd;
+  fallback_font->fontconfig_interface_id = font_identity->id;
+  fallback_font->filename.Assign(font_identity->str_representation.c_str(),
+                                 font_identity->str_representation.length());
+  fallback_font->ttc_index = font_identity->ttc_index;
+}
+
+void WebSandboxSupportLinux::GetWebFontRenderStyleForStrike(
+    const char* family,
+    int size,
+    bool is_bold,
+    bool is_italic,
+    float device_scale_factor,
+    blink::WebFontRenderStyle* out) {
+  font_service::mojom::FontIdentityPtr font_identity;
+
+  *out = blink::WebFontRenderStyle();
+
+  if (size < 0 || size > std::numeric_limits<uint16_t>::max())
+    return;
+
+  std::string familyStr;
+  if (family)
+      familyStr = std::string(family);
+
+  font_service::mojom::FontRenderStylePtr font_render_style;
+  if (!font_loader_->FontRenderStyleForStrike(familyStr, size, is_bold, is_italic,
+                                              device_scale_factor,
+                                              &font_render_style) ||
+      font_render_style.is_null()) {
+    LOG(ERROR) << "GetRenderStyleForStrike did not receive a response for "
+                  "family and size: "
+               << (family ? family : "<empty>") << ", " << size;
+    return;
+  }
+
+  out->use_bitmaps = static_cast<char>(font_render_style->use_bitmaps);
+  out->use_auto_hint = static_cast<char>(font_render_style->use_autohint);
+  out->use_hinting = static_cast<char>(font_render_style->use_hinting);
+  out->hint_style = font_render_style->hint_style;
+  out->use_anti_alias = static_cast<char>(font_render_style->use_antialias);
+  out->use_subpixel_rendering =
+      static_cast<char>(font_render_style->use_subpixel_rendering);
+  out->use_subpixel_positioning =
+      static_cast<char>(font_render_style->use_subpixel_positioning);
 }
 
 }  // namespace content

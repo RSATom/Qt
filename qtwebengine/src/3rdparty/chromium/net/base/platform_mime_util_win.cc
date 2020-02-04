@@ -9,6 +9,8 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/registry.h"
 
+#include <windows.h>
+
 namespace net {
 
 bool PlatformMimeUtil::GetPlatformMimeTypeFromExtension(
@@ -25,8 +27,9 @@ bool PlatformMimeUtil::GetPlatformMimeTypeFromExtension(
   return false;
 }
 
-bool PlatformMimeUtil::GetPreferredExtensionForMimeType(
-    const std::string& mime_type, base::FilePath::StringType* ext) const {
+bool PlatformMimeUtil::GetPlatformPreferredExtensionForMimeType(
+    const std::string& mime_type,
+    base::FilePath::StringType* ext) const {
   std::wstring key(
       L"MIME\\Database\\Content Type\\" + base::UTF8ToWide(mime_type));
   if (base::win::RegKey(HKEY_CLASSES_ROOT, key.c_str(), KEY_READ).ReadValue(
@@ -48,7 +51,7 @@ void PlatformMimeUtil::GetPlatformExtensionsForMimeType(
   // entries, though, is wildly impractical. Cheat by returning just the
   // preferred extension.
   base::FilePath::StringType ext;
-  if (GetPreferredExtensionForMimeType(mime_type, &ext))
+  if (GetPlatformPreferredExtensionForMimeType(mime_type, &ext))
     extensions->insert(ext);
 }
 

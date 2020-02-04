@@ -5,16 +5,17 @@
 #include "extensions/renderer/object_backed_native_handler.h"
 
 #include <stddef.h>
+#include <utility>
 
 #include "base/logging.h"
-#include "content/public/child/worker_thread.h"
+#include "content/public/renderer/worker_thread.h"
 #include "extensions/common/extension_api.h"
 #include "extensions/renderer/console.h"
 #include "extensions/renderer/module_system.h"
 #include "extensions/renderer/script_context.h"
 #include "extensions/renderer/script_context_set.h"
 #include "extensions/renderer/v8_helpers.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
+#include "third_party/blink/public/web/web_local_frame.h"
 #include "v8/include/v8.h"
 
 namespace extensions {
@@ -35,9 +36,24 @@ ObjectBackedNativeHandler::ObjectBackedNativeHandler(ScriptContext* context)
 ObjectBackedNativeHandler::~ObjectBackedNativeHandler() {
 }
 
+void ObjectBackedNativeHandler::Initialize() {
+  DCHECK_EQ(kUninitialized, init_state_)
+      << "Initialize() can only be called once!";
+  init_state_ = kInitializingRoutes;
+  AddRoutes();
+  init_state_ = kInitialized;
+}
+
+bool ObjectBackedNativeHandler::IsInitialized() {
+  return init_state_ == kInitialized;
+}
+
 v8::Local<v8::Object> ObjectBackedNativeHandler::NewInstance() {
+  DCHECK_EQ(kInitialized, init_state_)
+      << "Initialize() must be called before a new instance is created!";
   return v8::Local<v8::ObjectTemplate>::New(GetIsolate(), object_template_)
-      ->NewInstance();
+      ->NewInstance(GetIsolate()->GetCurrentContext())
+      .ToLocalChecked();
 }
 
 // static
@@ -70,7 +86,8 @@ void ObjectBackedNativeHandler::Router(
         ScriptContextSet::GetContextByV8Context(context);
     v8::Local<v8::String> feature_name_string =
         feature_name_value->ToString(context).ToLocalChecked();
-    std::string feature_name = *v8::String::Utf8Value(feature_name_string);
+    std::string feature_name =
+        *v8::String::Utf8Value(isolate, feature_name_string);
     // TODO(devlin): Eventually, we should fail if either script_context is null
     // or feature_name is empty.
     if (script_context && !feature_name.empty()) {
@@ -100,23 +117,27 @@ void ObjectBackedNativeHandler::Router(
   }
 }
 
-void ObjectBackedNativeHandler::RouteFunction(
+void ObjectBackedNativeHandler::RouteHandlerFunction(
     const std::string& name,
-    const HandlerFunction& handler_function) {
-  RouteFunction(name, "", handler_function);
+    HandlerFunction handler_function) {
+  RouteHandlerFunction(name, "", std::move(handler_function));
 }
 
-void ObjectBackedNativeHandler::RouteFunction(
+void ObjectBackedNativeHandler::RouteHandlerFunction(
     const std::string& name,
     const std::string& feature_name,
-    const HandlerFunction& handler_function) {
+    HandlerFunction handler_function) {
+  DCHECK_EQ(init_state_, kInitializingRoutes)
+      << "RouteHandlerFunction() can only be called from AddRoutes()!";
+
   v8::Isolate* isolate = v8::Isolate::GetCurrent();
   v8::HandleScope handle_scope(isolate);
   v8::Context::Scope context_scope(context_->v8_context());
 
   v8::Local<v8::Object> data = v8::Object::New(isolate);
   SetPrivate(data, kHandlerFunction,
-             v8::External::New(isolate, new HandlerFunction(handler_function)));
+             v8::External::New(
+                 isolate, new HandlerFunction(std::move(handler_function))));
   DCHECK(feature_name.empty() ||
          ExtensionAPI::GetSharedInstance()->GetFeatureDependency(feature_name))
       << feature_name;
@@ -186,10 +207,13 @@ void ObjectBackedNativeHandler::SetPrivate(v8::Local<v8::Context> context,
                                            v8::Local<v8::Object> obj,
                                            const char* key,
                                            v8::Local<v8::Value> value) {
-  obj->SetPrivate(context, v8::Private::ForApi(context->GetIsolate(),
-                                               v8::String::NewFromUtf8(
-                                                   context->GetIsolate(), key)),
-                  value)
+  obj->SetPrivate(
+         context,
+         v8::Private::ForApi(context->GetIsolate(),
+                             v8::String::NewFromUtf8(context->GetIsolate(), key,
+                                                     v8::NewStringType::kNormal)
+                                 .ToLocalChecked()),
+         value)
       .FromJust();
 }
 
@@ -204,10 +228,12 @@ bool ObjectBackedNativeHandler::GetPrivate(v8::Local<v8::Context> context,
                                            v8::Local<v8::Object> obj,
                                            const char* key,
                                            v8::Local<v8::Value>* result) {
-  return obj->GetPrivate(context,
-                         v8::Private::ForApi(context->GetIsolate(),
-                                             v8::String::NewFromUtf8(
-                                                 context->GetIsolate(), key)))
+  return obj
+      ->GetPrivate(context, v8::Private::ForApi(context->GetIsolate(),
+                                                v8::String::NewFromUtf8(
+                                                    context->GetIsolate(), key,
+                                                    v8::NewStringType::kNormal)
+                                                    .ToLocalChecked()))
       .ToLocal(result);
 }
 
@@ -220,10 +246,12 @@ void ObjectBackedNativeHandler::DeletePrivate(v8::Local<v8::Object> obj,
 void ObjectBackedNativeHandler::DeletePrivate(v8::Local<v8::Context> context,
                                               v8::Local<v8::Object> obj,
                                               const char* key) {
-  obj->DeletePrivate(context,
-                     v8::Private::ForApi(
-                         context->GetIsolate(),
-                         v8::String::NewFromUtf8(context->GetIsolate(), key)))
+  obj->DeletePrivate(
+         context,
+         v8::Private::ForApi(context->GetIsolate(),
+                             v8::String::NewFromUtf8(context->GetIsolate(), key,
+                                                     v8::NewStringType::kNormal)
+                                 .ToLocalChecked()))
       .FromJust();
 }
 

@@ -41,14 +41,16 @@ Polymer({
     this.documentListeners_['change-query'] = this.onChangeQuery_.bind(this);
     this.documentListeners_['query-history'] = this.onQueryHistory_.bind(this);
 
-    for (var e in this.documentListeners_)
+    for (const e in this.documentListeners_) {
       document.addEventListener(e, this.documentListeners_[e]);
+    }
   },
 
   /** @override */
   detached: function() {
-    for (var e in this.documentListeners_)
+    for (const e in this.documentListeners_) {
       document.removeEventListener(e, this.documentListeners_[e]);
+    }
   },
 
   /**
@@ -56,25 +58,23 @@ Polymer({
    * @private
    */
   queryHistory_: function(incremental) {
-    var queryState = this.queryState;
+    const queryState = this.queryState;
 
-    if (queryState.queryingDisabled)
+    if (queryState.queryingDisabled) {
       return;
+    }
 
     this.set('queryState.querying', true);
     this.set('queryState.incremental', incremental);
 
-    var lastVisitTime = 0;
     if (incremental) {
-      var lastVisit = this.queryResult.results.slice(-1)[0];
-      lastVisitTime = lastVisit ? Math.floor(lastVisit.time) : 0;
+      chrome.send('queryHistoryContinuation');
+    } else {
+      chrome.send('queryHistory', [
+        queryState.searchTerm,
+        RESULTS_PER_PAGE,
+      ]);
     }
-
-    chrome.send('queryHistory', [
-      queryState.searchTerm,
-      lastVisitTime,
-      RESULTS_PER_PAGE,
-    ]);
   },
 
   /**
@@ -82,8 +82,8 @@ Polymer({
    * @private
    */
   onChangeQuery_: function(e) {
-    var changes = /** @type {{search: ?string}} */ (e.detail);
-    var needsUpdate = false;
+    const changes = /** @type {{search: ?string}} */ (e.detail);
+    let needsUpdate = false;
 
     if (changes.search != null &&
         changes.search != this.queryState.searchTerm) {
@@ -93,8 +93,9 @@ Polymer({
 
     if (needsUpdate) {
       this.queryHistory_(false);
-      if (this.router)
+      if (this.router) {
         this.router.serializeUrl();
+      }
     }
   },
 
@@ -103,14 +104,15 @@ Polymer({
    * @private
    */
   onQueryHistory_: function(e) {
-    this.queryHistory_(/** @type {boolean} */ e.detail);
+    this.queryHistory_(/** @type {boolean} */ (e.detail));
     return false;
   },
 
   /** @private */
   searchTermChanged_: function() {
     // TODO(tsergeant): Ignore incremental searches in this metric.
-    if (this.queryState.searchTerm)
+    if (this.queryState.searchTerm) {
       md_history.BrowserService.getInstance().recordAction('Search');
+    }
   },
 });

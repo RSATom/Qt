@@ -11,14 +11,15 @@
 #include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "base/strings/stringprintf.h"
+#include "base/task/post_task.h"
+#include "base/task/task_traits.h"
 #include "base/task_runner.h"
 #include "base/task_runner_util.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/scoped_user_pref_update.h"
 #include "components/quirks/pref_names.h"
 #include "components/quirks/quirks_client.h"
-#include "net/url_request/url_fetcher.h"
-#include "net/url_request/url_request_context_getter.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 #include "url/gurl.h"
 
 namespace quirks {
@@ -56,14 +57,13 @@ std::string IdToFileName(int64_t product_id) {
 
 QuirksManager::QuirksManager(
     std::unique_ptr<Delegate> delegate,
-    scoped_refptr<base::TaskRunner> task_runner,
     PrefService* local_state,
-    scoped_refptr<net::URLRequestContextGetter> url_context_getter)
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory)
     : waiting_for_login_(true),
       delegate_(std::move(delegate)),
-      task_runner_(task_runner),
+      task_runner_(base::CreateTaskRunnerWithTraits({base::MayBlock()})),
       local_state_(local_state),
-      url_context_getter_(url_context_getter),
+      url_loader_factory_(std::move(url_loader_factory)),
       weak_ptr_factory_(this) {}
 
 QuirksManager::~QuirksManager() {
@@ -74,11 +74,10 @@ QuirksManager::~QuirksManager() {
 // static
 void QuirksManager::Initialize(
     std::unique_ptr<Delegate> delegate,
-    scoped_refptr<base::TaskRunner> task_runner,
     PrefService* local_state,
-    scoped_refptr<net::URLRequestContextGetter> url_context_getter) {
-  manager_ = new QuirksManager(std::move(delegate), task_runner, local_state,
-                               url_context_getter);
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
+  manager_ = new QuirksManager(std::move(delegate), local_state,
+                               std::move(url_loader_factory));
 }
 
 // static
@@ -149,15 +148,6 @@ void QuirksManager::ClientFinished(QuirksClient* client) {
                          });
   CHECK(it != clients_.end());
   clients_.erase(it);
-}
-
-std::unique_ptr<net::URLFetcher> QuirksManager::CreateURLFetcher(
-    const GURL& url,
-    net::URLFetcherDelegate* delegate) {
-  if (!fake_quirks_fetcher_creator_.is_null())
-    return fake_quirks_fetcher_creator_.Run(url, delegate);
-
-  return net::URLFetcher::Create(url, net::URLFetcher::GET, delegate);
 }
 
 void QuirksManager::OnIccFilePathRequestCompleted(

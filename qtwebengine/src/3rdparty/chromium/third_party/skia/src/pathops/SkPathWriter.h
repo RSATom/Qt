@@ -41,9 +41,9 @@ private:
     void moveTo();
     const SkTArray<SkPath>& partials() const { return fPartials; }
     bool someAssemblyRequired();
-    void update(const SkOpPtT* pt);
+    SkPoint update(const SkOpPtT* pt);
 
-    SkPath fCurrent;  // contour under construction 
+    SkPath fCurrent;  // contour under construction
     SkTArray<SkPath> fPartials;   // contours with mismatched starts and ends
     SkTDArray<const SkOpPtT*> fEndPtTs;  // possible pt values for partial starts and ends
     SkPath* fPathPtr;  // closed contours are written here

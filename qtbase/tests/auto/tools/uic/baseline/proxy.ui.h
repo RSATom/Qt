@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'proxy.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,13 +10,10 @@
 #define PROXY_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QDialogButtonBox>
 #include <QtWidgets/QGridLayout>
-#include <QtWidgets/QHeaderView>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QLineEdit>
 
@@ -37,44 +34,44 @@ public:
     void setupUi(QDialog *ProxyDialog)
     {
         if (ProxyDialog->objectName().isEmpty())
-            ProxyDialog->setObjectName(QStringLiteral("ProxyDialog"));
+            ProxyDialog->setObjectName(QString::fromUtf8("ProxyDialog"));
         ProxyDialog->resize(369, 144);
         gridLayout = new QGridLayout(ProxyDialog);
-        gridLayout->setObjectName(QStringLiteral("gridLayout"));
+        gridLayout->setObjectName(QString::fromUtf8("gridLayout"));
         iconLabel = new QLabel(ProxyDialog);
-        iconLabel->setObjectName(QStringLiteral("iconLabel"));
+        iconLabel->setObjectName(QString::fromUtf8("iconLabel"));
 
         gridLayout->addWidget(iconLabel, 0, 0, 1, 1);
 
         introLabel = new QLabel(ProxyDialog);
-        introLabel->setObjectName(QStringLiteral("introLabel"));
+        introLabel->setObjectName(QString::fromUtf8("introLabel"));
         introLabel->setWordWrap(true);
 
         gridLayout->addWidget(introLabel, 0, 1, 1, 2);
 
         usernameLabel = new QLabel(ProxyDialog);
-        usernameLabel->setObjectName(QStringLiteral("usernameLabel"));
+        usernameLabel->setObjectName(QString::fromUtf8("usernameLabel"));
 
         gridLayout->addWidget(usernameLabel, 1, 0, 1, 2);
 
         userNameLineEdit = new QLineEdit(ProxyDialog);
-        userNameLineEdit->setObjectName(QStringLiteral("userNameLineEdit"));
+        userNameLineEdit->setObjectName(QString::fromUtf8("userNameLineEdit"));
 
         gridLayout->addWidget(userNameLineEdit, 1, 2, 1, 1);
 
         passwordLabel = new QLabel(ProxyDialog);
-        passwordLabel->setObjectName(QStringLiteral("passwordLabel"));
+        passwordLabel->setObjectName(QString::fromUtf8("passwordLabel"));
 
         gridLayout->addWidget(passwordLabel, 2, 0, 1, 2);
 
         passwordLineEdit = new QLineEdit(ProxyDialog);
-        passwordLineEdit->setObjectName(QStringLiteral("passwordLineEdit"));
+        passwordLineEdit->setObjectName(QString::fromUtf8("passwordLineEdit"));
         passwordLineEdit->setEchoMode(QLineEdit::Password);
 
         gridLayout->addWidget(passwordLineEdit, 2, 2, 1, 1);
 
         buttonBox = new QDialogButtonBox(ProxyDialog);
-        buttonBox->setObjectName(QStringLiteral("buttonBox"));
+        buttonBox->setObjectName(QString::fromUtf8("buttonBox"));
         buttonBox->setOrientation(Qt::Horizontal);
         buttonBox->setStandardButtons(QDialogButtonBox::Cancel|QDialogButtonBox::Ok);
 
@@ -90,11 +87,11 @@ public:
 
     void retranslateUi(QDialog *ProxyDialog)
     {
-        ProxyDialog->setWindowTitle(QApplication::translate("ProxyDialog", "Proxy Authentication", nullptr));
-        iconLabel->setText(QApplication::translate("ProxyDialog", "ICON", nullptr));
-        introLabel->setText(QApplication::translate("ProxyDialog", "Connect to proxy", nullptr));
-        usernameLabel->setText(QApplication::translate("ProxyDialog", "Username:", nullptr));
-        passwordLabel->setText(QApplication::translate("ProxyDialog", "Password:", nullptr));
+        ProxyDialog->setWindowTitle(QCoreApplication::translate("ProxyDialog", "Proxy Authentication", nullptr));
+        iconLabel->setText(QCoreApplication::translate("ProxyDialog", "ICON", nullptr));
+        introLabel->setText(QCoreApplication::translate("ProxyDialog", "Connect to proxy", nullptr));
+        usernameLabel->setText(QCoreApplication::translate("ProxyDialog", "Username:", nullptr));
+        passwordLabel->setText(QCoreApplication::translate("ProxyDialog", "Password:", nullptr));
     } // retranslateUi
 
 };

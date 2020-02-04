@@ -187,6 +187,7 @@ QSvgTinyDocument * QSvgTinyDocument::load(const QString &fileName)
     } else {
         qCWarning(lcSvgHandler, "Cannot read file '%s', because: %s (line %d)",
                  qPrintable(fileName), qPrintable(handler.errorString()), handler.lineNumber());
+        delete handler.document();
     }
     return doc;
 }
@@ -207,6 +208,8 @@ QSvgTinyDocument * QSvgTinyDocument::load(const QByteArray &contents)
     if (handler.ok()) {
         doc = handler.document();
         doc->m_animationDuration = handler.animationDuration();
+    } else {
+        delete handler.document();
     }
     return doc;
 }
@@ -219,6 +222,8 @@ QSvgTinyDocument * QSvgTinyDocument::load(QXmlStreamReader *contents)
     if (handler.ok()) {
         doc = handler.document();
         doc->m_animationDuration = handler.animationDuration();
+    } else {
+        delete handler.document();
     }
     return doc;
 }
@@ -358,7 +363,10 @@ QSvgNode *QSvgTinyDocument::namedNode(const QString &id) const
 
 void QSvgTinyDocument::addNamedStyle(const QString &id, QSvgFillStyleProperty *style)
 {
-    m_namedStyles.insert(id, style);
+    if (!m_namedStyles.contains(id))
+        m_namedStyles.insert(id, style);
+    else
+        qCWarning(lcSvgHandler) << "Duplicate unique style id:" << id;
 }
 
 QSvgFillStyleProperty *QSvgTinyDocument::namedStyle(const QString &id) const
@@ -455,7 +463,7 @@ QMatrix QSvgTinyDocument::matrixForElement(const QString &id) const
             t *= node->m_style.transform->qtransform();
         node = node->parent();
     }
-    
+
     return t.toAffine();
 }
 

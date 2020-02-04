@@ -1,7 +1,7 @@
 /********************************************************************************
 ** Form generated from reading UI file 'bookmarkdialog.ui'
 **
-** Created by: Qt User Interface Compiler version 5.0.0
+** Created by: Qt User Interface Compiler version 5.12.0
 **
 ** WARNING! All changes made in this file will be lost when recompiling UI file!
 ********************************************************************************/
@@ -10,9 +10,7 @@
 #define BOOKMARKDIALOG_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QComboBox>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QDialogButtonBox>
@@ -50,7 +48,7 @@ public:
     void setupUi(QDialog *BookmarkDialog)
     {
         if (BookmarkDialog->objectName().isEmpty())
-            BookmarkDialog->setObjectName(QStringLiteral("BookmarkDialog"));
+            BookmarkDialog->setObjectName(QString::fromUtf8("BookmarkDialog"));
         BookmarkDialog->resize(450, 135);
         QSizePolicy sizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
         sizePolicy.setHorizontalStretch(0);
@@ -58,18 +56,18 @@ public:
         sizePolicy.setHeightForWidth(BookmarkDialog->sizePolicy().hasHeightForWidth());
         BookmarkDialog->setSizePolicy(sizePolicy);
         verticalLayout_3 = new QVBoxLayout(BookmarkDialog);
-        verticalLayout_3->setObjectName(QStringLiteral("verticalLayout_3"));
+        verticalLayout_3->setObjectName(QString::fromUtf8("verticalLayout_3"));
         horizontalLayout = new QHBoxLayout();
-        horizontalLayout->setObjectName(QStringLiteral("horizontalLayout"));
+        horizontalLayout->setObjectName(QString::fromUtf8("horizontalLayout"));
         verticalLayout_2 = new QVBoxLayout();
-        verticalLayout_2->setObjectName(QStringLiteral("verticalLayout_2"));
+        verticalLayout_2->setObjectName(QString::fromUtf8("verticalLayout_2"));
         label = new QLabel(BookmarkDialog);
-        label->setObjectName(QStringLiteral("label"));
+        label->setObjectName(QString::fromUtf8("label"));
 
         verticalLayout_2->addWidget(label);
 
         label_2 = new QLabel(BookmarkDialog);
-        label_2->setObjectName(QStringLiteral("label_2"));
+        label_2->setObjectName(QString::fromUtf8("label_2"));
 
         verticalLayout_2->addWidget(label_2);
 
@@ -77,14 +75,14 @@ public:
         horizontalLayout->addLayout(verticalLayout_2);
 
         verticalLayout = new QVBoxLayout();
-        verticalLayout->setObjectName(QStringLiteral("verticalLayout"));
+        verticalLayout->setObjectName(QString::fromUtf8("verticalLayout"));
         bookmarkEdit = new QLineEdit(BookmarkDialog);
-        bookmarkEdit->setObjectName(QStringLiteral("bookmarkEdit"));
+        bookmarkEdit->setObjectName(QString::fromUtf8("bookmarkEdit"));
 
         verticalLayout->addWidget(bookmarkEdit);
 
         bookmarkFolders = new QComboBox(BookmarkDialog);
-        bookmarkFolders->setObjectName(QStringLiteral("bookmarkFolders"));
+        bookmarkFolders->setObjectName(QString::fromUtf8("bookmarkFolders"));
 
         verticalLayout->addWidget(bookmarkFolders);
 
@@ -95,15 +93,15 @@ public:
         verticalLayout_3->addLayout(horizontalLayout);
 
         horizontalLayout_3 = new QHBoxLayout();
-        horizontalLayout_3->setObjectName(QStringLiteral("horizontalLayout_3"));
+        horizontalLayout_3->setObjectName(QString::fromUtf8("horizontalLayout_3"));
         toolButton = new QToolButton(BookmarkDialog);
-        toolButton->setObjectName(QStringLiteral("toolButton"));
+        toolButton->setObjectName(QString::fromUtf8("toolButton"));
         toolButton->setMinimumSize(QSize(25, 20));
 
         horizontalLayout_3->addWidget(toolButton);
 
         line = new QFrame(BookmarkDialog);
-        line->setObjectName(QStringLiteral("line"));
+        line->setObjectName(QString::fromUtf8("line"));
         line->setFrameShape(QFrame::HLine);
         line->setFrameShadow(QFrame::Sunken);
 
@@ -113,7 +111,7 @@ public:
         verticalLayout_3->addLayout(horizontalLayout_3);
 
         bookmarkWidget = new BookmarkWidget(BookmarkDialog);
-        bookmarkWidget->setObjectName(QStringLiteral("bookmarkWidget"));
+        bookmarkWidget->setObjectName(QString::fromUtf8("bookmarkWidget"));
         bookmarkWidget->setEnabled(true);
         QSizePolicy sizePolicy1(QSizePolicy::Expanding, QSizePolicy::Ignored);
         sizePolicy1.setHorizontalStretch(0);
@@ -124,14 +122,14 @@ public:
         verticalLayout_3->addWidget(bookmarkWidget);
 
         horizontalLayout_4 = new QHBoxLayout();
-        horizontalLayout_4->setObjectName(QStringLiteral("horizontalLayout_4"));
+        horizontalLayout_4->setObjectName(QString::fromUtf8("horizontalLayout_4"));
         newFolderButton = new QPushButton(BookmarkDialog);
-        newFolderButton->setObjectName(QStringLiteral("newFolderButton"));
+        newFolderButton->setObjectName(QString::fromUtf8("newFolderButton"));
 
         horizontalLayout_4->addWidget(newFolderButton);
 
         buttonBox = new QDialogButtonBox(BookmarkDialog);
-        buttonBox->setObjectName(QStringLiteral("buttonBox"));
+        buttonBox->setObjectName(QString::fromUtf8("buttonBox"));
         buttonBox->setOrientation(Qt::Horizontal);
         buttonBox->setStandardButtons(QDialogButtonBox::Cancel|QDialogButtonBox::Ok);
 
@@ -150,13 +148,13 @@ public:
 
     void retranslateUi(QDialog *BookmarkDialog)
     {
-        BookmarkDialog->setWindowTitle(QApplication::translate("BookmarkDialog", "Add Bookmark", nullptr));
-        label->setText(QApplication::translate("BookmarkDialog", "Bookmark:", nullptr));
-        label_2->setText(QApplication::translate("BookmarkDialog", "Add in Folder:", nullptr));
-        toolButton->setText(QApplication::translate("BookmarkDialog", "+", nullptr));
+        BookmarkDialog->setWindowTitle(QCoreApplication::translate("BookmarkDialog", "Add Bookmark", nullptr));
+        label->setText(QCoreApplication::translate("BookmarkDialog", "Bookmark:", nullptr));
+        label_2->setText(QCoreApplication::translate("BookmarkDialog", "Add in Folder:", nullptr));
+        toolButton->setText(QCoreApplication::translate("BookmarkDialog", "+", nullptr));
         QTreeWidgetItem *___qtreewidgetitem = bookmarkWidget->headerItem();
-        ___qtreewidgetitem->setText(0, QApplication::translate("BookmarkDialog", "1", nullptr));
-        newFolderButton->setText(QApplication::translate("BookmarkDialog", "New Folder", nullptr));
+        ___qtreewidgetitem->setText(0, QCoreApplication::translate("BookmarkDialog", "1", nullptr));
+        newFolderButton->setText(QCoreApplication::translate("BookmarkDialog", "New Folder", nullptr));
     } // retranslateUi
 
 };

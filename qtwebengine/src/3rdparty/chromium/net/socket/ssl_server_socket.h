@@ -18,7 +18,7 @@
 
 #include <memory>
 
-#include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/net_export.h"
 #include "net/socket/ssl_socket.h"
 #include "net/socket/stream_socket.h"
@@ -30,6 +30,7 @@ class RSAPrivateKey;
 namespace net {
 
 struct SSLServerConfig;
+class SSLPrivateKey;
 class X509Certificate;
 
 // A server socket that uses SSL as the transport layer.
@@ -41,7 +42,7 @@ class SSLServerSocket : public SSLSocket {
   // if the process completes asynchronously.  If Disconnect is called before
   // completion then the callback will be silently, as for other StreamSocket
   // calls.
-  virtual int Handshake(const CompletionCallback& callback) = 0;
+  virtual int Handshake(CompletionOnceCallback callback) = 0;
 };
 
 class SSLServerContext {
@@ -68,6 +69,11 @@ class SSLServerContext {
 NET_EXPORT std::unique_ptr<SSLServerContext> CreateSSLServerContext(
     X509Certificate* certificate,
     const crypto::RSAPrivateKey& key,
+    const SSLServerConfig& ssl_config);
+
+NET_EXPORT std::unique_ptr<SSLServerContext> CreateSSLServerContext(
+    X509Certificate* certificate,
+    scoped_refptr<SSLPrivateKey> key,
     const SSLServerConfig& ssl_config);
 
 }  // namespace net

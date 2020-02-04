@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifndef BASE_TRACE_EVENT_COMMON_TRACE_EVENT_COMMON_H_
+#define BASE_TRACE_EVENT_COMMON_TRACE_EVENT_COMMON_H_
+
 // This header file defines the set of trace_event macros without specifying
 // how the events actually get collected and stored. If you need to expose trace
 // events to some other universe, you can copy-and-paste this file as well as
@@ -189,6 +192,8 @@
 // trace points would carry a significant performance cost of acquiring a lock
 // and resolving the category.
 
+// Check that nobody includes this file directly.  Clients are supposed to
+// include the surrounding "trace_event.h" of their project instead.
 #if defined(TRACE_EVENT0)
 #error "Another copy of this file has already been included."
 #endif
@@ -368,6 +373,10 @@
 #define TRACE_EVENT_COPY_MARK(category_group, name)                      \
   INTERNAL_TRACE_EVENT_ADD(TRACE_EVENT_PHASE_MARK, category_group, name, \
                            TRACE_EVENT_FLAG_COPY)
+
+#define TRACE_EVENT_COPY_MARK1(category_group, name, arg1_name, arg1_val) \
+  INTERNAL_TRACE_EVENT_ADD(TRACE_EVENT_PHASE_MARK, category_group, name,  \
+                           TRACE_EVENT_FLAG_COPY, arg1_name, arg1_val)
 
 #define TRACE_EVENT_COPY_MARK_WITH_TIMESTAMP(category_group, name, timestamp) \
   INTERNAL_TRACE_EVENT_ADD_WITH_TIMESTAMP(                                    \
@@ -685,6 +694,11 @@
       TRACE_EVENT_PHASE_ASYNC_END, category_group, name, id,                  \
       TRACE_EVENT_API_CURRENT_THREAD_ID, timestamp, TRACE_EVENT_FLAG_NONE,    \
       arg1_name, arg1_val, arg2_name, arg2_val)
+#define TRACE_EVENT_COPY_ASYNC_END_WITH_TIMESTAMP0(category_group, name, id, \
+                                                   timestamp)                \
+  INTERNAL_TRACE_EVENT_ADD_WITH_ID_TID_AND_TIMESTAMP(                        \
+      TRACE_EVENT_PHASE_ASYNC_END, category_group, name, id,                 \
+      TRACE_EVENT_API_CURRENT_THREAD_ID, timestamp, TRACE_EVENT_FLAG_COPY)
 
 // NESTABLE_ASYNC_* APIs are used to describe an async operation, which can
 // be nested within a NESTABLE_ASYNC event and/or have inner NESTABLE_ASYNC
@@ -783,13 +797,22 @@
   INTERNAL_TRACE_EVENT_ADD_WITH_ID_TID_AND_TIMESTAMP(                          \
       TRACE_EVENT_PHASE_NESTABLE_ASYNC_BEGIN, category_group, name, id,        \
       TRACE_EVENT_API_CURRENT_THREAD_ID, timestamp, TRACE_EVENT_FLAG_NONE)
-
 #define TRACE_EVENT_NESTABLE_ASYNC_END_WITH_TIMESTAMP0(category_group, name, \
                                                        id, timestamp)        \
   INTERNAL_TRACE_EVENT_ADD_WITH_ID_TID_AND_TIMESTAMP(                        \
       TRACE_EVENT_PHASE_NESTABLE_ASYNC_END, category_group, name, id,        \
       TRACE_EVENT_API_CURRENT_THREAD_ID, timestamp, TRACE_EVENT_FLAG_NONE)
-
+#define TRACE_EVENT_NESTABLE_ASYNC_END_WITH_TIMESTAMP1(                    \
+    category_group, name, id, timestamp, arg1_name, arg1_val)              \
+  INTERNAL_TRACE_EVENT_ADD_WITH_ID_TID_AND_TIMESTAMP(                      \
+      TRACE_EVENT_PHASE_NESTABLE_ASYNC_END, category_group, name, id,      \
+      TRACE_EVENT_API_CURRENT_THREAD_ID, timestamp, TRACE_EVENT_FLAG_NONE, \
+      arg1_name, arg1_val)
+#define TRACE_EVENT_NESTABLE_ASYNC_INSTANT_WITH_TIMESTAMP0(               \
+    category_group, name, id, timestamp)                                  \
+  INTERNAL_TRACE_EVENT_ADD_WITH_ID_TID_AND_TIMESTAMP(                     \
+      TRACE_EVENT_PHASE_NESTABLE_ASYNC_INSTANT, category_group, name, id, \
+      TRACE_EVENT_API_CURRENT_THREAD_ID, timestamp, TRACE_EVENT_FLAG_NONE)
 #define TRACE_EVENT_COPY_NESTABLE_ASYNC_BEGIN_WITH_TIMESTAMP0(          \
     category_group, name, id, timestamp)                                \
   INTERNAL_TRACE_EVENT_ADD_WITH_ID_TID_AND_TIMESTAMP(                   \
@@ -986,14 +1009,6 @@
     }                                                                       \
   } while (0)
 
-// Macro to explicitly warm up a given category group. This could be useful in
-// cases where we want to initialize a category group before any trace events
-// for that category group is reported. For example, to have a category group
-// always show up in the "record categories" list for manually selecting
-// settings in about://tracing.
-#define TRACE_EVENT_WARMUP_CATEGORY(category_group) \
-  INTERNAL_TRACE_EVENT_GET_CATEGORY_INFO(category_group)
-
 // Macro to efficiently determine, through polling, if a new trace has begun.
 #define TRACE_EVENT_IS_NEW_TRACE(ret)                                      \
   do {                                                                     \
@@ -1008,6 +1023,14 @@
       *ret = false;                                                        \
     }                                                                      \
   } while (0)
+
+// Macro for getting the real base::TimeTicks::Now() which can be overridden in
+// headless when VirtualTime is enabled.
+#define TRACE_TIME_TICKS_NOW() INTERNAL_TRACE_TIME_TICKS_NOW()
+
+// Macro for getting the real base::Time::Now() which can be overridden in
+// headless when VirtualTime is enabled.
+#define TRACE_TIME_NOW() INTERNAL_TRACE_TIME_NOW()
 
 // Notes regarding the following definitions:
 // New values can be added and propagated to third party libraries, but existing
@@ -1083,3 +1106,5 @@
 #define TRACE_EVENT_SCOPE_NAME_GLOBAL ('g')
 #define TRACE_EVENT_SCOPE_NAME_PROCESS ('p')
 #define TRACE_EVENT_SCOPE_NAME_THREAD ('t')
+
+#endif  // BASE_TRACE_EVENT_COMMON_TRACE_EVENT_COMMON_H_

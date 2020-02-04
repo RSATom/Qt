@@ -10,7 +10,7 @@
 #include "content/common/input/input_param_traits.h"
 #include "content/common/input/synthetic_gesture_params.h"
 #include "content/common/input/synthetic_web_input_event_builders.h"
-#include "third_party/WebKit/public/platform/WebTouchEvent.h"
+#include "third_party/blink/public/platform/web_touch_event.h"
 #include "ui/gfx/geometry/point_f.h"
 
 namespace ipc_fuzzer {
@@ -29,11 +29,20 @@ struct CONTENT_EXPORT SyntheticPointerActionParams {
     PRESS,
     MOVE,
     RELEASE,
+    LEAVE,
     IDLE,
     POINTER_ACTION_TYPE_MAX = IDLE
   };
 
-  enum class Button { LEFT, MIDDLE, RIGHT, BUTTON_MAX = RIGHT };
+  enum class Button {
+    NO_BUTTON,
+    LEFT,
+    MIDDLE,
+    RIGHT,
+    BACK,
+    FORWARD,
+    BUTTON_MAX = FORWARD
+  };
 
   SyntheticPointerActionParams();
   SyntheticPointerActionParams(PointerActionType action_type);
@@ -43,11 +52,7 @@ struct CONTENT_EXPORT SyntheticPointerActionParams {
     pointer_action_type_ = pointer_action_type;
   }
 
-  void set_index(int index) {
-    DCHECK_GE(index, 0);
-    DCHECK_LT(index, blink::WebTouchEvent::kTouchesLengthCap);
-    index_ = index;
-  }
+  void set_pointer_id(uint32_t pointer_id) { pointer_id_ = pointer_id; }
 
   void set_position(const gfx::PointF& position) {
     DCHECK(pointer_action_type_ == PointerActionType::PRESS ||
@@ -63,11 +68,7 @@ struct CONTENT_EXPORT SyntheticPointerActionParams {
 
   PointerActionType pointer_action_type() const { return pointer_action_type_; }
 
-  int index() const {
-    DCHECK_GE(index_, 0);
-    DCHECK_LT(index_, blink::WebTouchEvent::kTouchesLengthCap);
-    return index_;
-  }
+  uint32_t pointer_id() const { return pointer_id_; }
 
   gfx::PointF position() const {
     DCHECK(pointer_action_type_ == PointerActionType::PRESS ||
@@ -85,6 +86,8 @@ struct CONTENT_EXPORT SyntheticPointerActionParams {
       SyntheticPointerActionParams::Button button);
   static blink::WebMouseEvent::Button GetWebMouseEventButton(
       SyntheticPointerActionParams::Button button);
+  static blink::WebMouseEvent::Button GetWebMouseEventButtonFromModifier(
+      unsigned modifiers);
 
  private:
   friend struct IPC::ParamTraits<content::SyntheticPointerActionParams>;
@@ -93,9 +96,8 @@ struct CONTENT_EXPORT SyntheticPointerActionParams {
   PointerActionType pointer_action_type_;
   // The position of the pointer, where it presses or moves to.
   gfx::PointF position_;
-  // The index of the pointer in the pointer action sequence passed from the
-  // user API.
-  int index_;
+  // The id of the pointer given by the users.
+  uint32_t pointer_id_;
   Button button_;
 };
 

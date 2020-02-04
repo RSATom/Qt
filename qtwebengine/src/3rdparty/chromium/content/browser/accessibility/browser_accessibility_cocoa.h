@@ -8,8 +8,26 @@
 #import <Cocoa/Cocoa.h>
 
 #import "base/mac/scoped_nsobject.h"
+#include "base/strings/string16.h"
 #include "content/browser/accessibility/browser_accessibility.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
+
+namespace content {
+
+// Used to store changes in edit fields, required by VoiceOver in order to
+// support character echo and other announcements during editing.
+struct AXTextEdit {
+  AXTextEdit() = default;
+  AXTextEdit(base::string16 inserted_text, base::string16 deleted_text)
+      : inserted_text(inserted_text), deleted_text(deleted_text) {}
+
+  bool IsEmpty() const { return inserted_text.empty() && deleted_text.empty(); }
+
+  base::string16 inserted_text;
+  base::string16 deleted_text;
+};
+
+}  // namespace content
 
 // BrowserAccessibilityCocoa is a cocoa wrapper around the BrowserAccessibility
 // object. The renderer converts webkit's accessibility tree into a
@@ -17,8 +35,10 @@
 // This class converts it into a format Cocoa can query.
 @interface BrowserAccessibilityCocoa : NSObject {
  @private
-  content::BrowserAccessibility* browserAccessibility_;
+  content::BrowserAccessibility* owner_;
   base::scoped_nsobject<NSMutableArray> children_;
+  // Stores the previous value of an edit field.
+  base::string16 oldValue_;
 }
 
 // This creates a cocoa browser accessibility object around
@@ -35,25 +55,25 @@
 
 // Convenience method to get the internal, cross-platform role
 // from browserAccessibility_.
-- (ui::AXRole)internalRole;
-
-// Convenience method to determine if this object should expose its
-// accessible name in AXValue (as opposed to AXTitle/AXDescription).
-- (BOOL)shouldExposeNameInAXValue;
+- (ax::mojom::Role)internalRole;
 
 // Convenience method to get the BrowserAccessibilityDelegate from
 // the manager.
 - (content::BrowserAccessibilityDelegate*)delegate;
 
 // Get the BrowserAccessibility that this object wraps.
-- (content::BrowserAccessibility*)browserAccessibility;
+- (content::BrowserAccessibility*)owner;
+
+// Computes the text that was added or deleted in a text field after an edit.
+- (content::AXTextEdit)computeTextEdit;
 
 // Determines if this object is alive, i.e. it hasn't been detached.
 - (BOOL)instanceActive;
 
-// Convert the local objet's origin to a global point.
-- (NSPoint)pointInScreen:(NSPoint)origin
-                    size:(NSSize)size;
+// Convert from the view's local coordinate system (with the origin in the upper
+// left) to the primary NSScreen coordinate system (with the origin in the lower
+// left).
+- (NSRect)rectInScreen:(gfx::Rect)rect;
 
 // Return the method name for the given attribute. For testing only.
 - (NSString*)methodNameForAttribute:(NSString*)attribute;
@@ -84,6 +104,8 @@
 @property(nonatomic, readonly) NSNumber* disclosureLevel;
 @property(nonatomic, readonly) id disclosedRows;
 @property(nonatomic, readonly) NSString* dropEffects;
+// Returns the object at the root of the current edit field, if any.
+@property(nonatomic, readonly) id editableAncestor;
 @property(nonatomic, readonly) NSNumber* enabled;
 // Returns a text marker that points to the last character in the document that
 // can be selected with Voiceover.

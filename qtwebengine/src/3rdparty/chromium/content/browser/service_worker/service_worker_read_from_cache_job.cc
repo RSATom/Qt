@@ -37,9 +37,25 @@ ServiceWorkerReadFromCacheJob::ServiceWorkerReadFromCacheJob(
       version_(version),
       weak_factory_(this) {
   DCHECK(version_);
-  DCHECK(resource_type_ == RESOURCE_TYPE_SCRIPT ||
-         (resource_type_ == RESOURCE_TYPE_SERVICE_WORKER &&
-          version_->script_url() == request_->url()));
+#if DCHECK_IS_ON()
+  switch (version_->script_type()) {
+    case blink::mojom::ScriptType::kClassic:
+      // For classic scripts, the main service worker script should have the
+      // "service worker" resource type and imported scripts should have the
+      // "script" resource type.
+      DCHECK(resource_type_ == RESOURCE_TYPE_SCRIPT ||
+             (resource_type_ == RESOURCE_TYPE_SERVICE_WORKER &&
+              version_->script_url() == request_->url()));
+      break;
+    case blink::mojom::ScriptType::kModule:
+      // For module scripts, both the main service worker script and
+      // static-imported scripts should have the "service worker" resource type
+      // because static import inherits the resource type of the top-level
+      // module script.
+      DCHECK_EQ(RESOURCE_TYPE_SERVICE_WORKER, resource_type_);
+      break;
+  }
+#endif  // DCHECK_IS_ON()
   TRACE_EVENT_NESTABLE_ASYNC_BEGIN1("ServiceWorker",
                                     "ServiceWorkerReadFromCacheJob", this,
                                     "URL", request_->url().spec());
@@ -53,8 +69,8 @@ ServiceWorkerReadFromCacheJob::~ServiceWorkerReadFromCacheJob() {
 void ServiceWorkerReadFromCacheJob::Start() {
   TRACE_EVENT_NESTABLE_ASYNC_BEGIN0("ServiceWorker", "ReadInfo", this);
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&ServiceWorkerReadFromCacheJob::StartAsync,
-                            weak_factory_.GetWeakPtr()));
+      FROM_HERE, base::BindOnce(&ServiceWorkerReadFromCacheJob::StartAsync,
+                                weak_factory_.GetWeakPtr()));
 }
 
 void ServiceWorkerReadFromCacheJob::Kill() {
@@ -117,9 +133,10 @@ int ServiceWorkerReadFromCacheJob::ReadRawData(net::IOBuffer* buf,
   DCHECK(!reader_->IsReadPending());
   TRACE_EVENT_NESTABLE_ASYNC_BEGIN1("ServiceWorker", "ReadRawData", this,
                                     "buf_size", buf_size);
-  reader_->ReadData(buf, buf_size,
-                    base::Bind(&ServiceWorkerReadFromCacheJob::OnReadComplete,
-                               weak_factory_.GetWeakPtr()));
+  reader_->ReadData(
+      buf, buf_size,
+      base::BindOnce(&ServiceWorkerReadFromCacheJob::OnReadComplete,
+                     weak_factory_.GetWeakPtr()));
   return net::ERR_IO_PENDING;
 }
 
@@ -140,8 +157,8 @@ void ServiceWorkerReadFromCacheJob::StartAsync() {
   http_info_io_buffer_ = new HttpResponseInfoIOBuffer;
   reader_->ReadInfo(
       http_info_io_buffer_.get(),
-      base::Bind(&ServiceWorkerReadFromCacheJob::OnReadInfoComplete,
-                 weak_factory_.GetWeakPtr()));
+      base::BindOnce(&ServiceWorkerReadFromCacheJob::OnReadInfoComplete,
+                     weak_factory_.GetWeakPtr()));
 }
 
 const net::HttpResponseInfo* ServiceWorkerReadFromCacheJob::http_info() const {
@@ -200,7 +217,8 @@ void ServiceWorkerReadFromCacheJob::SetupRangeResponse(int resource_size) {
 void ServiceWorkerReadFromCacheJob::Done(const net::URLRequestStatus& status) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (!status.is_success()) {
-    version_->SetStartWorkerStatusCode(SERVICE_WORKER_ERROR_DISK_CACHE);
+    version_->SetStartWorkerStatusCode(
+        blink::ServiceWorkerStatusCode::kErrorDiskCache);
     // TODO(falken): Retry before evicting.
     if (context_) {
       ServiceWorkerRegistration* registration =

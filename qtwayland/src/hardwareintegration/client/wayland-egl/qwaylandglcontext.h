@@ -83,18 +83,16 @@ public:
 private:
     void updateGLFormat();
 
-    EGLDisplay m_eglDisplay;
-    QWaylandDisplay *m_display;
+    EGLDisplay m_eglDisplay = EGL_NO_DISPLAY;
+    QWaylandDisplay *m_display = nullptr;
     EGLContext m_context;
     EGLContext m_shareEGLContext;
+    EGLContext m_decorationsContext;
     EGLConfig m_config;
     QSurfaceFormat m_format;
-    DecorationsBlitter *m_blitter;
-    bool mUseNativeDefaultFbo;
+    DecorationsBlitter *m_blitter = nullptr;
     uint m_api;
-    bool mSupportNonBlockingSwap;
-
-    friend class DecorationsBlitter;
+    bool mSupportNonBlockingSwap = true;
 };
 
 }

@@ -7,6 +7,7 @@
 #include <map>
 #include <string>
 
+#include "net/base/network_change_notifier.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
@@ -75,16 +76,19 @@ TEST(NetworkQualityEstimatorParamsTest, TypicalNetworkQualities) {
 
     EXPECT_NE(nqe::internal::InvalidRTT(),
               params.TypicalNetworkQuality(ect).transport_rtt());
-    EXPECT_GT(params.TypicalNetworkQuality(ect).transport_rtt(),
+    EXPECT_EQ(nqe::internal::InvalidRTT(),
               params.ConnectionThreshold(ect).transport_rtt());
 
-    // The typical throughput for an effective connection type should not be
-    // more than the threshold throughput.
-    if (params.ConnectionThreshold(ect).downstream_throughput_kbps() !=
-        nqe::internal::kInvalidThroughput) {
-      EXPECT_LT(params.TypicalNetworkQuality(ect).downstream_throughput_kbps(),
-                params.ConnectionThreshold(ect).downstream_throughput_kbps());
-    }
+    EXPECT_NE(nqe::internal::INVALID_RTT_THROUGHPUT,
+              params.TypicalNetworkQuality(ect).downstream_throughput_kbps());
+    EXPECT_EQ(nqe::internal::INVALID_RTT_THROUGHPUT,
+              params.ConnectionThreshold(ect).downstream_throughput_kbps());
+
+    EXPECT_EQ(params.TypicalNetworkQuality(ect).http_rtt(),
+              NetworkQualityEstimatorParams::GetDefaultTypicalHttpRtt(ect));
+    EXPECT_EQ(
+        params.TypicalNetworkQuality(ect).downstream_throughput_kbps(),
+        NetworkQualityEstimatorParams::GetDefaultTypicalDownlinkKbps(ect));
   }
 
   // The typical network quality of 4G connection should be at least as fast
@@ -92,49 +96,47 @@ TEST(NetworkQualityEstimatorParamsTest, TypicalNetworkQualities) {
   EXPECT_LT(
       params.TypicalNetworkQuality(EFFECTIVE_CONNECTION_TYPE_4G).http_rtt(),
       params.ConnectionThreshold(EFFECTIVE_CONNECTION_TYPE_3G).http_rtt());
-  EXPECT_LT(
-      params.TypicalNetworkQuality(EFFECTIVE_CONNECTION_TYPE_4G)
-          .transport_rtt(),
-      params.ConnectionThreshold(EFFECTIVE_CONNECTION_TYPE_3G).transport_rtt());
-  if (params.ConnectionThreshold(EFFECTIVE_CONNECTION_TYPE_3G)
-          .downstream_throughput_kbps() != nqe::internal::kInvalidThroughput) {
-    EXPECT_GT(params.TypicalNetworkQuality(EFFECTIVE_CONNECTION_TYPE_4G)
-                  .downstream_throughput_kbps(),
-              params.ConnectionThreshold(EFFECTIVE_CONNECTION_TYPE_3G)
-                  .downstream_throughput_kbps());
-  }
+
+  EXPECT_NE(nqe::internal::InvalidRTT(),
+            params.TypicalNetworkQuality(EFFECTIVE_CONNECTION_TYPE_4G)
+                .transport_rtt());
+  EXPECT_EQ(
+      nqe::internal::InvalidRTT(),
+      params.ConnectionThreshold(EFFECTIVE_CONNECTION_TYPE_4G).transport_rtt());
+
+  EXPECT_NE(nqe::internal::INVALID_RTT_THROUGHPUT,
+            params.TypicalNetworkQuality(EFFECTIVE_CONNECTION_TYPE_4G)
+                .downstream_throughput_kbps());
+
+  EXPECT_EQ(nqe::internal::INVALID_RTT_THROUGHPUT,
+            params.ConnectionThreshold(EFFECTIVE_CONNECTION_TYPE_4G)
+                .downstream_throughput_kbps());
 }
 
-TEST(NetworkQualityEstimatorParamsTest, ObtainAlgorithmToUseFromParams) {
-  const struct {
-    bool set_variation_param;
-    std::string algorithm;
-    NetworkQualityEstimatorParams::EffectiveConnectionTypeAlgorithm
-        expected_algorithm;
-  } tests[] = {
-      {false, "",
-       NetworkQualityEstimatorParams::EffectiveConnectionTypeAlgorithm::
-           HTTP_RTT_AND_DOWNSTREAM_THROUGHOUT},
-      {true, "",
-       NetworkQualityEstimatorParams::EffectiveConnectionTypeAlgorithm::
-           HTTP_RTT_AND_DOWNSTREAM_THROUGHOUT},
-      {true, "HttpRTTAndDownstreamThroughput",
-       NetworkQualityEstimatorParams::EffectiveConnectionTypeAlgorithm::
-           HTTP_RTT_AND_DOWNSTREAM_THROUGHOUT},
-      {true, "TransportRTTOrDownstreamThroughput",
-       NetworkQualityEstimatorParams::EffectiveConnectionTypeAlgorithm::
-           TRANSPORT_RTT_OR_DOWNSTREAM_THROUGHOUT},
-  };
+// Verify ECT when forced ECT is Slow-2G-On-Cellular.
+TEST(NetworkQualityEstimatorParamsTest, GetForcedECTCellularOnly) {
+  std::map<std::string, std::string> variation_params;
+  // Set force-effective-connection-type to Slow-2G-On-Cellular.
+  variation_params[kForceEffectiveConnectionType] =
+      kEffectiveConnectionTypeSlow2GOnCellular;
 
-  for (const auto& test : tests) {
-    std::map<std::string, std::string> variation_params;
-    if (test.set_variation_param)
-      variation_params["effective_connection_type_algorithm"] = test.algorithm;
+  NetworkQualityEstimatorParams params(variation_params);
 
-    NetworkQualityEstimatorParams params(variation_params);
-    EXPECT_EQ(test.expected_algorithm,
-              params.GetEffectiveConnectionTypeAlgorithm())
-        << test.algorithm;
+  for (size_t i = 0; i < NetworkChangeNotifier::ConnectionType::CONNECTION_LAST;
+       ++i) {
+    NetworkChangeNotifier::ConnectionType connection_type =
+        static_cast<NetworkChangeNotifier::ConnectionType>(i);
+    base::Optional<EffectiveConnectionType> ect =
+        params.GetForcedEffectiveConnectionType(connection_type);
+
+    if (net::NetworkChangeNotifier::IsConnectionCellular(connection_type)) {
+      // Test for cellular connection types. Make sure that ECT is Slow-2G.
+      EXPECT_EQ(EFFECTIVE_CONNECTION_TYPE_SLOW_2G, ect);
+    } else {
+      // Test for non-cellular connection types. Make sure that there is no
+      // forced ect.
+      EXPECT_EQ(base::nullopt, ect);
+    }
   }
 }
 

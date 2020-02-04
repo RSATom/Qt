@@ -5,75 +5,42 @@
 #ifndef COMPONENTS_METRICS_CALL_STACK_PROFILE_METRICS_PROVIDER_H_
 #define COMPONENTS_METRICS_CALL_STACK_PROFILE_METRICS_PROVIDER_H_
 
-#include <vector>
+#include <string>
 
 #include "base/feature_list.h"
 #include "base/macros.h"
-#include "base/memory/ref_counted.h"
-#include "base/profiler/stack_sampling_profiler.h"
-#include "components/metrics/call_stack_profile_params.h"
+#include "base/time/time.h"
 #include "components/metrics/metrics_provider.h"
+#include "third_party/metrics_proto/sampled_profile.pb.h"
 
 namespace metrics {
 
 class ChromeUserMetricsExtension;
 
-// Internal to expose functions for testing.
-namespace internal {
-
-// Returns the process uptime as a TimeDelta.
-base::TimeDelta GetUptime();
-
-// Get a callback for use with StackSamplingProfiler that provides completed
-// profiles to this object. The callback should be immediately passed to the
-// StackSamplingProfiler, and should not be reused between
-// StackSamplingProfilers. This function may be called on any thread.
-base::StackSamplingProfiler::CompletedCallback GetProfilerCallback(
-    CallStackProfileParams* params);
-
-}  // namespace internal
-
 // Performs metrics logging for the stack sampling profiler.
 class CallStackProfileMetricsProvider : public MetricsProvider {
  public:
-  // These milestones of a process lifetime can be passed as process "mile-
-  // stones" to StackSmaplingProfile::SetProcessMilestone(). Be sure to update
-  // the translation constants at the top of the .cc file when this is changed.
-  enum Milestones : int {
-    MAIN_LOOP_START,
-    MAIN_NAVIGATION_START,
-    MAIN_NAVIGATION_FINISHED,
-    FIRST_NONEMPTY_PAINT,
-
-    SHUTDOWN_START,
-
-    MILESTONES_MAX_VALUE
-  };
-
   CallStackProfileMetricsProvider();
   ~CallStackProfileMetricsProvider() override;
 
-  // Returns a callback for use with StackSamplingProfiler that sets up
-  // parameters for browser process startup sampling. The callback should be
-  // immediately passed to the StackSamplingProfiler, and should not be reused.
-  static base::StackSamplingProfiler::CompletedCallback
-  GetProfilerCallbackForBrowserProcessStartup();
+  // Receives SampledProfile protobuf instances. May be called on any thread.
+  static void ReceiveProfile(base::TimeTicks profile_start_time,
+                             SampledProfile profile);
 
-  // Provides completed stack profiles to the metrics provider. Intended for use
-  // when receiving profiles over IPC. In-process StackSamplingProfiler users
-  // should instead use a variant of GetProfilerCallback*(). |profiles| is not
-  // const& because it must be passed with std::move.
-  static void ReceiveCompletedProfiles(
-      CallStackProfileParams* params,
-      base::StackSamplingProfiler::CallStackProfiles profiles);
-
-  // Whether periodic sampling is enabled via a trial.
-  static bool IsPeriodicSamplingEnabled();
+  // Receives serialized SampledProfile protobuf instances. May be called on any
+  // thread.  Note that receiving serialized profiles is supported separately so
+  // that profiles received in serialized form can be kept in that form until
+  // upload. This significantly reduces memory costs. Serialized profile strings
+  // may be large, so the caller should use std::move() to provide them to this
+  // API rather than copying by value.
+  static void ReceiveSerializedProfile(base::TimeTicks profile_start_time,
+                                       std::string serialized_sampled_profile);
 
   // MetricsProvider:
   void OnRecordingEnabled() override;
   void OnRecordingDisabled() override;
-  void ProvideGeneralMetrics(ChromeUserMetricsExtension* uma_proto) override;
+  void ProvideCurrentSessionData(
+      ChromeUserMetricsExtension* uma_proto) override;
 
  protected:
   // base::Feature for reporting profiles. Provided here for test use.
@@ -83,10 +50,6 @@ class CallStackProfileMetricsProvider : public MetricsProvider {
   static void ResetStaticStateForTesting();
 
  private:
-  // Returns true if reporting of profiles is enabled according to the
-  // controlling Finch field trial.
-  static bool IsReportingEnabledByFieldTrial();
-
   DISALLOW_COPY_AND_ASSIGN(CallStackProfileMetricsProvider);
 };
 

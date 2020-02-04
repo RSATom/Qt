@@ -5,11 +5,11 @@
 #ifndef UI_BASE_CLIPBOARD_CLIPBOARD_MONITOR_H_
 #define UI_BASE_CLIPBOARD_CLIPBOARD_MONITOR_H_
 
+#include "base/component_export.h"
 #include "base/macros.h"
-#include "base/memory/singleton.h"
+#include "base/no_destructor.h"
 #include "base/observer_list.h"
 #include "base/threading/thread_checker.h"
-#include "ui/base/ui_base_export.h"
 
 namespace ui {
 
@@ -17,8 +17,7 @@ class ClipboardObserver;
 
 // A singleton instance to monitor and notify ClipboardObservers for clipboard
 // changes.
-class UI_BASE_EXPORT ClipboardMonitor
-    : NON_EXPORTED_BASE(public base::ThreadChecker) {
+class COMPONENT_EXPORT(BASE_CLIPBOARD) ClipboardMonitor {
  public:
   static ClipboardMonitor* GetInstance();
 
@@ -32,15 +31,18 @@ class UI_BASE_EXPORT ClipboardMonitor
   virtual void NotifyClipboardDataChanged();
 
  private:
-  friend struct base::DefaultSingletonTraits<ClipboardMonitor>;
+  friend class base::NoDestructor<ClipboardMonitor>;
+
   ClipboardMonitor();
   virtual ~ClipboardMonitor();
 
-  base::ObserverList<ClipboardObserver> observers_;
+  base::ObserverList<ClipboardObserver>::Unchecked observers_;
+
+  THREAD_CHECKER(thread_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(ClipboardMonitor);
 };
 
 }  // namespace ui
 
-#endif /* UI_BASE_CLIPBOARD_CLIPBOARD_MONITOR_H_ */
+#endif  // UI_BASE_CLIPBOARD_CLIPBOARD_MONITOR_H_

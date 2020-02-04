@@ -10,17 +10,18 @@ config("gcapi_config") {
   cflags = [
     "-isysroot",
     sysroot,
-    "-mmacosx-version-min=10.5",
+    "-mmacosx-version-min=10.6",
   ]
   ldflags = [
     "-isysroot",
     sysroot,
-    "-mmacosx-version-min=10.5",
+    "-mmacosx-version-min=10.6",
   ]
 }
 
 static_library("gcapi_lib") {
   complete_static_lib = true
+  configs -= [ "//build/config/compiler:thin_archive" ]
   sources = [
     "gcapi.h",
     "gcapi.mm",

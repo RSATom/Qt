@@ -21,7 +21,7 @@
 #include "base/synchronization/lock.h"
 #include "build/build_config.h"
 #include "ui/gfx/font.h"
-#include "ui/gfx/linux_font_delegate.h"
+#include "ui/gfx/skia_font_delegate.h"
 #include "ui/gfx/switches.h"
 
 namespace gfx {
@@ -138,8 +138,7 @@ bool QueryFontconfig(const FontRenderParamsQuery& query,
 
   FcPatternAddBool(query_pattern.get(), FC_SCALABLE, FcTrue);
 
-  for (std::vector<std::string>::const_iterator it = query.families.begin();
-       it != query.families.end(); ++it) {
+  for (auto it = query.families.begin(); it != query.families.end(); ++it) {
     FcPatternAddString(query_pattern.get(),
         FC_FAMILY, reinterpret_cast<const FcChar8*>(it->c_str()));
   }
@@ -267,7 +266,7 @@ FontRenderParams GetFontRenderParams(const FontRenderParamsQuery& query,
 
   // Start with the delegate's settings, but let Fontconfig have the final say.
   FontRenderParams params;
-  const LinuxFontDelegate* delegate = LinuxFontDelegate::instance();
+  const SkiaFontDelegate* delegate = SkiaFontDelegate::instance();
   if (delegate)
     params = delegate->GetDefaultFontRenderParams();
   QueryFontconfig(actual_query, &params, family_out);
@@ -278,8 +277,17 @@ FontRenderParams GetFontRenderParams(const FontRenderParamsQuery& query,
     params.hinting = FontRenderParams::HINTING_FULL;
     params.subpixel_rendering = FontRenderParams::SUBPIXEL_RENDERING_NONE;
     params.subpixel_positioning = false;
-  } else {
+  } else if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+                 switches::kDisableFontSubpixelPositioning)) {
+#if !defined(OS_CHROMEOS)
     params.subpixel_positioning = actual_query.device_scale_factor > 1.0f;
+#else
+    // We want to enable subpixel positioning for fractional dsf.
+    params.subpixel_positioning =
+        std::abs(std::round(actual_query.device_scale_factor) -
+                 actual_query.device_scale_factor) >
+        std::numeric_limits<float>::epsilon();
+#endif  // !defined(OS_CHROMEOS)
 
     // To enable subpixel positioning, we need to disable hinting.
     if (params.subpixel_positioning)

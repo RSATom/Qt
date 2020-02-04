@@ -12,15 +12,19 @@
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_indirect_object_holder.h"
 #include "core/fpdfapi/parser/cpdf_parser.h"
-#include "core/fpdfapi/parser/fpdf_parser_decode.h"
+#include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fxcrt/fx_string.h"
 #include "third_party/base/logging.h"
-#include "third_party/base/stl_util.h"
+#include "third_party/base/ptr_util.h"
 
 CPDF_Object::~CPDF_Object() {}
 
-CPDF_Object* CPDF_Object::GetDirect() const {
-  return const_cast<CPDF_Object*>(this);
+CPDF_Object* CPDF_Object::GetDirect() {
+  return this;
+}
+
+const CPDF_Object* CPDF_Object::GetDirect() const {
+  return this;
 }
 
 std::unique_ptr<CPDF_Object> CPDF_Object::CloneObjectNonCyclic(
@@ -39,12 +43,12 @@ std::unique_ptr<CPDF_Object> CPDF_Object::CloneNonCyclic(
   return Clone();
 }
 
-CFX_ByteString CPDF_Object::GetString() const {
-  return CFX_ByteString();
+ByteString CPDF_Object::GetString() const {
+  return ByteString();
 }
 
-CFX_WideString CPDF_Object::GetUnicodeText() const {
-  return CFX_WideString();
+WideString CPDF_Object::GetUnicodeText() const {
+  return WideString();
 }
 
 float CPDF_Object::GetNumber() const {
@@ -55,11 +59,15 @@ int CPDF_Object::GetInteger() const {
   return 0;
 }
 
-CPDF_Dictionary* CPDF_Object::GetDict() const {
+CPDF_Dictionary* CPDF_Object::GetDict() {
   return nullptr;
 }
 
-void CPDF_Object::SetString(const CFX_ByteString& str) {
+const CPDF_Dictionary* CPDF_Object::GetDict() const {
+  return nullptr;
+}
+
+void CPDF_Object::SetString(const ByteString& str) {
   NOTREACHED();
 }
 
@@ -92,6 +100,10 @@ bool CPDF_Object::IsStream() const {
 }
 
 bool CPDF_Object::IsString() const {
+  return false;
+}
+
+bool CPDF_Object::IsNull() const {
   return false;
 }
 
@@ -157,4 +169,13 @@ CPDF_String* CPDF_Object::AsString() {
 
 const CPDF_String* CPDF_Object::AsString() const {
   return nullptr;
+}
+
+std::unique_ptr<CPDF_Object> CPDF_Object::MakeReference(
+    CPDF_IndirectObjectHolder* holder) const {
+  if (IsInline()) {
+    NOTREACHED();
+    return nullptr;
+  }
+  return pdfium::MakeUnique<CPDF_Reference>(holder, GetObjNum());
 }

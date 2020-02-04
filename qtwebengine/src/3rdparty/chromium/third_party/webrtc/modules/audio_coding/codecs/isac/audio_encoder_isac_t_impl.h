@@ -8,62 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_CODING_CODECS_ISAC_AUDIO_ENCODER_ISAC_T_IMPL_H_
-#define WEBRTC_MODULES_AUDIO_CODING_CODECS_ISAC_AUDIO_ENCODER_ISAC_T_IMPL_H_
+#ifndef MODULES_AUDIO_CODING_CODECS_ISAC_AUDIO_ENCODER_ISAC_T_IMPL_H_
+#define MODULES_AUDIO_CODING_CODECS_ISAC_AUDIO_ENCODER_ISAC_T_IMPL_H_
 
-#include "webrtc/common_types.h"
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/string_to_number.h"
+#include "rtc_base/checks.h"
 
 namespace webrtc {
-namespace {  // NOLINT (not a "regular" header file)
-int GetIsacMaxBitrate(int clockrate_hz) {
-  return (clockrate_hz == 32000) ? 56000 : 32000;
-}
-}  // namespace
-
-template <typename T>
-typename AudioEncoderIsacT<T>::Config CreateIsacConfig(
-    const CodecInst& codec_inst,
-    const rtc::scoped_refptr<LockedIsacBandwidthInfo>& bwinfo) {
-  typename AudioEncoderIsacT<T>::Config config;
-  config.bwinfo = bwinfo;
-  config.payload_type = codec_inst.pltype;
-  config.sample_rate_hz = codec_inst.plfreq;
-  config.frame_size_ms =
-      rtc::CheckedDivExact(1000 * codec_inst.pacsize, config.sample_rate_hz);
-  config.adaptive_mode = (codec_inst.rate == -1);
-  if (codec_inst.rate != -1)
-    config.bit_rate = codec_inst.rate;
-  return config;
-}
-
-template <typename T>
-typename AudioEncoderIsacT<T>::Config CreateIsacConfig(
-    int payload_type,
-    const SdpAudioFormat& format) {
-  typename AudioEncoderIsacT<T>::Config config;
-  config.payload_type = payload_type;
-  config.sample_rate_hz = format.clockrate_hz;
-
-  // We only support different frame sizes at 16000 Hz.
-  if (config.sample_rate_hz == 16000) {
-    auto ptime_iter = format.parameters.find("ptime");
-    if (ptime_iter != format.parameters.end()) {
-      auto ptime = rtc::StringToNumber<int>(ptime_iter->second);
-      if (ptime && *ptime >= 60) {
-        config.frame_size_ms = 60;
-      } else {
-        config.frame_size_ms = 30;
-      }
-    }
-  }
-
-  // Set the default bitrate for ISAC to the maximum bitrate allowed at this
-  // clockrate. At this point, adaptive mode is not used by WebRTC.
-  config.bit_rate = GetIsacMaxBitrate(format.clockrate_hz);
-  return config;
-}
 
 template <typename T>
 bool AudioEncoderIsacT<T>::Config::IsOk() const {
@@ -100,31 +50,6 @@ AudioEncoderIsacT<T>::AudioEncoderIsacT(const Config& config) {
 }
 
 template <typename T>
-AudioEncoderIsacT<T>::AudioEncoderIsacT(
-    const CodecInst& codec_inst,
-    const rtc::scoped_refptr<LockedIsacBandwidthInfo>& bwinfo)
-    : AudioEncoderIsacT(CreateIsacConfig<T>(codec_inst, bwinfo)) {}
-
-template <typename T>
-AudioEncoderIsacT<T>::AudioEncoderIsacT(int payload_type,
-                                        const SdpAudioFormat& format)
-    : AudioEncoderIsacT(CreateIsacConfig<T>(payload_type, format)) {}
-
-template <typename T>
-rtc::Optional<AudioCodecInfo> AudioEncoderIsacT<T>::QueryAudioEncoder(
-    const SdpAudioFormat& format) {
-  if (STR_CASE_CMP(format.name.c_str(), GetPayloadName()) == 0) {
-    Config config = CreateIsacConfig<T>(0, format);
-    if (config.IsOk()) {
-      return rtc::Optional<AudioCodecInfo>(
-          {config.sample_rate_hz, 1, config.bit_rate, 10000,
-           GetIsacMaxBitrate(format.clockrate_hz)});
-    }
-  }
-  return rtc::Optional<AudioCodecInfo>();
-}
-
-template <typename T>
 AudioEncoderIsacT<T>::~AudioEncoderIsacT() {
   RTC_CHECK_EQ(0, T::Free(isac_state_));
 }
@@ -142,9 +67,8 @@ size_t AudioEncoderIsacT<T>::NumChannels() const {
 template <typename T>
 size_t AudioEncoderIsacT<T>::Num10MsFramesInNextPacket() const {
   const int samples_in_next_packet = T::GetNewFrameLen(isac_state_);
-  return static_cast<size_t>(
-      rtc::CheckedDivExact(samples_in_next_packet,
-                           rtc::CheckedDivExact(SampleRateHz(), 100)));
+  return static_cast<size_t>(rtc::CheckedDivExact(
+      samples_in_next_packet, rtc::CheckedDivExact(SampleRateHz(), 100)));
 }
 
 template <typename T>
@@ -175,8 +99,7 @@ AudioEncoder::EncodedInfo AudioEncoderIsacT<T>::EncodeImpl(
   }
 
   size_t encoded_bytes = encoded->AppendData(
-      kSufficientEncodeBufferSizeBytes,
-      [&] (rtc::ArrayView<uint8_t> encoded) {
+      kSufficientEncodeBufferSizeBytes, [&](rtc::ArrayView<uint8_t> encoded) {
         int r = T::Encode(isac_state_, audio.data(), encoded.data());
 
         RTC_CHECK_GE(r, 0) << "Encode failed (error code "
@@ -238,4 +161,4 @@ void AudioEncoderIsacT<T>::RecreateEncoderInstance(const Config& config) {
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_AUDIO_CODING_CODECS_ISAC_AUDIO_ENCODER_ISAC_T_IMPL_H_
+#endif  // MODULES_AUDIO_CODING_CODECS_ISAC_AUDIO_ENCODER_ISAC_T_IMPL_H_

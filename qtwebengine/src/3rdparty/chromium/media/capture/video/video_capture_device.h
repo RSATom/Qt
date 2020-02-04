@@ -28,16 +28,15 @@
 #include "build/build_config.h"
 #include "media/base/video_frame.h"
 #include "media/capture/capture_export.h"
-#include "media/capture/mojo/image_capture.mojom.h"
-#include "media/capture/video/scoped_result_callback.h"
+#include "media/capture/mojom/image_capture.mojom.h"
 #include "media/capture/video/video_capture_buffer_handle.h"
 #include "media/capture/video/video_capture_device_descriptor.h"
 #include "media/capture/video_capture_types.h"
 #include "ui/gfx/gpu_memory_buffer.h"
 
-namespace tracked_objects {
+namespace base {
 class Location;
-}  // namespace tracked_objects
+}  // namespace base
 
 namespace media {
 
@@ -96,8 +95,8 @@ class CAPTURE_EXPORT VideoCaptureDevice
       class CAPTURE_EXPORT HandleProvider {
        public:
         virtual ~HandleProvider() {}
-        virtual mojo::ScopedSharedBufferHandle
-        GetHandleForInterProcessTransit() = 0;
+        virtual mojo::ScopedSharedBufferHandle GetHandleForInterProcessTransit(
+            bool read_only) = 0;
         virtual base::SharedMemoryHandle
         GetNonOwnedSharedMemoryHandleForLegacyIPC() = 0;
         virtual std::unique_ptr<VideoCaptureBufferHandle>
@@ -113,12 +112,17 @@ class CAPTURE_EXPORT VideoCaptureDevice
       Buffer(Buffer&& other);
       Buffer& operator=(Buffer&& other);
 
-      bool is_valid() const { return handle_provider != nullptr; }
-
       int id;
       int frame_feedback_id;
       std::unique_ptr<HandleProvider> handle_provider;
       std::unique_ptr<ScopedAccessPermission> access_permission;
+    };
+
+    // Result code for calls to ReserveOutputBuffer()
+    enum class ReserveResult {
+      kSucceeded,
+      kMaxBufferCountExceeded,
+      kAllocationFailed
     };
 
     virtual ~Client() {}
@@ -148,20 +152,37 @@ class CAPTURE_EXPORT VideoCaptureDevice
                                         base::TimeDelta timestamp,
                                         int frame_feedback_id = 0) = 0;
 
+    // Captured a new video frame, data for which is stored in the
+    // GpuMemoryBuffer pointed to by |buffer|.  The format of the frame is
+    // described by |frame_format|.  Since the memory buffer pointed to by
+    // |buffer| may be allocated with some size/address alignment requirement,
+    // this method takes into consideration the size and offset of each plane in
+    // |buffer| when creating the content of the output buffer.
+    // |clockwise_rotation|, |reference_time|, |timestamp|, and
+    // |frame_feedback_id| serve the same purposes as in OnIncomingCapturedData.
+    virtual void OnIncomingCapturedGfxBuffer(
+        gfx::GpuMemoryBuffer* buffer,
+        const VideoCaptureFormat& frame_format,
+        int clockwise_rotation,
+        base::TimeTicks reference_time,
+        base::TimeDelta timestamp,
+        int frame_feedback_id = 0) = 0;
+
     // Reserve an output buffer into which contents can be captured directly.
-    // The returned Buffer will always be allocated with a memory size suitable
-    // for holding a packed video frame with pixels of |format| format, of
-    // |dimensions| frame dimensions. It is permissible for |dimensions| to be
-    // zero; in which case the returned Buffer does not guarantee memory
+    // The returned |buffer| will always be allocated with a memory size
+    // suitable for holding a packed video frame with pixels of |format| format,
+    // of |dimensions| frame dimensions. It is permissible for |dimensions| to
+    // be zero; in which case the returned Buffer does not guarantee memory
     // backing, but functions as a reservation for external input for the
     // purposes of buffer throttling.
     //
     // The buffer stays reserved for use by the caller as long as it
     // holds on to the contained |buffer_read_write_permission|.
-    virtual Buffer ReserveOutputBuffer(const gfx::Size& dimensions,
-                                       VideoPixelFormat format,
-                                       VideoPixelStorage storage,
-                                       int frame_feedback_id) = 0;
+    virtual ReserveResult ReserveOutputBuffer(const gfx::Size& dimensions,
+                                              VideoPixelFormat format,
+                                              int frame_feedback_id,
+                                              Buffer* buffer)
+        WARN_UNUSED_RESULT = 0;
 
     // Provides VCD::Client with a populated Buffer containing the content of
     // the next video frame. The |buffer| must originate from an earlier call to
@@ -183,20 +204,13 @@ class CAPTURE_EXPORT VideoCaptureDevice
         gfx::Rect visible_rect,
         const VideoFrameMetadata& additional_metadata) = 0;
 
-    // Attempts to reserve the same Buffer provided in the last call to one of
-    // the OnIncomingCapturedBufferXXX() methods. This will fail if the content
-    // of the Buffer has not been preserved, or if the |dimensions|, |format|,
-    // or |storage| disagree with how it was reserved via ReserveOutputBuffer().
-    // When this operation fails, nullptr will be returned.
-    virtual Buffer ResurrectLastOutputBuffer(const gfx::Size& dimensions,
-                                             VideoPixelFormat format,
-                                             VideoPixelStorage storage,
-                                             int new_frame_feedback_id) = 0;
-
     // An error has occurred that cannot be handled and VideoCaptureDevice must
     // be StopAndDeAllocate()-ed. |reason| is a text description of the error.
-    virtual void OnError(const tracked_objects::Location& from_here,
+    virtual void OnError(VideoCaptureError error,
+                         const base::Location& from_here,
                          const std::string& reason) = 0;
+
+    virtual void OnFrameDropped(VideoCaptureFrameDropReason reason) = 0;
 
     // VideoCaptureDevice requests the |message| to be logged.
     virtual void OnLog(const std::string& message) {}
@@ -274,35 +288,36 @@ class CAPTURE_EXPORT VideoCaptureDevice
   // Retrieve the photo capabilities and settings of the device (e.g. zoom
   // levels etc). On success, invokes |callback|. On failure, drops callback
   // without invoking it.
-  using GetPhotoStateCallback =
-      ScopedResultCallback<base::OnceCallback<void(mojom::PhotoStatePtr)>>;
+  using GetPhotoStateCallback = base::OnceCallback<void(mojom::PhotoStatePtr)>;
   virtual void GetPhotoState(GetPhotoStateCallback callback);
 
   // On success, invokes |callback| with value |true|. On failure, drops
   // callback without invoking it.
-  using SetPhotoOptionsCallback =
-      ScopedResultCallback<base::OnceCallback<void(bool)>>;
+  using SetPhotoOptionsCallback = base::OnceCallback<void(bool)>;
   virtual void SetPhotoOptions(mojom::PhotoSettingsPtr settings,
                                SetPhotoOptionsCallback callback);
 
   // Asynchronously takes a photo, possibly reconfiguring the capture objects
-  // and/or interrupting the capture flow. Runs |callback| on the thread
-  // where TakePhoto() is called, if the photo was successfully taken. On
-  // failure, drops callback without invoking it.
-  using TakePhotoCallback =
-      ScopedResultCallback<base::OnceCallback<void(mojom::BlobPtr blob)>>;
+  // and/or interrupting the capture flow. Runs |callback|, if the photo was
+  // successfully taken. On failure, drops callback without invoking it.
+  // Note that |callback| may be runned on a thread different than the thread
+  // where TakePhoto() was called.
+  using TakePhotoCallback = base::OnceCallback<void(mojom::BlobPtr blob)>;
   virtual void TakePhoto(TakePhotoCallback callback);
 
   // Gets the power line frequency, either from the params if specified by the
   // user or from the current system time zone.
-  PowerLineFrequency GetPowerLineFrequency(
-      const VideoCaptureParams& params) const;
+  static PowerLineFrequency GetPowerLineFrequency(
+      const VideoCaptureParams& params);
 
  private:
   // Gets the power line frequency from the current system time zone if this is
   // defined, otherwise returns 0.
-  PowerLineFrequency GetPowerLineFrequencyForLocation() const;
+  static PowerLineFrequency GetPowerLineFrequencyForLocation();
 };
+
+VideoCaptureFrameDropReason ConvertReservationFailureToFrameDropReason(
+    VideoCaptureDevice::Client::ReserveResult reserve_result);
 
 }  // namespace media
 

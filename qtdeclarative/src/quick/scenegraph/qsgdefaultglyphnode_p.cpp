@@ -71,9 +71,9 @@ static inline QVector4D qsg_premultiply(const QVector4D &c, float globalOpacity)
     return QVector4D(c.x() * o, c.y() * o, c.z() * o, o);
 }
 
-static inline int qsg_device_pixel_ratio(QOpenGLContext *ctx)
+static inline qreal qsg_device_pixel_ratio(QOpenGLContext *ctx)
 {
-    int devicePixelRatio = 1;
+    qreal devicePixelRatio = 1;
     if (ctx->surface()->surfaceClass() == QSurface::Window) {
         QWindow *w = static_cast<QWindow *>(ctx->surface());
         if (QQuickWindow *qw = qobject_cast<QQuickWindow *>(w))
@@ -107,7 +107,7 @@ protected:
 
 char const *const *QSGTextMaskShader::attributeNames() const
 {
-    static char const *const attr[] = { "vCoord", "tCoord", 0 };
+    static char const *const attr[] = { "vCoord", "tCoord", nullptr };
     return attr;
 }
 
@@ -141,13 +141,13 @@ void QSGTextMaskShader::updateState(const RenderState &state, QSGMaterial *newEf
 {
     QSGTextMaskMaterial *material = static_cast<QSGTextMaskMaterial *>(newEffect);
     QSGTextMaskMaterial *oldMaterial = static_cast<QSGTextMaskMaterial *>(oldEffect);
-    Q_ASSERT(oldEffect == 0 || newEffect->type() == oldEffect->type());
+    Q_ASSERT(oldEffect == nullptr || newEffect->type() == oldEffect->type());
     bool updated = material->ensureUpToDate();
     Q_ASSERT(material->texture());
 
-    Q_ASSERT(oldMaterial == 0 || oldMaterial->texture());
+    Q_ASSERT(oldMaterial == nullptr || oldMaterial->texture());
     if (updated
-            || oldMaterial == 0
+            || oldMaterial == nullptr
             || oldMaterial->texture()->textureId() != material->texture()->textureId()) {
         program()->setUniformValue(m_textureScale_id, QVector2D(1.0 / material->cacheTextureWidth(),
                                                                1.0 / material->cacheTextureHeight()));
@@ -190,7 +190,7 @@ void QSG8BitTextMaskShader::updateState(const RenderState &state, QSGMaterial *n
     QSGTextMaskMaterial *material = static_cast<QSGTextMaskMaterial *>(newEffect);
     QSGTextMaskMaterial *oldMaterial = static_cast<QSGTextMaskMaterial *>(oldEffect);
 
-    if (oldMaterial == 0 || material->color() != oldMaterial->color() || state.isOpacityDirty()) {
+    if (oldMaterial == nullptr || material->color() != oldMaterial->color() || state.isOpacityDirty()) {
         QVector4D color = qsg_premultiply(material->color(), state.opacity());
         program()->setUniformValue(m_color_id, color);
     }
@@ -282,7 +282,7 @@ void QSG24BitTextMaskShader::updateState(const RenderState &state, QSGMaterial *
     QSGTextMaskMaterial *material = static_cast<QSGTextMaskMaterial *>(newEffect);
     QSGTextMaskMaterial *oldMaterial = static_cast<QSGTextMaskMaterial *>(oldEffect);
 
-    if (oldMaterial == 0 || material->color() != oldMaterial->color() || state.isOpacityDirty()) {
+    if (oldMaterial == nullptr || material->color() != oldMaterial->color() || state.isOpacityDirty()) {
         QVector4D color = material->color();
         if (useSRGB())
             color = qt_sRGB_to_linear_RGB(color);
@@ -301,7 +301,7 @@ public:
         setShaderSourceFile(QOpenGLShader::Fragment, QStringLiteral(":/qt-project.org/scenegraph/shaders/32bitcolortext.frag"));
     }
 
-    void updateState(const RenderState &state, QSGMaterial *newEffect, QSGMaterial *oldEffect) Q_DECL_OVERRIDE;
+    void updateState(const RenderState &state, QSGMaterial *newEffect, QSGMaterial *oldEffect) override;
 };
 
 void QSG32BitColorTextShader::updateState(const RenderState &state, QSGMaterial *newEffect, QSGMaterial *oldEffect)
@@ -310,7 +310,7 @@ void QSG32BitColorTextShader::updateState(const RenderState &state, QSGMaterial 
     QSGTextMaskMaterial *material = static_cast<QSGTextMaskMaterial *>(newEffect);
     QSGTextMaskMaterial *oldMaterial = static_cast<QSGTextMaskMaterial *>(oldEffect);
 
-    if (oldMaterial == Q_NULLPTR || material->color() != oldMaterial->color() || state.isOpacityDirty()) {
+    if (oldMaterial == nullptr || material->color() != oldMaterial->color() || state.isOpacityDirty()) {
         float opacity = material->color().w() * state.opacity();
         program()->setUniformValue(m_color_id, opacity);
     }
@@ -346,20 +346,20 @@ void QSGStyledTextShader::updateState(const RenderState &state,
                                       QSGMaterial *newEffect,
                                       QSGMaterial *oldEffect)
 {
-    Q_ASSERT(oldEffect == 0 || newEffect->type() == oldEffect->type());
+    Q_ASSERT(oldEffect == nullptr || newEffect->type() == oldEffect->type());
 
     QSGStyledTextMaterial *material = static_cast<QSGStyledTextMaterial *>(newEffect);
     QSGStyledTextMaterial *oldMaterial = static_cast<QSGStyledTextMaterial *>(oldEffect);
 
-    if (oldMaterial == 0 || oldMaterial->styleShift() != material->styleShift())
+    if (oldMaterial == nullptr || oldMaterial->styleShift() != material->styleShift())
         program()->setUniformValue(m_shift_id, material->styleShift());
 
-    if (oldMaterial == 0 || material->color() != oldMaterial->color() || state.isOpacityDirty()) {
+    if (oldMaterial == nullptr || material->color() != oldMaterial->color() || state.isOpacityDirty()) {
         QVector4D color = qsg_premultiply(material->color(), state.opacity());
         program()->setUniformValue(m_color_id, color);
     }
 
-    if (oldMaterial == 0 || material->styleColor() != oldMaterial->styleColor() || state.isOpacityDirty()) {
+    if (oldMaterial == nullptr || material->styleColor() != oldMaterial->styleColor() || state.isOpacityDirty()) {
         QVector4D styleColor = qsg_premultiply(material->styleColor(), state.opacity());
         program()->setUniformValue(m_styleColor_id, styleColor);
     }
@@ -367,9 +367,9 @@ void QSGStyledTextShader::updateState(const RenderState &state,
     bool updated = material->ensureUpToDate();
     Q_ASSERT(material->texture());
 
-    Q_ASSERT(oldMaterial == 0 || oldMaterial->texture());
+    Q_ASSERT(oldMaterial == nullptr || oldMaterial->texture());
     if (updated
-            || oldMaterial == 0
+            || oldMaterial == nullptr
             || oldMaterial->texture()->textureId() != material->texture()->textureId()) {
         program()->setUniformValue(m_textureScale_id, QVector2D(1.0 / material->cacheTextureWidth(),
                                                                 1.0 / material->cacheTextureHeight()));
@@ -399,10 +399,11 @@ public:
     }
 };
 
-QSGTextMaskMaterial::QSGTextMaskMaterial(const QRawFont &font, QFontEngine::GlyphFormat glyphFormat)
-    : m_texture(0)
-    , m_glyphCache(0)
+QSGTextMaskMaterial::QSGTextMaskMaterial(const QVector4D &color, const QRawFont &font, QFontEngine::GlyphFormat glyphFormat)
+    : m_texture(nullptr)
+    , m_glyphCache(nullptr)
     , m_font(font)
+    , m_color(color)
 {
     init(glyphFormat);
 }
@@ -412,14 +413,32 @@ QSGTextMaskMaterial::~QSGTextMaskMaterial()
     delete m_texture;
 }
 
+void QSGTextMaskMaterial::setColor(const QVector4D &color)
+{
+    if (m_color == color)
+        return;
+
+    m_color = color;
+
+    // If it is an RGB cache, then the pen color is actually part of the cache key
+    // so it has to be updated
+    if (m_glyphCache != nullptr && m_glyphCache->glyphFormat() == QFontEngine::Format_ARGB)
+        updateCache(QFontEngine::Format_ARGB);
+}
+
 void QSGTextMaskMaterial::init(QFontEngine::GlyphFormat glyphFormat)
 {
     Q_ASSERT(m_font.isValid());
 
     setFlag(Blending, true);
 
+    updateCache(glyphFormat);
+}
+
+void QSGTextMaskMaterial::updateCache(QFontEngine::GlyphFormat glyphFormat)
+{
     QOpenGLContext *ctx = const_cast<QOpenGLContext *>(QOpenGLContext::currentContext());
-    Q_ASSERT(ctx != 0);
+    Q_ASSERT(ctx != nullptr);
 
     // The following piece of code will read/write to the font engine's caches,
     // potentially from different threads. However, this is safe because this
@@ -437,20 +456,21 @@ void QSGTextMaskMaterial::init(QFontEngine::GlyphFormat glyphFormat)
 
         qreal devicePixelRatio = qsg_device_pixel_ratio(ctx);
 
-
         QTransform glyphCacheTransform = QTransform::fromScale(devicePixelRatio, devicePixelRatio);
         if (!fontEngine->supportsTransformation(glyphCacheTransform))
             glyphCacheTransform = QTransform();
 
-        m_glyphCache = fontEngine->glyphCache(ctx, glyphFormat, glyphCacheTransform);
+        QColor color = glyphFormat == QFontEngine::Format_ARGB ? QColor::fromRgbF(m_color.x(), m_color.y(), m_color.z(), m_color.w()) : QColor();
+        m_glyphCache = fontEngine->glyphCache(ctx, glyphFormat, glyphCacheTransform, color);
         if (!m_glyphCache || int(m_glyphCache->glyphFormat()) != glyphFormat) {
-            m_glyphCache = new QOpenGLTextureGlyphCache(glyphFormat, glyphCacheTransform);
+            m_glyphCache = new QOpenGLTextureGlyphCache(glyphFormat, glyphCacheTransform, color);
             fontEngine->setGlyphCache(ctx, m_glyphCache.data());
             auto sg = QSGDefaultRenderContext::from(ctx);
             Q_ASSERT(sg);
             sg->registerFontengineForCleanup(fontEngine);
         }
     }
+
 }
 
 void QSGTextMaskMaterial::populate(const QPointF &p,
@@ -629,7 +649,7 @@ int QSGTextMaskMaterial::cacheTextureHeight() const
 
 
 QSGStyledTextMaterial::QSGStyledTextMaterial(const QRawFont &font)
-    : QSGTextMaskMaterial(font, QFontEngine::Format_A8)
+    : QSGTextMaskMaterial(QVector4D(), font, QFontEngine::Format_A8)
 {
 }
 

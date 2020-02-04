@@ -44,6 +44,9 @@ const char kSetUserPassword[] = "SetUserPassword";
 const char kEnableChromeDevFeatures[] = "EnableChromeDevFeatures";
 const char kQueryDevFeatures[] = "QueryDevFeatures";
 const char kSetOomScoreAdj[] = "SetOomScoreAdj";
+const char kStartVmConcierge[] = "StartVmConcierge";
+const char kStopVmConcierge[] = "StopVmConcierge";
+const char kSetRlzPingSent[] = "SetRlzPingSent";
 
 // Values.
 enum DevFeatureFlag {
@@ -63,7 +66,11 @@ enum CupsResult {
   CUPS_INVALID_PPD = 2,
   CUPS_LPADMIN_FAILURE = 3,
   CUPS_AUTOCONF_FAILURE = 4,
+  CUPS_BAD_URI = 5,
 };
+
+// Debug log keys which should be substituted in the system info dialog.
+const char kIwlwifiDumpKey[] = "iwlwifi_dump";
 
 }  // namespace debugd
 

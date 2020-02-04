@@ -4,32 +4,37 @@
 
 #include "chrome/browser/ui/webui/signin/inline_login_ui.h"
 
+#include <memory>
+
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/chrome_extension_web_contents_observer.h"
 #include "chrome/browser/extensions/tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/browser/ui/webui/metrics_handler.h"
-#include "chrome/browser/ui/webui/signin/inline_login_handler_impl.h"
 #include "chrome/browser/ui/webui/test_files_request_filter.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
-#include "components/signin/core/common/profile_management_switches.h"
+#include "components/signin/core/browser/account_consistency_method.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/common/content_switches.h"
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/ui/webui/signin/inline_login_handler_chromeos.h"
+#else
+#include "chrome/browser/ui/webui/signin/inline_login_handler_impl.h"
+#endif  // defined(OS_CHROMEOS)
 
 namespace {
 
 content::WebUIDataSource* CreateWebUIDataSource() {
   content::WebUIDataSource* source =
         content::WebUIDataSource::Create(chrome::kChromeUIChromeSigninHost);
-  source->OverrideContentSecurityPolicyChildSrc("child-src chrome-extension:;");
   source->OverrideContentSecurityPolicyObjectSrc("object-src chrome:;");
   source->SetJsonPath("strings.js");
 
@@ -54,15 +59,25 @@ content::WebUIDataSource* CreateWebUIDataSource() {
   return source;
 }
 
-} // empty namespace
+}  // namespace
 
 InlineLoginUI::InlineLoginUI(content::WebUI* web_ui)
     : WebDialogUI(web_ui),
-      auth_extension_(Profile::FromWebUI(web_ui)) {
+      auth_extension_(Profile::FromWebUI(web_ui)),
+      weak_factory_(this) {
   Profile* profile = Profile::FromWebUI(web_ui);
   content::WebUIDataSource::Add(profile, CreateWebUIDataSource());
-  web_ui->AddMessageHandler(base::MakeUnique<InlineLoginHandlerImpl>());
-  web_ui->AddMessageHandler(base::MakeUnique<MetricsHandler>());
+
+#if defined(OS_CHROMEOS)
+  web_ui->AddMessageHandler(
+      std::make_unique<chromeos::InlineLoginHandlerChromeOS>(
+          base::BindRepeating(&WebDialogUIBase::CloseDialog,
+                              weak_factory_.GetWeakPtr(), nullptr /* args */)));
+#else
+  web_ui->AddMessageHandler(std::make_unique<InlineLoginHandlerImpl>());
+#endif  // defined(OS_CHROMEOS)
+
+  web_ui->AddMessageHandler(std::make_unique<MetricsHandler>());
 
   content::WebContents* contents = web_ui->GetWebContents();
   // Required for intercepting extension function calls when the page is loaded

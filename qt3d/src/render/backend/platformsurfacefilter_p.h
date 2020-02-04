@@ -75,7 +75,7 @@ public:
     explicit PlatformSurfaceFilter(QObject *parent = 0);
     ~PlatformSurfaceFilter();
 
-    bool eventFilter(QObject *obj, QEvent *e) Q_DECL_OVERRIDE;
+    bool eventFilter(QObject *obj, QEvent *e) override;
 
     static void lockSurface();
     static void releaseSurface();
@@ -108,7 +108,7 @@ private:
     void markSurfaceAsValid();
 };
 
-class QT3DRENDERSHARED_PRIVATE_EXPORT SurfaceLocker
+class Q_3DRENDERSHARED_PRIVATE_EXPORT SurfaceLocker
 {
 public:
     explicit SurfaceLocker(QSurface *surface);

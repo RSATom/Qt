@@ -8,16 +8,27 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_ESTIMATORS_SEND_SIDE_H_
-#define WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_ESTIMATORS_SEND_SIDE_H_
+#ifndef MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_ESTIMATORS_SEND_SIDE_H_
+#define MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_ESTIMATORS_SEND_SIDE_H_
 
+#include <stdint.h>
 #include <memory>
 #include <vector>
 
-#include "webrtc/logging/rtc_event_log/mock/mock_rtc_event_log.h"
-#include "webrtc/modules/congestion_controller/acknowledged_bitrate_estimator.h"
-#include "webrtc/modules/remote_bitrate_estimator/include/send_time_history.h"
-#include "webrtc/modules/remote_bitrate_estimator/test/bwe.h"
+#include "api/transport/field_trial_based_config.h"
+#include "logging/rtc_event_log/mock/mock_rtc_event_log.h"
+#include "modules/bitrate_controller/include/bitrate_controller.h"
+#include "modules/congestion_controller/goog_cc/acknowledged_bitrate_estimator.h"
+#include "modules/congestion_controller/goog_cc/delay_based_bwe.h"
+#include "modules/congestion_controller/rtp/send_time_history.h"
+#include "modules/include/module_common_types_public.h"
+#include "modules/remote_bitrate_estimator/include/remote_bitrate_estimator.h"
+#include "modules/remote_bitrate_estimator/test/bwe.h"
+#include "modules/remote_bitrate_estimator/test/packet.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
+#include "rtc_base/constructor_magic.h"
+#include "system_wrappers/include/clock.h"
+#include "test/gmock.h"
 
 namespace webrtc {
 namespace testing {
@@ -36,11 +47,15 @@ class SendSideBweSender : public BweSender, public RemoteBitrateObserver {
   int64_t TimeUntilNextProcess() override;
   void Process() override;
 
+ private:
+  FieldTrialBasedConfig field_trial_config_;
+
  protected:
   std::unique_ptr<BitrateController> bitrate_controller_;
   std::unique_ptr<AcknowledgedBitrateEstimator> acknowledged_bitrate_estimator_;
+  std::unique_ptr<ProbeBitrateEstimator> probe_bitrate_estimator_;
   std::unique_ptr<DelayBasedBwe> bwe_;
-  std::unique_ptr<RtcpBandwidthObserver> feedback_observer_;
+  RtcpBandwidthObserver* feedback_observer_;
 
  private:
   Clock* const clock_;
@@ -58,7 +73,7 @@ class SendSideBweSender : public BweSender, public RemoteBitrateObserver {
 class SendSideBweReceiver : public BweReceiver {
  public:
   explicit SendSideBweReceiver(int flow_id);
-  virtual ~SendSideBweReceiver();
+  ~SendSideBweReceiver() override;
 
   void ReceivePacket(int64_t arrival_time_ms,
                      const MediaPacket& media_packet) override;
@@ -73,4 +88,4 @@ class SendSideBweReceiver : public BweReceiver {
 }  // namespace testing
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_ESTIMATORS_SEND_SIDE_H_
+#endif  // MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_ESTIMATORS_SEND_SIDE_H_

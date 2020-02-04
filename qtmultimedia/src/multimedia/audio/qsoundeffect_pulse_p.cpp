@@ -58,7 +58,7 @@
 #include <private/qaudiohelpers_p.h>
 #include <private/qmediaresourcepolicy_p.h>
 #include <private/qmediaresourceset_p.h>
-
+#include <QAudioDeviceInfo>
 #include <unistd.h>
 
 //#define QT_PA_DEBUG
@@ -100,8 +100,6 @@ class PulseDaemon : public QObject
     Q_OBJECT
 public:
     PulseDaemon()
-        : m_prepared(false)
-        , m_lockCount(0)
     {
         prepare();
     }
@@ -154,7 +152,7 @@ private Q_SLOTS:
         release();
 
         // Try to reconnect later
-        QTimer::singleShot(30000, this, SLOT(prepare()));
+        QTimer::singleShot(30000, this, &PulseDaemon::prepare);
 
         emit contextFailed();
     }
@@ -164,9 +162,9 @@ private Q_SLOTS:
         if (m_prepared)
             return;
 
-        m_context = 0;
+        m_context = nullptr;
         m_mainLoop = pa_threaded_mainloop_new();
-        if (m_mainLoop == 0) {
+        if (m_mainLoop == nullptr) {
             qWarning("PulseAudioService: unable to create pulseaudio mainloop");
             return;
         }
@@ -182,11 +180,11 @@ private Q_SLOTS:
         lock();
         m_context = pa_context_new(m_mainLoopApi, QString(QLatin1String("QtPulseAudio:%1")).arg(::getpid()).toLatin1().constData());
 
-        if (m_context == 0) {
+        if (m_context == nullptr) {
             qWarning("PulseAudioService: Unable to create new pulseaudio context");
             unlock();
             pa_threaded_mainloop_free(m_mainLoop);
-            m_mainLoop = 0;
+            m_mainLoop = nullptr;
             onContextFailed();
             return;
         }
@@ -194,16 +192,16 @@ private Q_SLOTS:
         pa_context_set_state_callback(m_context, context_state_callback, this);
 
         const QByteArray srvStrEnv = qgetenv("QT_PULSE_SERVER_STRING");
-        const char *srvStr = srvStrEnv.isNull() ? 0 : srvStrEnv.constData();
+        const char *srvStr = srvStrEnv.isNull() ? nullptr : srvStrEnv.constData();
         pa_context_flags_t flags = qEnvironmentVariableIsSet("QT_PULSE_NOAUTOSPAWN") ? PA_CONTEXT_NOAUTOSPAWN : (pa_context_flags_t)0;
 
-        if (pa_context_connect(m_context, srvStr, flags, 0) < 0) {
+        if (pa_context_connect(m_context, srvStr, flags, nullptr) < 0) {
             qWarning("PulseAudioService: pa_context_connect() failed");
             pa_context_unref(m_context);
             unlock();
             pa_threaded_mainloop_free(m_mainLoop);
-            m_mainLoop = 0;
-            m_context = 0;
+            m_mainLoop = nullptr;
+            m_context = nullptr;
             return;
         }
         unlock();
@@ -226,12 +224,12 @@ private:
         if (m_mainLoop) {
             pa_threaded_mainloop_stop(m_mainLoop);
             pa_threaded_mainloop_free(m_mainLoop);
-            m_mainLoop = 0;
+            m_mainLoop = nullptr;
         }
 
         if (m_context) {
             pa_context_unref(m_context);
-            m_context = 0;
+            m_context = nullptr;
         }
 
         m_prepared = false;
@@ -256,11 +254,11 @@ private:
         }
     }
 
-    bool m_prepared;
-    pa_context *m_context;
-    pa_threaded_mainloop *m_mainLoop;
-    pa_mainloop_api *m_mainLoopApi;
-    uint m_lockCount;
+    bool m_prepared = false;
+    pa_context *m_context = nullptr;
+    pa_threaded_mainloop *m_mainLoop = nullptr;
+    pa_mainloop_api *m_mainLoopApi = nullptr;
+    uint m_lockCount = 0;
     QAtomicInt m_ref;
 };
 
@@ -290,8 +288,7 @@ class QSoundEffectRef
 {
 public:
     QSoundEffectRef(QSoundEffectPrivate *target)
-        : m_ref(1)
-        , m_target(target)
+        : m_target(target)
     {
 #ifdef QT_PA_DEBUG
         qDebug() << "QSoundEffectRef(" << this << ") ctor";
@@ -338,33 +335,17 @@ public:
         qDebug() << "QSoundEffectRef(" << this << ") notifyDeleted";
 #endif
         QMutexLocker locker(&m_mutex);
-        m_target = NULL;
+        m_target = nullptr;
     }
 
 private:
-    int m_ref;
+    int m_ref = 1;
     mutable QMutex m_mutex;
-    QSoundEffectPrivate *m_target;
+    QSoundEffectPrivate *m_target = nullptr;
 };
 
 QSoundEffectPrivate::QSoundEffectPrivate(QObject* parent):
-    QObject(parent),
-    m_pulseStream(0),
-    m_sinkInputId(-1),
-    m_emptying(false),
-    m_sampleReady(false),
-    m_playing(false),
-    m_status(QSoundEffect::Null),
-    m_muted(false),
-    m_playQueued(false),
-    m_stopping(false),
-    m_volume(1.0),
-    m_loopCount(1),
-    m_runningCount(0),
-    m_reloadCategory(false),
-    m_sample(0),
-    m_position(0),
-    m_resourcesAvailable(false)
+    QObject(parent)
 {
     pulseDaemon()->ref();
 
@@ -375,7 +356,14 @@ QSoundEffectPrivate::QSoundEffectPrivate(QObject* parent):
     m_resources = QMediaResourcePolicy::createResourceSet<QMediaPlayerResourceSetInterface>();
     Q_ASSERT(m_resources);
     m_resourcesAvailable = m_resources->isAvailable();
-    connect(m_resources, SIGNAL(availabilityChanged(bool)), SLOT(handleAvailabilityChanged(bool)));
+    connect(m_resources, &QMediaPlayerResourceSetInterface::availabilityChanged,
+            this, &QSoundEffectPrivate::handleAvailabilityChanged);
+}
+
+QSoundEffectPrivate::QSoundEffectPrivate(const QAudioDeviceInfo &audioDevice, QObject *parent)
+    : QSoundEffectPrivate(parent)
+{
+    m_sinkName = audioDevice.deviceName();
 }
 
 void QSoundEffectPrivate::handleAvailabilityChanged(bool available)
@@ -397,7 +385,7 @@ void QSoundEffectPrivate::release()
     unloadPulseStream();
     if (m_sample) {
         m_sample->release();
-        m_sample = 0;
+        m_sample = nullptr;
     }
 
     this->deleteLater();
@@ -435,7 +423,7 @@ void QSoundEffectPrivate::setCategory(const QString &category)
 QSoundEffectPrivate::~QSoundEffectPrivate()
 {
     QMediaResourcePolicy::destroyResourceSet(m_resources);
-    m_resources = 0;
+    m_resources = nullptr;
     m_ref->release();
 
     pulseDaemon()->deref();
@@ -470,11 +458,11 @@ void QSoundEffectPrivate::setSource(const QUrl &url)
 
     if (m_sample) {
         if (!m_sampleReady) {
-            disconnect(m_sample, SIGNAL(error()), this, SLOT(decoderError()));
-            disconnect(m_sample, SIGNAL(ready()), this, SLOT(sampleReady()));
+            disconnect(m_sample, &QSample::error, this, &QSoundEffectPrivate::decoderError);
+            disconnect(m_sample, &QSample::ready, this, &QSoundEffectPrivate::sampleReady);
         }
         m_sample->release();
-        m_sample = 0;
+        m_sample = nullptr;
     }
 
     m_source = url;
@@ -482,9 +470,9 @@ void QSoundEffectPrivate::setSource(const QUrl &url)
 
     setLoopsRemaining(0);
     if (m_pulseStream && !pa_stream_is_corked(m_pulseStream)) {
-        pa_stream_set_write_callback(m_pulseStream, 0, 0);
-        pa_stream_set_underflow_callback(m_pulseStream, 0, 0);
-        pa_operation *op = pa_stream_cork(m_pulseStream, 1, 0, 0);
+        pa_stream_set_write_callback(m_pulseStream, nullptr, nullptr);
+        pa_stream_set_underflow_callback(m_pulseStream, nullptr, nullptr);
+        pa_operation *op = pa_stream_cork(m_pulseStream, 1, nullptr, nullptr);
         if (op)
             pa_operation_unref(op);
         else
@@ -499,8 +487,8 @@ void QSoundEffectPrivate::setSource(const QUrl &url)
 
     setStatus(QSoundEffect::Loading);
     m_sample = sampleCache()->requestSample(url);
-    connect(m_sample, SIGNAL(error()), this, SLOT(decoderError()));
-    connect(m_sample, SIGNAL(ready()), this, SLOT(sampleReady()));
+    connect(m_sample, &QSample::error, this, &QSoundEffectPrivate::decoderError);
+    connect(m_sample, &QSample::ready, this, &QSoundEffectPrivate::sampleReady);
     switch(m_sample->state()) {
     case QSample::Ready:
         sampleReady();
@@ -676,8 +664,8 @@ void QSoundEffectPrivate::emptyStream(EmptyStreamOptions options)
     PulseDaemonLocker locker;
 
     m_emptying = true;
-    pa_stream_set_write_callback(m_pulseStream, 0, 0);
-    pa_stream_set_underflow_callback(m_pulseStream, 0, 0);
+    pa_stream_set_write_callback(m_pulseStream, nullptr, nullptr);
+    pa_stream_set_underflow_callback(m_pulseStream, nullptr, nullptr);
     pa_operation *op = pa_stream_flush(m_pulseStream, flushCompleteCb, m_ref->getRef());
     if (op)
         pa_operation_unref(op);
@@ -696,7 +684,8 @@ void QSoundEffectPrivate::emptyComplete(void *stream, bool reload)
     m_emptying = false;
 
     if ((pa_stream *)stream == m_pulseStream) {
-        pa_operation *op = pa_stream_cork(m_pulseStream, 1, reload ? stream_cork_callback : 0, m_ref->getRef());
+        pa_operation *op = pa_stream_cork(m_pulseStream, 1,
+                                          reload ? stream_cork_callback : nullptr, m_ref->getRef());
         if (op)
             pa_operation_unref(op);
         else
@@ -717,8 +706,8 @@ void QSoundEffectPrivate::sampleReady()
 #ifdef QT_PA_DEBUG
     qDebug() << this << "sampleReady";
 #endif
-    disconnect(m_sample, SIGNAL(error()), this, SLOT(decoderError()));
-    disconnect(m_sample, SIGNAL(ready()), this, SLOT(sampleReady()));
+    disconnect(m_sample, &QSample::error, this, &QSoundEffectPrivate::decoderError);
+    disconnect(m_sample, &QSample::ready, this, &QSoundEffectPrivate::sampleReady);
     pa_sample_spec newFormatSpec = audioFormatToSampleSpec(m_sample->format());
 
     if (m_pulseStream && !pa_sample_spec_equal(&m_pulseSpec, &newFormatSpec)) {
@@ -751,7 +740,8 @@ void QSoundEffectPrivate::sampleReady()
         }
     } else if (!m_pulseStream) {
         if (!pulseDaemon()->context() || pa_context_get_state(pulseDaemon()->context()) != PA_CONTEXT_READY) {
-            connect(pulseDaemon(), SIGNAL(contextReady()), SLOT(contextReady()));
+            connect(pulseDaemon(), &PulseDaemon::contextReady,
+                    this, &QSoundEffectPrivate::contextReady);
             return;
         }
         createPulseStream();
@@ -760,8 +750,8 @@ void QSoundEffectPrivate::sampleReady()
 
 void QSoundEffectPrivate::decoderError()
 {
-    qWarning("QSoundEffect(pulseaudio): Error decoding source");
-    disconnect(m_sample, SIGNAL(error()), this, SLOT(decoderError()));
+    qWarning("QSoundEffect(pulseaudio): Error decoding source %ls", qUtf16Printable(m_source.toString()));
+    disconnect(m_sample, &QSample::error, this, &QSoundEffectPrivate::decoderError);
     bool playingDirty = false;
     if (m_playing) {
         m_playing = false;
@@ -780,13 +770,14 @@ void QSoundEffectPrivate::unloadPulseStream()
     m_sinkInputId = -1;
     PulseDaemonLocker locker;
     if (m_pulseStream) {
-        pa_stream_set_state_callback(m_pulseStream, 0, 0);
-        pa_stream_set_write_callback(m_pulseStream, 0, 0);
-        pa_stream_set_underflow_callback(m_pulseStream, 0, 0);
+        pa_stream_set_state_callback(m_pulseStream, nullptr, nullptr);
+        pa_stream_set_write_callback(m_pulseStream, nullptr, nullptr);
+        pa_stream_set_underflow_callback(m_pulseStream, nullptr, nullptr);
         pa_stream_disconnect(m_pulseStream);
         pa_stream_unref(m_pulseStream);
-        disconnect(pulseDaemon(), SIGNAL(contextFailed()), this, SLOT(contextFailed()));
-        m_pulseStream = 0;
+        disconnect(pulseDaemon(), &PulseDaemon::contextFailed,
+                   this, &QSoundEffectPrivate::contextFailed);
+        m_pulseStream = nullptr;
         m_reloadCategory = false; // category will be reloaded when we connect anyway
     }
 }
@@ -896,7 +887,7 @@ int QSoundEffectPrivate::writeToStream(const void *data, int size)
     if (volume < 1.0f) {
         // Don't use PulseAudio volume, as it might affect all other streams of the same category
         // or even affect the system volume if flat volumes are enabled
-        void *dest = NULL;
+        void *dest = nullptr;
         size_t nbytes = size;
         if (pa_stream_begin_write(m_pulseStream, &dest, &nbytes) < 0) {
             qWarning("QSoundEffect(pulseaudio): pa_stream_begin_write, error = %s",
@@ -907,7 +898,7 @@ int QSoundEffectPrivate::writeToStream(const void *data, int size)
         size = int(nbytes);
         QAudioHelperInternal::qMultiplySamples(volume, m_sample->format(), data, dest, size);
         data = dest;
-        writeDoneCb = NULL;
+        writeDoneCb = nullptr;
     }
 
     if (pa_stream_write(m_pulseStream, data, size, writeDoneCb, 0, PA_SEEK_RELATIVE) < 0) {
@@ -928,7 +919,7 @@ void QSoundEffectPrivate::playSample()
 #endif
     Q_ASSERT(m_pulseStream);
     Q_ASSERT(pa_stream_get_state(m_pulseStream) == PA_STREAM_READY);
-    pa_operation *o = pa_stream_cork(m_pulseStream, 0, 0, 0);
+    pa_operation *o = pa_stream_cork(m_pulseStream, 0, nullptr, nullptr);
     if (o)
         pa_operation_unref(o);
 }
@@ -999,14 +990,16 @@ void QSoundEffectPrivate::createPulseStream()
     pa_proplist *propList = pa_proplist_new();
     if (!m_category.isNull())
         pa_proplist_sets(propList, PA_PROP_MEDIA_ROLE, m_category.toLatin1().constData());
-    pa_stream *stream = pa_stream_new_with_proplist(pulseDaemon()->context(), m_name.constData(), &m_pulseSpec, 0, propList);
+    pa_stream *stream = pa_stream_new_with_proplist(pulseDaemon()->context(), m_name.constData(),
+                                                    &m_pulseSpec, nullptr, propList);
     pa_proplist_free(propList);
 
-    connect(pulseDaemon(), SIGNAL(contextFailed()), this, SLOT(contextFailed()));
+    connect(pulseDaemon(), &PulseDaemon::contextFailed,
+            this, &QSoundEffectPrivate::contextFailed);
 
-    if (stream == 0) {
+    if (stream == nullptr) {
         qWarning("QSoundEffect(pulseaudio): Failed to create stream");
-        m_pulseStream = 0;
+        m_pulseStream = nullptr;
         setStatus(QSoundEffect::Error);
         setPlaying(false);
         return;
@@ -1018,8 +1011,9 @@ void QSoundEffectPrivate::createPulseStream()
     }
     m_pulseStream = stream;
 
-    if (pa_stream_connect_playback(m_pulseStream, 0, 0,
-                                   PA_STREAM_START_CORKED, 0, 0) < 0) {
+    if (pa_stream_connect_playback(m_pulseStream,
+                                   m_sinkName.isEmpty() ? nullptr : m_sinkName.toLatin1().constData(),
+                                   nullptr, PA_STREAM_START_CORKED, nullptr, nullptr) < 0) {
         qWarning("QSoundEffect(pulseaudio): Failed to connect stream, error = %s",
                  pa_strerror(pa_context_errno(pulseDaemon()->context())));
     }
@@ -1027,7 +1021,8 @@ void QSoundEffectPrivate::createPulseStream()
 
 void QSoundEffectPrivate::contextReady()
 {
-    disconnect(pulseDaemon(), SIGNAL(contextReady()), this, SLOT(contextReady()));
+    disconnect(pulseDaemon(), &PulseDaemon::contextReady,
+               this, &QSoundEffectPrivate::contextReady);
     PulseDaemonLocker locker;
     createPulseStream();
 }
@@ -1035,7 +1030,8 @@ void QSoundEffectPrivate::contextReady()
 void QSoundEffectPrivate::contextFailed()
 {
     unloadPulseStream();
-    connect(pulseDaemon(), SIGNAL(contextReady()), this, SLOT(contextReady()));
+    connect(pulseDaemon(), &PulseDaemon::contextReady,
+            this, &QSoundEffectPrivate::contextReady);
 }
 
 void QSoundEffectPrivate::stream_write_callback(pa_stream *s, size_t length, void *userdata)

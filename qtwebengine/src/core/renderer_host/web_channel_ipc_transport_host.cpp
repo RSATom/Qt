@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWebEngine module of the Qt Toolkit.
@@ -39,48 +39,57 @@
 
 #include "web_channel_ipc_transport_host.h"
 
-#include "base/strings/string16.h"
-#include "content/public/browser/render_view_host.h"
-
+#include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/render_process_host.h"
+#include "content/public/browser/web_contents.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_registry.h"
+#include "services/service_manager/public/cpp/interface_provider.h"
+#include "qtwebengine/browser/qtwebchannel.mojom.h"
 #include "common/qt_messages.h"
-#include "type_conversion.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLoggingCategory>
+
+#include <QtCore/private/qjson_p.h>
 
 namespace QtWebEngineCore {
+
+Q_LOGGING_CATEGORY(log, "qt.webengine.webchanneltransport");
+
+inline QDebug operator<<(QDebug stream, content::RenderFrameHost *frame)
+{
+    return stream << "frame " << frame->GetRoutingID() << " in process " << frame->GetProcess()->GetID();
+}
+
+template <class T>
+inline QDebug operator<<(QDebug stream, const base::Optional<T> &opt)
+{
+    if (opt)
+        return stream << *opt;
+    else
+        return stream << "nullopt";
+}
 
 WebChannelIPCTransportHost::WebChannelIPCTransportHost(content::WebContents *contents, uint worldId, QObject *parent)
     : QWebChannelAbstractTransport(parent)
     , content::WebContentsObserver(contents)
     , m_worldId(worldId)
+    , m_binding(contents, this)
 {
-    Send(new WebChannelIPCTransport_Install(routing_id(), m_worldId));
+    for (content::RenderFrameHost *frame : contents->GetAllFrames())
+        setWorldId(frame, worldId);
 }
 
 WebChannelIPCTransportHost::~WebChannelIPCTransportHost()
 {
+    resetWorldId();
 }
 
-void WebChannelIPCTransportHost::RenderViewHostChanged(content::RenderViewHost *oldHost, content::RenderViewHost *)
+uint WebChannelIPCTransportHost::worldId() const
 {
-    if (oldHost)
-        oldHost->Send(new WebChannelIPCTransport_Uninstall(oldHost->GetRoutingID(), m_worldId));
-}
-
-void WebChannelIPCTransportHost::RenderViewCreated(content::RenderViewHost *view_host)
-{
-    // Make sure the new view knows a webchannel is installed and in which world.
-    view_host->Send(new WebChannelIPCTransport_Install(view_host->GetRoutingID(), m_worldId));
-}
-
-void WebChannelIPCTransportHost::setWorldId(uint worldId)
-{
-    if (worldId == m_worldId)
-        return;
-    Send(new WebChannelIPCTransport_Uninstall(routing_id(), m_worldId));
-    m_worldId = worldId;
-    Send(new WebChannelIPCTransport_Install(routing_id(), m_worldId));
+    return m_worldId;
 }
 
 void WebChannelIPCTransportHost::sendMessage(const QJsonObject &message)
@@ -88,25 +97,70 @@ void WebChannelIPCTransportHost::sendMessage(const QJsonObject &message)
     QJsonDocument doc(message);
     int size = 0;
     const char *rawData = doc.rawData(&size);
-    Send(new WebChannelIPCTransport_Message(routing_id(), std::vector<char>(rawData, rawData + size), m_worldId));
+    content::RenderFrameHost *frame = web_contents()->GetMainFrame();
+    qtwebchannel::mojom::WebChannelTransportRenderAssociatedPtr webChannelTransport;
+    frame->GetRemoteAssociatedInterfaces()->GetInterface(&webChannelTransport);
+    qCDebug(log).nospace() << "sending webchannel message to " << frame << ": " << doc;
+    webChannelTransport->DispatchWebChannelMessage(std::vector<uint8_t>(rawData, rawData + size), m_worldId);
 }
 
-void WebChannelIPCTransportHost::onWebChannelMessage(const std::vector<char> &message)
+void WebChannelIPCTransportHost::setWorldId(uint32_t worldId)
 {
-    Q_ASSERT(!message.empty());
-    QJsonDocument doc = QJsonDocument::fromRawData(message.data(), message.size(), QJsonDocument::BypassValidation);
-    Q_ASSERT(doc.isObject());
+    if (m_worldId == worldId)
+        return;
+    for (content::RenderFrameHost *frame : web_contents()->GetAllFrames())
+        setWorldId(frame, worldId);
+    m_worldId = worldId;
+}
+
+void WebChannelIPCTransportHost::setWorldId(content::RenderFrameHost *frame, uint32_t worldId)
+{
+    if (!frame->IsRenderFrameLive())
+        return;
+    qCDebug(log).nospace() << "sending setWorldId(" << worldId << ") message to " << frame;
+    qtwebchannel::mojom::WebChannelTransportRenderAssociatedPtr webChannelTransport;
+    frame->GetRemoteAssociatedInterfaces()->GetInterface(&webChannelTransport);
+    webChannelTransport->SetWorldId(worldId);
+}
+
+void WebChannelIPCTransportHost::resetWorldId()
+{
+    for (content::RenderFrameHost *frame : web_contents()->GetAllFrames()) {
+        if (!frame->IsRenderFrameLive())
+            return;
+        qtwebchannel::mojom::WebChannelTransportRenderAssociatedPtr webChannelTransport;
+        frame->GetRemoteAssociatedInterfaces()->GetInterface(&webChannelTransport);
+        webChannelTransport->ResetWorldId();
+    }
+}
+
+void WebChannelIPCTransportHost::DispatchWebChannelMessage(const std::vector<uint8_t> &binaryJson)
+{
+    content::RenderFrameHost *frame = web_contents()->GetMainFrame();
+
+    if (m_binding.GetCurrentTargetFrame() != frame) {
+        return;
+    }
+
+    QJsonDocument doc;
+    // QJsonDocument::fromRawData does not check the length before it starts
+    // parsing the QJsonPrivate::Header and QJsonPrivate::Base structures.
+    if (binaryJson.size() >= sizeof(QJsonPrivate::Header) + sizeof(QJsonPrivate::Base))
+        doc = QJsonDocument::fromRawData(reinterpret_cast<const char *>(binaryJson.data()),
+                                                                        binaryJson.size());
+
+    if (!doc.isObject()) {
+        qCCritical(log).nospace() << "received invalid webchannel message from " << frame;
+        return;
+    }
+
+    qCDebug(log).nospace() << "received webchannel message from " << frame << ": " << doc;
     Q_EMIT messageReceived(doc.object(), this);
 }
 
-bool WebChannelIPCTransportHost::OnMessageReceived(const IPC::Message &message)
+void WebChannelIPCTransportHost::RenderFrameCreated(content::RenderFrameHost *frame)
 {
-    bool handled = true;
-    IPC_BEGIN_MESSAGE_MAP(WebChannelIPCTransportHost, message)
-        IPC_MESSAGE_HANDLER(WebChannelIPCTransportHost_SendMessage, onWebChannelMessage)
-        IPC_MESSAGE_UNHANDLED(handled = false)
-    IPC_END_MESSAGE_MAP()
-    return handled;
+    setWorldId(frame, m_worldId);
 }
 
-} // namespace
+} // namespace QtWebEngineCore

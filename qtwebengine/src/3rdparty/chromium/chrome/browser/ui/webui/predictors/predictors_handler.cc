@@ -9,7 +9,6 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "chrome/browser/predictors/autocomplete_action_predictor.h"
 #include "chrome/browser/predictors/autocomplete_action_predictor_factory.h"
@@ -24,27 +23,6 @@ using predictors::AutocompleteActionPredictor;
 using predictors::ResourcePrefetchPredictor;
 using predictors::ResourcePrefetchPredictorTables;
 
-namespace {
-
-using predictors::ResourceData;
-
-std::string ConvertResourceType(ResourceData::ResourceType type) {
-  switch (type) {
-    case ResourceData::RESOURCE_TYPE_IMAGE:
-      return "Image";
-    case ResourceData::RESOURCE_TYPE_STYLESHEET:
-      return "Stylesheet";
-    case ResourceData::RESOURCE_TYPE_SCRIPT:
-      return "Script";
-    case ResourceData::RESOURCE_TYPE_FONT_RESOURCE:
-      return "Font";
-    default:
-      return "Unknown";
-  }
-}
-
-}  // namespace
-
 PredictorsHandler::PredictorsHandler(Profile* profile) {
   autocomplete_action_predictor_ =
       predictors::AutocompleteActionPredictorFactory::GetForProfile(profile);
@@ -55,12 +33,16 @@ PredictorsHandler::PredictorsHandler(Profile* profile) {
 PredictorsHandler::~PredictorsHandler() { }
 
 void PredictorsHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback("requestAutocompleteActionPredictorDb",
-      base::Bind(&PredictorsHandler::RequestAutocompleteActionPredictorDb,
-                 base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("requestResourcePrefetchPredictorDb",
-      base::Bind(&PredictorsHandler::RequestResourcePrefetchPredictorDb,
-                 base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "requestAutocompleteActionPredictorDb",
+      base::BindRepeating(
+          &PredictorsHandler::RequestAutocompleteActionPredictorDb,
+          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "requestResourcePrefetchPredictorDb",
+      base::BindRepeating(
+          &PredictorsHandler::RequestResourcePrefetchPredictorDb,
+          base::Unretained(this)));
 }
 
 void PredictorsHandler::RequestAutocompleteActionPredictorDb(
@@ -69,7 +51,7 @@ void PredictorsHandler::RequestAutocompleteActionPredictorDb(
   base::DictionaryValue dict;
   dict.SetBoolean("enabled", enabled);
   if (enabled) {
-    auto db = base::MakeUnique<base::ListValue>();
+    auto db = std::make_unique<base::ListValue>();
     for (AutocompleteActionPredictor::DBCacheMap::const_iterator it =
              autocomplete_action_predictor_->db_cache_.begin();
          it != autocomplete_action_predictor_->db_cache_.end();
@@ -104,22 +86,10 @@ void PredictorsHandler::RequestResourcePrefetchPredictorDb(
         ResourcePrefetchPredictor::INITIALIZED;
 
     if (initialized) {
-      // URL table cache.
-      auto db = base::MakeUnique<base::ListValue>();
-      AddPrefetchDataMapToListValue(
-          *resource_prefetch_predictor->url_resource_data_->data_cache_,
-          db.get());
-      dict.Set("url_db", std::move(db));
-
-      // Host table cache.
-      db = base::MakeUnique<base::ListValue>();
-      AddPrefetchDataMapToListValue(
-          *resource_prefetch_predictor->host_resource_data_->data_cache_,
-          db.get());
-      dict.Set("host_db", std::move(db));
+      // TODO(alexilin): Add redirects table.
 
       // Origin table cache.
-      db = base::MakeUnique<base::ListValue>();
+      auto db = std::make_unique<base::ListValue>();
       AddOriginDataMapToListValue(
           *resource_prefetch_predictor->origin_data_->data_cache_, db.get());
       dict.Set("origin_db", std::move(db));
@@ -130,47 +100,15 @@ void PredictorsHandler::RequestResourcePrefetchPredictorDb(
                                          dict);
 }
 
-void PredictorsHandler::AddPrefetchDataMapToListValue(
-    const std::map<std::string, predictors::PrefetchData>& data_map,
-    base::ListValue* db) const {
-  for (const auto& p : data_map) {
-    auto main = base::MakeUnique<base::DictionaryValue>();
-    main->SetString("main_frame_url", p.first);
-    auto resources = base::MakeUnique<base::ListValue>();
-    for (const predictors::ResourceData& r : p.second.resources()) {
-      auto resource = base::MakeUnique<base::DictionaryValue>();
-      resource->SetString("resource_url", r.resource_url());
-      resource->SetString("resource_type",
-                          ConvertResourceType(r.resource_type()));
-      resource->SetInteger("number_of_hits", r.number_of_hits());
-      resource->SetInteger("number_of_misses", r.number_of_misses());
-      resource->SetInteger("consecutive_misses", r.consecutive_misses());
-      resource->SetDouble("position", r.average_position());
-      resource->SetDouble(
-          "score", ResourcePrefetchPredictorTables::ComputeResourceScore(r));
-      resource->SetBoolean("before_first_contentful_paint",
-                           r.before_first_contentful_paint());
-      auto* resource_prefetch_predictor =
-          loading_predictor_->resource_prefetch_predictor();
-      resource->SetBoolean(
-          "is_prefetchable",
-          resource_prefetch_predictor->IsResourcePrefetchable(r));
-      resources->Append(std::move(resource));
-    }
-    main->Set("resources", std::move(resources));
-    db->Append(std::move(main));
-  }
-}
-
 void PredictorsHandler::AddOriginDataMapToListValue(
     const std::map<std::string, predictors::OriginData>& data_map,
     base::ListValue* db) const {
   for (const auto& p : data_map) {
-    auto main = base::MakeUnique<base::DictionaryValue>();
+    auto main = std::make_unique<base::DictionaryValue>();
     main->SetString("main_frame_host", p.first);
-    auto origins = base::MakeUnique<base::ListValue>();
+    auto origins = std::make_unique<base::ListValue>();
     for (const predictors::OriginStat& o : p.second.origins()) {
-      auto origin = base::MakeUnique<base::DictionaryValue>();
+      auto origin = std::make_unique<base::DictionaryValue>();
       origin->SetString("origin", o.origin());
       origin->SetInteger("number_of_hits", o.number_of_hits());
       origin->SetInteger("number_of_misses", o.number_of_misses());

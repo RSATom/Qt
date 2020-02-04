@@ -6,12 +6,12 @@
 #define GPU_COMMAND_BUFFER_SERVICE_SHADER_TRANSLATOR_H_
 
 #include <string>
+#include <unordered_map>
 
-#include "base/containers/hash_tables.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
-#include "gpu/gpu_export.h"
+#include "gpu/gpu_gles2_export.h"
 #include "third_party/angle/include/GLSLANG/ShaderLang.h"
 
 namespace gl {
@@ -22,18 +22,19 @@ namespace gpu {
 namespace gles2 {
 
 // Mapping between variable name and info.
-typedef base::hash_map<std::string, sh::Attribute> AttributeMap;
+typedef std::unordered_map<std::string, sh::Attribute> AttributeMap;
 typedef std::vector<sh::OutputVariable> OutputVariableList;
-typedef base::hash_map<std::string, sh::Uniform> UniformMap;
-typedef base::hash_map<std::string, sh::Varying> VaryingMap;
-typedef base::hash_map<std::string, sh::InterfaceBlock> InterfaceBlockMap;
+typedef std::unordered_map<std::string, sh::Uniform> UniformMap;
+typedef std::unordered_map<std::string, sh::Varying> VaryingMap;
+typedef std::unordered_map<std::string, sh::InterfaceBlock> InterfaceBlockMap;
+typedef base::RefCountedData<std::string> OptionsAffectingCompilationString;
 
 // Translates a GLSL ES 2.0 shader to desktop GLSL shader, or just
 // validates GLSL ES 2.0 shaders on a true GLSL ES implementation.
 class ShaderTranslatorInterface
     : public base::RefCounted<ShaderTranslatorInterface> {
  public:
-  ShaderTranslatorInterface() {}
+  ShaderTranslatorInterface() = default;
 
   // Initializes the translator.
   // Must be called once before using the translator object.
@@ -61,10 +62,11 @@ class ShaderTranslatorInterface
 
   // Return a string that is unique for a specfic set of options that would
   // possibly affect compilation.
-  virtual std::string GetStringForOptionsThatWouldAffectCompilation() const = 0;
+  virtual OptionsAffectingCompilationString*
+  GetStringForOptionsThatWouldAffectCompilation() const = 0;
 
  protected:
-  virtual ~ShaderTranslatorInterface() {}
+  virtual ~ShaderTranslatorInterface() = default;
 
  private:
   friend class base::RefCounted<ShaderTranslatorInterface>;
@@ -72,8 +74,7 @@ class ShaderTranslatorInterface
 };
 
 // Implementation of ShaderTranslatorInterface
-class GPU_EXPORT ShaderTranslator
-    : NON_EXPORTED_BASE(public ShaderTranslatorInterface) {
+class GPU_GLES2_EXPORT ShaderTranslator : public ShaderTranslatorInterface {
  public:
   class DestructionObserver {
    public:
@@ -111,7 +112,8 @@ class GPU_EXPORT ShaderTranslator
                  InterfaceBlockMap* interface_block_map,
                  OutputVariableList* output_variable_list) const override;
 
-  std::string GetStringForOptionsThatWouldAffectCompilation() const override;
+  OptionsAffectingCompilationString*
+  GetStringForOptionsThatWouldAffectCompilation() const override;
 
   void AddDestructionObserver(DestructionObserver* observer);
   void RemoveDestructionObserver(DestructionObserver* observer);
@@ -123,7 +125,9 @@ class GPU_EXPORT ShaderTranslator
 
   ShHandle compiler_;
   ShCompileOptions compile_options_;
-  base::ObserverList<DestructionObserver> destruction_observers_;
+  scoped_refptr<OptionsAffectingCompilationString>
+      options_affecting_compilation_;
+  base::ObserverList<DestructionObserver>::Unchecked destruction_observers_;
 };
 
 }  // namespace gles2

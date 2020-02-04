@@ -10,11 +10,11 @@
 #include "chrome/browser/extensions/api/instance_id/instance_id_api.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_gcm_app_handler.h"
-#include "chrome/browser/gcm/fake_gcm_profile_service.h"
 #include "chrome/browser/gcm/gcm_profile_service_factory.h"
 #include "chrome/browser/gcm/instance_id/instance_id_profile_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/gcm_driver/fake_gcm_profile_service.h"
 #include "components/gcm_driver/instance_id/fake_gcm_driver_for_instance_id.h"
 #include "components/version_info/version_info.h"
 #include "extensions/test/result_catcher.h"
@@ -27,22 +27,16 @@ class InstanceIDApiTest : public ExtensionApiTest {
  public:
   InstanceIDApiTest();
 
- protected:
-  void SetUpOnMainThread() override;
-
  private:
+  gcm::GCMProfileServiceFactory::ScopedTestingFactoryInstaller
+      scoped_testing_factory_installer_;
+
   DISALLOW_COPY_AND_ASSIGN(InstanceIDApiTest);
 };
 
-InstanceIDApiTest::InstanceIDApiTest() {
-}
-
-void InstanceIDApiTest::SetUpOnMainThread() {
-  gcm::GCMProfileServiceFactory::GetInstance()->SetTestingFactory(
-      browser()->profile(), &gcm::FakeGCMProfileService::Build);
-
-  ExtensionApiTest::SetUpOnMainThread();
-}
+InstanceIDApiTest::InstanceIDApiTest()
+    : scoped_testing_factory_installer_(
+          base::BindRepeating(&gcm::FakeGCMProfileService::Build)) {}
 
 IN_PROC_BROWSER_TEST_F(InstanceIDApiTest, GetID) {
   ASSERT_TRUE(RunExtensionTest("instance_id/get_id"));

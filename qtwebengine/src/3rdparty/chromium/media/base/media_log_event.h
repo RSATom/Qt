@@ -16,9 +16,7 @@ namespace media {
 struct MediaLogEvent {
   MediaLogEvent() {}
 
-  MediaLogEvent(const MediaLogEvent& event) {
-    *this = event;
-  }
+  MediaLogEvent(const MediaLogEvent& event) { *this = event; }
 
   MediaLogEvent& operator=(const MediaLogEvent& event) {
     id = event.id;
@@ -53,7 +51,7 @@ struct MediaLogEvent {
     PIPELINE_STATE_CHANGED,
 
     // An error has occurred in the pipeline.
-    // params: "pipeline_error": <string name of the error>.
+    // params: "pipeline_error": <integral PipelineStatus error code>.
     PIPELINE_ERROR,
 
     // The size of the video has been determined.
@@ -76,6 +74,10 @@ struct MediaLogEvent {
     MEDIA_ERROR_LOG_ENTRY,
     // params: "error": Error string describing the error detected.
 
+    // Warning log reported by media code such as playback quality issues.
+    MEDIA_WARNING_LOG_ENTRY,
+    // params: "warning": String describing the warning.
+
     // Informative log reported by media code.
     MEDIA_INFO_LOG_ENTRY,
     // params: "info": String with details of an informative log entry.
@@ -87,10 +89,10 @@ struct MediaLogEvent {
     // A property has changed without any special event occurring.
     PROPERTY_CHANGE,
 
-    // Indicates that updated watch time statistics are available.
-    WATCH_TIME_UPDATE,
+    // Issued when a player is suspended.
+    SUSPENDED,
 
-    TYPE_LAST = WATCH_TIME_UPDATE
+    TYPE_LAST = SUSPENDED
   };
 
   int32_t id;

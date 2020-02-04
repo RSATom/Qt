@@ -58,8 +58,8 @@ class SimpleSwitch : public SimpleSwitchSimpleSource
     Q_OBJECT
 public:
     SimpleSwitch(QObject *parent = nullptr);
-    ~SimpleSwitch();
-    virtual void server_slot(bool clientState);
+    ~SimpleSwitch() override;
+    void server_slot(bool clientState) override;
 public Q_SLOTS:
     void timeout_slot();
 private:

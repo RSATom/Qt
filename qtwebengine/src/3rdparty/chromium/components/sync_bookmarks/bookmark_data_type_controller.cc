@@ -4,11 +4,16 @@
 
 #include "components/sync_bookmarks/bookmark_data_type_controller.h"
 
+#include <utility>
+
 #include "base/metrics/histogram.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/history/core/browser/history_service.h"
+#include "components/sync/driver/model_associator.h"
 #include "components/sync/driver/sync_api_component_factory.h"
 #include "components/sync/driver/sync_client.h"
+#include "components/sync/driver/sync_service.h"
+#include "components/sync/model/change_processor.h"
 
 using bookmarks::BookmarkModel;
 
@@ -16,10 +21,12 @@ namespace sync_bookmarks {
 
 BookmarkDataTypeController::BookmarkDataTypeController(
     const base::Closure& dump_stack,
+    syncer::SyncService* sync_service,
     syncer::SyncClient* sync_client)
     : syncer::FrontendDataTypeController(syncer::BOOKMARKS,
                                          dump_stack,
-                                         sync_client),
+                                         sync_service),
+      sync_client_(sync_client),
       history_service_observer_(this),
       bookmark_model_observer_(this) {}
 
@@ -48,9 +55,9 @@ void BookmarkDataTypeController::CreateSyncComponents() {
   DCHECK(CalledOnValidThread());
   syncer::SyncApiComponentFactory::SyncComponents sync_components =
       sync_client_->GetSyncApiComponentFactory()->CreateBookmarkSyncComponents(
-          sync_client_->GetSyncService(), CreateErrorHandler());
-  set_model_associator(sync_components.model_associator);
-  set_change_processor(sync_components.change_processor);
+          CreateErrorHandler(), sync_service()->GetUserShare());
+  set_model_associator(std::move(sync_components.model_associator));
+  set_change_processor(std::move(sync_components.change_processor));
 }
 
 void BookmarkDataTypeController::BookmarkModelChanged() {

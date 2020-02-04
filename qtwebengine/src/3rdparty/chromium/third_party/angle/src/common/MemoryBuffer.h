@@ -9,6 +9,7 @@
 
 #include "common/Optional.h"
 #include "common/angleutils.h"
+#include "common/debug.h"
 
 #include <stdint.h>
 #include <cstddef>
@@ -19,24 +20,40 @@ namespace angle
 class MemoryBuffer final : NonCopyable
 {
   public:
-    MemoryBuffer();
+    MemoryBuffer() = default;
+    MemoryBuffer(size_t size) { resize(size); }
     ~MemoryBuffer();
 
     MemoryBuffer(MemoryBuffer &&other);
     MemoryBuffer &operator=(MemoryBuffer &&other);
 
     bool resize(size_t size);
-    size_t size() const;
+    size_t size() const { return mSize; }
     bool empty() const { return mSize == 0; }
 
-    const uint8_t *data() const;
-    uint8_t *data();
+    const uint8_t *data() const { return mData; }
+    uint8_t *data()
+    {
+        ASSERT(mData);
+        return mData;
+    }
+
+    uint8_t &operator[](size_t pos)
+    {
+        ASSERT(pos < mSize);
+        return mData[pos];
+    }
+    const uint8_t &operator[](size_t pos) const
+    {
+        ASSERT(pos < mSize);
+        return mData[pos];
+    }
 
     void fill(uint8_t datum);
 
   private:
-    size_t mSize;
-    uint8_t *mData;
+    size_t mSize   = 0;
+    uint8_t *mData = nullptr;
 };
 
 class ScratchBuffer final : NonCopyable

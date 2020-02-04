@@ -65,13 +65,32 @@
 #include "../internal.h"
 
 
-/* kMinNumBuckets is the minimum size of the buckets array in an |_LHASH|. */
+// kMinNumBuckets is the minimum size of the buckets array in an |_LHASH|.
 static const size_t kMinNumBuckets = 16;
 
-/* kMaxAverageChainLength contains the maximum, average chain length. When the
- * average chain length exceeds this value, the hash table will be resized. */
+// kMaxAverageChainLength contains the maximum, average chain length. When the
+// average chain length exceeds this value, the hash table will be resized.
 static const size_t kMaxAverageChainLength = 2;
 static const size_t kMinAverageChainLength = 1;
+
+struct lhash_st {
+  // num_items contains the total number of items in the hash table.
+  size_t num_items;
+  // buckets is an array of |num_buckets| pointers. Each points to the head of
+  // a chain of LHASH_ITEM objects that have the same hash value, mod
+  // |num_buckets|.
+  LHASH_ITEM **buckets;
+  // num_buckets contains the length of |buckets|. This value is always >=
+  // kMinNumBuckets.
+  size_t num_buckets;
+  // callback_depth contains the current depth of |lh_doall| or |lh_doall_arg|
+  // calls. If non-zero then this suppresses resizing of the |buckets| array,
+  // which would otherwise disrupt the iteration.
+  unsigned callback_depth;
+
+  lhash_cmp_func comp;
+  lhash_hash_func hash;
+};
 
 _LHASH *lh_new(lhash_hash_func hash, lhash_cmp_func comp) {
   _LHASH *ret = OPENSSL_malloc(sizeof(_LHASH));
@@ -112,25 +131,25 @@ void lh_free(_LHASH *lh) {
 
 size_t lh_num_items(const _LHASH *lh) { return lh->num_items; }
 
-/* get_next_ptr_and_hash returns a pointer to the pointer that points to the
- * item equal to |data|. In other words, it searches for an item equal to |data|
- * and, if it's at the start of a chain, then it returns a pointer to an
- * element of |lh->buckets|, otherwise it returns a pointer to the |next|
- * element of the previous item in the chain. If an element equal to |data| is
- * not found, it returns a pointer that points to a NULL pointer. If |out_hash|
- * is not NULL, then it also puts the hash value of |data| in |*out_hash|. */
+// get_next_ptr_and_hash returns a pointer to the pointer that points to the
+// item equal to |data|. In other words, it searches for an item equal to |data|
+// and, if it's at the start of a chain, then it returns a pointer to an
+// element of |lh->buckets|, otherwise it returns a pointer to the |next|
+// element of the previous item in the chain. If an element equal to |data| is
+// not found, it returns a pointer that points to a NULL pointer. If |out_hash|
+// is not NULL, then it also puts the hash value of |data| in |*out_hash|.
 static LHASH_ITEM **get_next_ptr_and_hash(const _LHASH *lh, uint32_t *out_hash,
-                                          const void *data) {
-  const uint32_t hash = lh->hash(data);
-  LHASH_ITEM *cur, **ret;
-
+                                          const void *data,
+                                          lhash_hash_func_helper call_hash_func,
+                                          lhash_cmp_func_helper call_cmp_func) {
+  const uint32_t hash = call_hash_func(lh->hash, data);
   if (out_hash != NULL) {
     *out_hash = hash;
   }
 
-  ret = &lh->buckets[hash % lh->num_buckets];
-  for (cur = *ret; cur != NULL; cur = *ret) {
-    if (lh->comp(cur->data, data) == 0) {
+  LHASH_ITEM **ret = &lh->buckets[hash % lh->num_buckets];
+  for (LHASH_ITEM *cur = *ret; cur != NULL; cur = *ret) {
+    if (call_cmp_func(lh->comp, cur->data, data) == 0) {
       break;
     }
     ret = &cur->next;
@@ -139,21 +158,40 @@ static LHASH_ITEM **get_next_ptr_and_hash(const _LHASH *lh, uint32_t *out_hash,
   return ret;
 }
 
-void *lh_retrieve(const _LHASH *lh, const void *data) {
-  LHASH_ITEM **next_ptr;
-
-  next_ptr = get_next_ptr_and_hash(lh, NULL, data);
-
-  if (*next_ptr == NULL) {
-    return NULL;
+// get_next_ptr_by_key behaves like |get_next_ptr_and_hash| but takes a key
+// which may be a different type from the values stored in |lh|.
+static LHASH_ITEM **get_next_ptr_by_key(const _LHASH *lh, const void *key,
+                                        uint32_t key_hash,
+                                        int (*cmp_key)(const void *key,
+                                                       const void *value)) {
+  LHASH_ITEM **ret = &lh->buckets[key_hash % lh->num_buckets];
+  for (LHASH_ITEM *cur = *ret; cur != NULL; cur = *ret) {
+    if (cmp_key(key, cur->data) == 0) {
+      break;
+    }
+    ret = &cur->next;
   }
 
-  return (*next_ptr)->data;
+  return ret;
 }
 
-/* lh_rebucket allocates a new array of |new_num_buckets| pointers and
- * redistributes the existing items into it before making it |lh->buckets| and
- * freeing the old array. */
+void *lh_retrieve(const _LHASH *lh, const void *data,
+                  lhash_hash_func_helper call_hash_func,
+                  lhash_cmp_func_helper call_cmp_func) {
+  LHASH_ITEM **next_ptr =
+      get_next_ptr_and_hash(lh, NULL, data, call_hash_func, call_cmp_func);
+  return *next_ptr == NULL ? NULL : (*next_ptr)->data;
+}
+
+void *lh_retrieve_key(const _LHASH *lh, const void *key, uint32_t key_hash,
+                      int (*cmp_key)(const void *key, const void *value)) {
+  LHASH_ITEM **next_ptr = get_next_ptr_by_key(lh, key, key_hash, cmp_key);
+  return *next_ptr == NULL ? NULL : (*next_ptr)->data;
+}
+
+// lh_rebucket allocates a new array of |new_num_buckets| pointers and
+// redistributes the existing items into it before making it |lh->buckets| and
+// freeing the old array.
 static void lh_rebucket(_LHASH *lh, const size_t new_num_buckets) {
   LHASH_ITEM **new_buckets, *cur, *next;
   size_t i, alloc_size;
@@ -184,12 +222,12 @@ static void lh_rebucket(_LHASH *lh, const size_t new_num_buckets) {
   lh->buckets = new_buckets;
 }
 
-/* lh_maybe_resize resizes the |buckets| array if needed. */
+// lh_maybe_resize resizes the |buckets| array if needed.
 static void lh_maybe_resize(_LHASH *lh) {
   size_t avg_chain_length;
 
   if (lh->callback_depth > 0) {
-    /* Don't resize the hash if we are currently iterating over it. */
+    // Don't resize the hash if we are currently iterating over it.
     return;
   }
 
@@ -214,23 +252,26 @@ static void lh_maybe_resize(_LHASH *lh) {
   }
 }
 
-int lh_insert(_LHASH *lh, void **old_data, void *data) {
+int lh_insert(_LHASH *lh, void **old_data, void *data,
+              lhash_hash_func_helper call_hash_func,
+              lhash_cmp_func_helper call_cmp_func) {
   uint32_t hash;
   LHASH_ITEM **next_ptr, *item;
 
   *old_data = NULL;
-  next_ptr = get_next_ptr_and_hash(lh, &hash, data);
+  next_ptr =
+      get_next_ptr_and_hash(lh, &hash, data, call_hash_func, call_cmp_func);
 
 
   if (*next_ptr != NULL) {
-    /* An element equal to |data| already exists in the hash table. It will be
-     * replaced. */
+    // An element equal to |data| already exists in the hash table. It will be
+    // replaced.
     *old_data = (*next_ptr)->data;
     (*next_ptr)->data = data;
     return 1;
   }
 
-  /* An element equal to |data| doesn't exist in the hash table yet. */
+  // An element equal to |data| doesn't exist in the hash table yet.
   item = OPENSSL_malloc(sizeof(LHASH_ITEM));
   if (item == NULL) {
     return 0;
@@ -246,13 +287,16 @@ int lh_insert(_LHASH *lh, void **old_data, void *data) {
   return 1;
 }
 
-void *lh_delete(_LHASH *lh, const void *data) {
+void *lh_delete(_LHASH *lh, const void *data,
+                lhash_hash_func_helper call_hash_func,
+                lhash_cmp_func_helper call_cmp_func) {
   LHASH_ITEM **next_ptr, *item, *ret;
 
-  next_ptr = get_next_ptr_and_hash(lh, NULL, data);
+  next_ptr =
+      get_next_ptr_and_hash(lh, NULL, data, call_hash_func, call_cmp_func);
 
   if (*next_ptr == NULL) {
-    /* No such element. */
+    // No such element.
     return NULL;
   }
 
@@ -267,14 +311,13 @@ void *lh_delete(_LHASH *lh, const void *data) {
   return ret;
 }
 
-static void lh_doall_internal(_LHASH *lh, void (*no_arg_func)(void *),
-                              void (*arg_func)(void *, void *), void *arg) {
+void lh_doall_arg(_LHASH *lh, void (*func)(void *, void *), void *arg) {
   if (lh == NULL) {
     return;
   }
 
   if (lh->callback_depth < UINT_MAX) {
-    /* |callback_depth| is a saturating counter. */
+    // |callback_depth| is a saturating counter.
     lh->callback_depth++;
   }
 
@@ -282,11 +325,7 @@ static void lh_doall_internal(_LHASH *lh, void (*no_arg_func)(void *),
     LHASH_ITEM *next;
     for (LHASH_ITEM *cur = lh->buckets[i]; cur != NULL; cur = next) {
       next = cur->next;
-      if (arg_func) {
-        arg_func(cur->data, arg);
-      } else {
-        no_arg_func(cur->data);
-      }
+      func(cur->data, arg);
     }
   }
 
@@ -294,43 +333,16 @@ static void lh_doall_internal(_LHASH *lh, void (*no_arg_func)(void *),
     lh->callback_depth--;
   }
 
-  /* The callback may have added or removed elements and the non-zero value of
-   * |callback_depth| will have suppressed any resizing. Thus any needed
-   * resizing is done here. */
+  // The callback may have added or removed elements and the non-zero value of
+  // |callback_depth| will have suppressed any resizing. Thus any needed
+  // resizing is done here.
   lh_maybe_resize(lh);
 }
 
-void lh_doall(_LHASH *lh, void (*func)(void *)) {
-  lh_doall_internal(lh, func, NULL, NULL);
-}
-
-void lh_doall_arg(_LHASH *lh, void (*func)(void *, void *), void *arg) {
-  lh_doall_internal(lh, NULL, func, arg);
-}
-
 uint32_t lh_strhash(const char *c) {
-  /* The following hash seems to work very well on normal text strings
-   * no collisions on /usr/dict/words and it distributes on %2^n quite
-   * well, not as good as MD5, but still good. */
-  unsigned long ret = 0;
-  long n;
-  unsigned long v;
-  int r;
-
-  if ((c == NULL) || (*c == '\0')) {
-    return (ret);
+  if (c == NULL) {
+    return 0;
   }
 
-  n = 0x100;
-  while (*c) {
-    v = n | (*c);
-    n += 0x100;
-    r = (int)((v >> 2) ^ v) & 0x0f;
-    ret = (ret << r) | (ret >> (32 - r));
-    ret &= 0xFFFFFFFFL;
-    ret ^= v * v;
-    c++;
-  }
-
-  return ((ret >> 16) ^ ret);
+  return OPENSSL_hash32(c, strlen(c));
 }

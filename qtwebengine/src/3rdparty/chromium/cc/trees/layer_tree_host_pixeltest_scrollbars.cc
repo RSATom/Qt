@@ -4,7 +4,6 @@
 
 #include <stddef.h>
 
-#include "base/memory/ptr_util.h"
 #include "build/build_config.h"
 #include "cc/input/scrollbar.h"
 #include "cc/layers/painted_overlay_scrollbar_layer.h"
@@ -31,7 +30,7 @@ class LayerTreeHostScrollbarsPixelTest : public LayerTreePixelTest {
   }
 
   void SetupTree() override {
-    layer_tree_host()->SetDeviceScaleFactor(device_scale_factor_);
+    SetInitialDeviceScaleFactor(device_scale_factor_);
     LayerTreePixelTest::SetupTree();
   }
 
@@ -52,6 +51,7 @@ class PaintedScrollbar : public Scrollbar {
   gfx::Rect TrackRect() const override { return rect_; }
   float ThumbOpacity() const override { return 1.f; }
   bool NeedsPaintPart(ScrollbarPart part) const override { return true; }
+  bool HasTickmarks() const override { return false; }
   void PaintPart(PaintCanvas* canvas,
                  ScrollbarPart part,
                  const gfx::Rect& content_rect) override {
@@ -86,7 +86,7 @@ TEST_F(LayerTreeHostScrollbarsPixelTest, NoScale) {
   scoped_refptr<SolidColorLayer> background =
       CreateSolidColorLayer(gfx::Rect(200, 200), SK_ColorWHITE);
 
-  auto scrollbar = base::MakeUnique<PaintedScrollbar>();
+  auto scrollbar = std::make_unique<PaintedScrollbar>();
   scoped_refptr<PaintedScrollbarLayer> layer =
       PaintedScrollbarLayer::Create(std::move(scrollbar));
   layer->SetIsDrawable(true);
@@ -105,7 +105,7 @@ TEST_F(LayerTreeHostScrollbarsPixelTest, DeviceScaleFactor) {
   scoped_refptr<SolidColorLayer> background =
       CreateSolidColorLayer(gfx::Rect(100, 100), SK_ColorWHITE);
 
-  auto scrollbar = base::MakeUnique<PaintedScrollbar>();
+  auto scrollbar = std::make_unique<PaintedScrollbar>();
   scoped_refptr<PaintedScrollbarLayer> layer =
       PaintedScrollbarLayer::Create(std::move(scrollbar));
   layer->SetIsDrawable(true);
@@ -120,7 +120,7 @@ TEST_F(LayerTreeHostScrollbarsPixelTest, TransformScale) {
   scoped_refptr<SolidColorLayer> background =
       CreateSolidColorLayer(gfx::Rect(200, 200), SK_ColorWHITE);
 
-  auto scrollbar = base::MakeUnique<PaintedScrollbar>();
+  auto scrollbar = std::make_unique<PaintedScrollbar>();
   scoped_refptr<PaintedScrollbarLayer> layer =
       PaintedScrollbarLayer::Create(std::move(scrollbar));
   layer->SetIsDrawable(true);
@@ -137,11 +137,17 @@ TEST_F(LayerTreeHostScrollbarsPixelTest, TransformScale) {
                base::FilePath(FILE_PATH_LITERAL("spiral_double_scale.png")));
 }
 
-TEST_F(LayerTreeHostScrollbarsPixelTest, HugeTransformScale) {
+// Disabled on TSan due to frequent timeouts. crbug.com/848994
+#if defined(THREAD_SANITIZER)
+#define MAYBE_HugeTransformScale DISABLED_HugeTransformScale
+#else
+#define MAYBE_HugeTransformScale HugeTransformScale
+#endif
+TEST_F(LayerTreeHostScrollbarsPixelTest, MAYBE_HugeTransformScale) {
   scoped_refptr<SolidColorLayer> background =
       CreateSolidColorLayer(gfx::Rect(400, 400), SK_ColorWHITE);
 
-  auto scrollbar = base::MakeUnique<PaintedScrollbar>();
+  auto scrollbar = std::make_unique<PaintedScrollbar>();
   scrollbar->set_paint_scale(1);
   scoped_refptr<PaintedScrollbarLayer> layer =
       PaintedScrollbarLayer::Create(std::move(scrollbar));
@@ -150,8 +156,10 @@ TEST_F(LayerTreeHostScrollbarsPixelTest, HugeTransformScale) {
   background->AddChild(layer);
 
   scoped_refptr<TestInProcessContextProvider> context(
-      new TestInProcessContextProvider(nullptr));
-  context->BindToCurrentThread();
+      new TestInProcessContextProvider(/*enable_oop_rasterization=*/false,
+                                       /*support_locking=*/false));
+  gpu::ContextResult result = context->BindToCurrentThread();
+  DCHECK_EQ(result, gpu::ContextResult::kSuccess);
   int max_texture_size = 0;
   context->ContextGL()->GetIntegerv(GL_MAX_TEXTURE_SIZE, &max_texture_size);
 
@@ -237,7 +245,7 @@ TEST_F(LayerTreeHostOverlayScrollbarsPixelTest, NinePatchScrollbarScaledUp) {
   scoped_refptr<SolidColorLayer> background =
       CreateSolidColorLayer(gfx::Rect(400, 400), SK_ColorWHITE);
 
-  auto scrollbar = base::MakeUnique<PaintedOverlayScrollbar>();
+  auto scrollbar = std::make_unique<PaintedOverlayScrollbar>();
   scoped_refptr<PaintedOverlayScrollbarLayer> layer =
       PaintedOverlayScrollbarLayer::Create(std::move(scrollbar));
 
@@ -261,7 +269,7 @@ TEST_F(LayerTreeHostOverlayScrollbarsPixelTest, NinePatchScrollbarScaledDown) {
   scoped_refptr<SolidColorLayer> background =
       CreateSolidColorLayer(gfx::Rect(400, 400), SK_ColorWHITE);
 
-  auto scrollbar = base::MakeUnique<PaintedOverlayScrollbar>();
+  auto scrollbar = std::make_unique<PaintedOverlayScrollbar>();
   scoped_refptr<PaintedOverlayScrollbarLayer> layer =
       PaintedOverlayScrollbarLayer::Create(std::move(scrollbar));
 

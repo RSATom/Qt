@@ -439,6 +439,9 @@ void QPaintEngineEx::stroke(const QVectorPath &path, const QPen &pen)
         }
     }
 
+    if (d->activeStroker == &d->stroker)
+        d->stroker.setForceOpen(path.hasExplicitOpen());
+
     const QPainterPath::ElementType *types = path.elements();
     const qreal *points = path.points();
     int pointCount = path.elementCount();
@@ -619,18 +622,17 @@ void QPaintEngineEx::clip(const QRect &r, Qt::ClipOperation op)
 
 void QPaintEngineEx::clip(const QRegion &region, Qt::ClipOperation op)
 {
-    if (region.rectCount() == 1)
-        clip(region.boundingRect(), op);
-
-    QVector<QRect> rects = region.rects();
-    if (rects.size() <= 32) {
+    const auto rectsInRegion = region.rectCount();
+    if (rectsInRegion == 1) {
+        clip(*region.begin(), op);
+    } else if (rectsInRegion <= 32) {
         qreal pts[2*32*4];
         int pos = 0;
-        for (QVector<QRect>::const_iterator i = rects.constBegin(); i != rects.constEnd(); ++i) {
-            qreal x1 = i->x();
-            qreal y1 = i->y();
-            qreal x2 = i->x() + i->width();
-            qreal y2 = i->y() + i->height();
+        for (QRect r : region) {
+            qreal x1 = r.x();
+            qreal y1 = r.y();
+            qreal x2 = r.x() + r.width();
+            qreal y2 = r.y() + r.height();
 
             pts[pos++] = x1;
             pts[pos++] = y1;
@@ -644,19 +646,19 @@ void QPaintEngineEx::clip(const QRegion &region, Qt::ClipOperation op)
             pts[pos++] = x1;
             pts[pos++] = y2;
         }
-        QVectorPath vp(pts, rects.size() * 4, qpaintengineex_rect4_types_32);
+        QVectorPath vp(pts, rectsInRegion * 4, qpaintengineex_rect4_types_32);
         clip(vp, op);
     } else {
-        QVarLengthArray<qreal> pts(rects.size() * 2 * 4);
-        QVarLengthArray<QPainterPath::ElementType> types(rects.size() * 4);
+        QVarLengthArray<qreal> pts(rectsInRegion * 2 * 4);
+        QVarLengthArray<QPainterPath::ElementType> types(rectsInRegion * 4);
         int ppos = 0;
         int tpos = 0;
 
-        for (QVector<QRect>::const_iterator i = rects.constBegin(); i != rects.constEnd(); ++i) {
-            qreal x1 = i->x();
-            qreal y1 = i->y();
-            qreal x2 = i->x() + i->width();
-            qreal y2 = i->y() + i->height();
+        for (QRect r : region) {
+            qreal x1 = r.x();
+            qreal y1 = r.y();
+            qreal x2 = r.x() + r.width();
+            qreal y2 = r.y() + r.height();
 
             pts[ppos++] = x1;
             pts[ppos++] = y1;
@@ -676,7 +678,7 @@ void QPaintEngineEx::clip(const QRegion &region, Qt::ClipOperation op)
             types[tpos++] = QPainterPath::LineToElement;
         }
 
-        QVectorPath vp(pts.data(), rects.size() * 4, types.data());
+        QVectorPath vp(pts.data(), rectsInRegion * 4, types.data());
         clip(vp, op);
     }
 
@@ -949,6 +951,8 @@ void QPaintEngineEx::drawTiledPixmap(const QRectF &r, const QPixmap &pixmap, con
 {
     QBrush brush(state()->pen.color(), pixmap);
     QTransform xform = QTransform::fromTranslate(r.x() - s.x(), r.y() - s.y());
+    if (!qFuzzyCompare(pixmap.devicePixelRatioF(), 1.0))
+        xform.scale(1.0/pixmap.devicePixelRatioF(), 1.0/pixmap.devicePixelRatioF());
     brush.setTransform(xform);
 
     qreal pts[] = { r.x(), r.y(),
@@ -1089,9 +1093,14 @@ bool QPaintEngineEx::shouldDrawCachedGlyphs(QFontEngine *fontEngine, const QTran
     if (fontEngine->glyphFormat == QFontEngine::Format_ARGB)
         return true;
 
+    static const int maxCachedGlyphSizeSquared = std::pow([]{
+        if (int env = qEnvironmentVariableIntValue("QT_MAX_CACHED_GLYPH_SIZE"))
+            return env;
+        return QT_MAX_CACHED_GLYPH_SIZE;
+    }(), 2);
+
     qreal pixelSize = fontEngine->fontDef.pixelSize;
-    return (pixelSize * pixelSize * qAbs(m.determinant())) <
-            QT_MAX_CACHED_GLYPH_SIZE * QT_MAX_CACHED_GLYPH_SIZE;
+    return (pixelSize * pixelSize * qAbs(m.determinant())) <= maxCachedGlyphSizeSquared;
 }
 
 QT_END_NAMESPACE

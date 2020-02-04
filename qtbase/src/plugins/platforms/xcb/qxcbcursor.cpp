@@ -255,29 +255,30 @@ static const uint8_t * const cursor_bits20[] = {
     forbidden_bits, forbiddenm_bits
 };
 
-static const char * const cursorNames[] = {
-    "left_ptr",
-    "up_arrow",
-    "cross",
-    "wait",
-    "ibeam",
-    "size_ver",
-    "size_hor",
-    "size_bdiag",
-    "size_fdiag",
-    "size_all",
-    "blank",
-    "split_v",
-    "split_h",
-    "pointing_hand",
-    "forbidden",
-    "whats_this",
-    "left_ptr_watch",
-    "openhand",
-    "closedhand",
-    "copy",
-    "move",
-    "link"
+// ### FIXME This mapping is incomplete - QTBUG-71423
+static const std::vector<const char *> cursorNames[] = {
+    { "left_ptr", "default", "top_left_arrow", "left_arrow" },
+    { "up_arrow" },
+    { "cross" },
+    { "wait", "watch", "0426c94ea35c87780ff01dc239897213" },
+    { "ibeam", "text", "xterm" },
+    { "size_ver", "ns-resize", "v_double_arrow", "00008160000006810000408080010102" },
+    { "size_hor", "ew-resize", "h_double_arrow", "028006030e0e7ebffc7f7070c0600140" },
+    { "size_bdiag", "nesw-resize", "50585d75b494802d0151028115016902", "fcf1c3c7cd4491d801f1e1c78f100000" },
+    { "size_fdiag", "nwse-resize", "38c5dff7c7b8962045400281044508d2", "c7088f0f3e6c8088236ef8e1e3e70000" },
+    { "size_all" },
+    { "blank" },
+    { "split_v", "row-resize", "sb_v_double_arrow", "2870a09082c103050810ffdffffe0204", "c07385c7190e701020ff7ffffd08103c" },
+    { "split_h", "col-resize", "sb_h_double_arrow", "043a9f68147c53184671403ffa811cc5", "14fef782d02440884392942c11205230" },
+    { "pointing_hand", "pointer", "hand1", "e29285e634086352946a0e7090d73106" },
+    { "forbidden", "not-allowed", "crossed_circle", "circle", "03b6e0fcb3499374a867c041f52298f0" },
+    { "whats_this", "help", "question_arrow", "5c6cd98b3f3ebcb1f9c7f1c204630408", "d9ce0ab605698f320427677b458ad60b" },
+    { "left_ptr_watch", "half-busy", "progress", "00000000000000020006000e7e9ffc3f", "08e8e1c95fe2fc01f976f1e063a24ccd" },
+    { "openhand", "grab", "fleur", "5aca4d189052212118709018842178c0", "9d800788f1b08800ae810202380a0822" },
+    { "closedhand", "grabbing", "208530c400c041818281048008011002" },
+    { "dnd-copy", "copy" },
+    { "dnd-move", "move" },
+    { "dnd-link", "link" }
 };
 
 QXcbCursorCacheKey::QXcbCursorCacheKey(const QCursor &c)
@@ -301,6 +302,11 @@ QXcbCursorCacheKey::QXcbCursorCacheKey(const QCursor &c)
 QXcbCursor::QXcbCursor(QXcbConnection *conn, QXcbScreen *screen)
     : QXcbObject(conn), m_screen(screen), m_gtkCursorThemeInitialized(false)
 {
+#if QT_CONFIG(cursor)
+    // see NUM_BITMAPS in libXcursor/src/xcursorint.h
+    m_bitmapCache.setMaxCost(8);
+#endif
+
     if (cursorCount++)
         return;
 
@@ -351,37 +357,38 @@ QXcbCursor::~QXcbCursor()
 }
 
 #ifndef QT_NO_CURSOR
-void QXcbCursor::changeCursor(QCursor *cursor, QWindow *widget)
+void QXcbCursor::changeCursor(QCursor *cursor, QWindow *window)
 {
-    QXcbWindow *w = 0;
-    if (widget && widget->handle())
-        w = static_cast<QXcbWindow *>(widget->handle());
-    else
-        // No X11 cursor control when there is no widget under the cursor
+    if (!window || !window->handle())
         return;
 
     xcb_cursor_t c = XCB_CURSOR_NONE;
-    bool isBitmapCursor = false;
-
     if (cursor) {
+        const QXcbCursorCacheKey key(*cursor);
         const Qt::CursorShape shape = cursor->shape();
-        isBitmapCursor = shape == Qt::BitmapCursor;
 
-        if (!isBitmapCursor) {
-            const QXcbCursorCacheKey key(*cursor);
-            CursorHash::iterator it = m_cursorHash.find(key);
-            if (it == m_cursorHash.end()) {
-                it = m_cursorHash.insert(key, createFontCursor(shape));
+        if (shape == Qt::BitmapCursor) {
+            auto *bitmap = m_bitmapCache.object(key);
+            if (bitmap) {
+                c = bitmap->cursor;
+            } else {
+                c = createBitmapCursor(cursor);
+                m_bitmapCache.insert(key, new CachedCursor(xcb_connection(), c));
             }
-            c = it.value();
         } else {
-            // Do not cache bitmap cursors, as otherwise they have unclear
-            // lifetime (we effectively leak xcb_cursor_t).
-            c = createBitmapCursor(cursor);
+            auto it = m_cursorHash.find(key);
+            if (it == m_cursorHash.end()) {
+                c = createFontCursor(shape);
+                m_cursorHash.insert(key, c);
+            } else {
+                c = it.value();
+            }
         }
     }
 
-    w->setCursor(c, isBitmapCursor);
+    auto *w = static_cast<QXcbWindow *>(window->handle());
+    xcb_change_window_attributes(xcb_connection(), w->xcb_window(), XCB_CW_CURSOR, &c);
+    xcb_flush(xcb_connection());
 }
 
 static int cursorIdForShape(int cshape)
@@ -535,22 +542,13 @@ static xcb_cursor_t loadCursor(void *dpy, int cshape)
     xcb_cursor_t cursor = XCB_NONE;
     if (!ptrXcursorLibraryLoadCursor || !dpy)
         return cursor;
-    switch (cshape) {
-    case Qt::DragCopyCursor:
-        cursor = ptrXcursorLibraryLoadCursor(dpy, "dnd-copy");
-        break;
-    case Qt::DragMoveCursor:
-        cursor = ptrXcursorLibraryLoadCursor(dpy, "dnd-move");
-        break;
-    case Qt::DragLinkCursor:
-        cursor = ptrXcursorLibraryLoadCursor(dpy, "dnd-link");
-        break;
-    default:
-        break;
+
+    for (const char *cursorName: cursorNames[cshape]) {
+        cursor = ptrXcursorLibraryLoadCursor(dpy, cursorName);
+        if (cursor != XCB_NONE)
+            break;
     }
-    if (!cursor) {
-        cursor = ptrXcursorLibraryLoadCursor(dpy, cursorNames[cshape]);
-    }
+
     return cursor;
 }
 #endif // QT_CONFIG(xcb_xlib) / QT_CONFIG(library)
@@ -565,7 +563,6 @@ xcb_cursor_t QXcbCursor::createFontCursor(int cshape)
 #if QT_CONFIG(xcb_xlib) && QT_CONFIG(library)
     if (cshape >= 0 && cshape <= Qt::LastCursor) {
         void *dpy = connection()->xlib_display();
-        // special case for non-standard dnd-* cursors
         cursor = loadCursor(dpy, cshape);
         if (!cursor && !m_gtkCursorThemeInitialized && m_screen->xSettings()->initialized()) {
             QByteArray gtkCursorTheme = m_screen->xSettings()->setting("Gtk/CursorThemeName").toByteArray();
@@ -598,7 +595,7 @@ xcb_cursor_t QXcbCursor::createFontCursor(int cshape)
     }
 
     if (cursor && cshape >= 0 && cshape < Qt::LastCursor && connection()->hasXFixes()) {
-        const char *name = cursorNames[cshape];
+        const char *name = cursorNames[cshape].front();
         xcb_xfixes_set_cursor_name(conn, cursor, strlen(name), name);
     }
 
@@ -607,12 +604,15 @@ xcb_cursor_t QXcbCursor::createFontCursor(int cshape)
 
 xcb_cursor_t QXcbCursor::createBitmapCursor(QCursor *cursor)
 {
-    xcb_connection_t *conn = xcb_connection();
     QPoint spot = cursor->hotSpot();
     xcb_cursor_t c = XCB_NONE;
-    if (cursor->pixmap().depth() > 1)
-        c = qt_xcb_createCursorXRender(m_screen, cursor->pixmap().toImage(), spot);
-    if (!c) {
+    if (cursor->pixmap().depth() > 1) {
+        if (connection()->hasXRender(0, 5))
+            c = qt_xcb_createCursorXRender(m_screen, cursor->pixmap().toImage(), spot);
+        else
+            qCWarning(lcQpaXcb, "xrender >= 0.5 required to create pixmap cursors");
+    } else {
+        xcb_connection_t *conn = xcb_connection();
         xcb_pixmap_t cp = qt_xcb_XPixmapFromBitmap(m_screen, cursor->bitmap()->toImage());
         xcb_pixmap_t mp = qt_xcb_XPixmapFromBitmap(m_screen, cursor->mask()->toImage());
         c = xcb_generate_id(conn);
@@ -625,6 +625,12 @@ xcb_cursor_t QXcbCursor::createBitmapCursor(QCursor *cursor)
 }
 #endif
 
+/*! \internal
+
+    Note that the logical state of a device (as seen by means of the protocol) may
+    lag the physical state if device event processing is frozen. See QueryPointer
+    in X11 protocol specification.
+*/
 void QXcbCursor::queryPointer(QXcbConnection *c, QXcbVirtualDesktop **virtualDesktop, QPoint *pos, int *keybMask)
 {
     if (pos)
@@ -660,7 +666,7 @@ QPoint QXcbCursor::pos() const
 
 void QXcbCursor::setPos(const QPoint &pos)
 {
-    QXcbVirtualDesktop *virtualDesktop = Q_NULLPTR;
+    QXcbVirtualDesktop *virtualDesktop = nullptr;
     queryPointer(connection(), &virtualDesktop, 0);
     xcb_warp_pointer(xcb_connection(), XCB_NONE, virtualDesktop->root(), 0, 0, 0, 0, pos.x(), pos.y());
     xcb_flush(xcb_connection());

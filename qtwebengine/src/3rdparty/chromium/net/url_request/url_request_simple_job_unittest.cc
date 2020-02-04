@@ -8,14 +8,14 @@
 #include <utility>
 
 #include "base/bind_helpers.h"
-#include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/sequenced_task_runner.h"
+#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "net/base/request_priority.h"
 #include "net/test/gtest_util.h"
+#include "net/test/test_with_scoped_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_request_job.h"
 #include "net/url_request/url_request_job_factory.h"
@@ -37,7 +37,7 @@ const int kRangeLastPosition = 8;
 static_assert(kRangeFirstPosition > 0 &&
                   kRangeFirstPosition < kRangeLastPosition &&
                   kRangeLastPosition <
-                      static_cast<int>(arraysize(kTestData) - 1),
+                      static_cast<int>(base::size(kTestData) - 1),
               "invalid range");
 
 class MockSimpleJob : public URLRequestSimpleJob {
@@ -53,7 +53,7 @@ class MockSimpleJob : public URLRequestSimpleJob {
   int GetData(std::string* mime_type,
               std::string* charset,
               std::string* data,
-              const CompletionCallback& callback) const override {
+              CompletionOnceCallback callback) const override {
     mime_type->assign("text/plain");
     charset->assign("US-ASCII");
     data->assign(data_);
@@ -61,7 +61,7 @@ class MockSimpleJob : public URLRequestSimpleJob {
   }
 
  private:
-  ~MockSimpleJob() override {}
+  ~MockSimpleJob() override = default;
 
   const std::string data_;
 
@@ -72,7 +72,7 @@ class CancelAfterFirstReadURLRequestDelegate : public TestDelegate {
  public:
   CancelAfterFirstReadURLRequestDelegate() : run_loop_(new base::RunLoop) {}
 
-  ~CancelAfterFirstReadURLRequestDelegate() override {}
+  ~CancelAfterFirstReadURLRequestDelegate() override = default;
 
   void OnResponseStarted(URLRequest* request, int net_error) override {
     DCHECK_NE(ERR_IO_PENDING, net_error);
@@ -102,17 +102,17 @@ class SimpleJobProtocolHandler :
     return new MockSimpleJob(request, network_delegate, kTestData);
   }
 
-  ~SimpleJobProtocolHandler() override {}
+  ~SimpleJobProtocolHandler() override = default;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(SimpleJobProtocolHandler);
 };
 
-class URLRequestSimpleJobTest : public ::testing::Test {
+class URLRequestSimpleJobTest : public TestWithScopedTaskEnvironment {
  public:
   URLRequestSimpleJobTest() : context_(true) {
     job_factory_.SetProtocolHandler(
-        "data", base::MakeUnique<SimpleJobProtocolHandler>());
+        "data", std::make_unique<SimpleJobProtocolHandler>());
     context_.set_job_factory(&job_factory_);
     context_.Init();
 
@@ -126,7 +126,7 @@ class URLRequestSimpleJobTest : public ::testing::Test {
     request_->Start();
 
     EXPECT_TRUE(request_->is_pending());
-    base::RunLoop().Run();
+    delegate_.RunUntilComplete();
     EXPECT_FALSE(request_->is_pending());
   }
 

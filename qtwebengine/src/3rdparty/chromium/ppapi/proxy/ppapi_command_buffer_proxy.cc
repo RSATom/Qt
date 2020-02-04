@@ -17,22 +17,24 @@ namespace proxy {
 
 PpapiCommandBufferProxy::PpapiCommandBufferProxy(
     const ppapi::HostResource& resource,
-    PluginDispatcher* dispatcher,
+    InstanceData::FlushInfo* flush_info,
+    LockedSender* sender,
     const gpu::Capabilities& capabilities,
-    const SerializedHandle& shared_state,
+    SerializedHandle shared_state,
     gpu::CommandBufferId command_buffer_id)
     : command_buffer_id_(command_buffer_id),
       capabilities_(capabilities),
       resource_(resource),
-      dispatcher_(dispatcher),
+      flush_info_(flush_info),
+      sender_(sender),
       next_fence_sync_release_(1),
       pending_fence_sync_release_(0),
       flushed_fence_sync_release_(0),
       validated_fence_sync_release_(0) {
-  shared_state_shm_.reset(new base::SharedMemory(shared_state.shmem(), false));
-  shared_state_shm_->Map(shared_state.size());
-  InstanceData* data = dispatcher->GetInstanceData(resource.instance());
-  flush_info_ = &data->flush_info_;
+  base::UnsafeSharedMemoryRegion shmem_region =
+      base::UnsafeSharedMemoryRegion::Deserialize(
+          shared_state.TakeSharedMemoryRegion());
+  shared_state_mapping_ = shmem_region.Map();
 }
 
 PpapiCommandBufferProxy::~PpapiCommandBufferProxy() {
@@ -115,7 +117,7 @@ void PpapiCommandBufferProxy::SetGetBuffer(int32_t transfer_buffer_id) {
 }
 
 scoped_refptr<gpu::Buffer> PpapiCommandBufferProxy::CreateTransferBuffer(
-    size_t size,
+    uint32_t size,
     int32_t* id) {
   *id = -1;
 
@@ -125,51 +127,59 @@ scoped_refptr<gpu::Buffer> PpapiCommandBufferProxy::CreateTransferBuffer(
   // Assuming we are in the renderer process, the service is responsible for
   // duplicating the handle. This might not be true for NaCl.
   ppapi::proxy::SerializedHandle handle(
-      ppapi::proxy::SerializedHandle::SHARED_MEMORY);
+      ppapi::proxy::SerializedHandle::SHARED_MEMORY_REGION);
   if (!Send(new PpapiHostMsg_PPBGraphics3D_CreateTransferBuffer(
-          ppapi::API_ID_PPB_GRAPHICS_3D, resource_,
-          base::checked_cast<uint32_t>(size), id, &handle))) {
+          ppapi::API_ID_PPB_GRAPHICS_3D, resource_, size, id, &handle))) {
     if (last_state_.error == gpu::error::kNoError)
       last_state_.error = gpu::error::kLostContext;
     return NULL;
   }
 
-  if (*id <= 0 || !handle.is_shmem()) {
+  if (*id <= 0 || !handle.is_shmem_region()) {
     if (last_state_.error == gpu::error::kNoError)
       last_state_.error = gpu::error::kOutOfBounds;
     return NULL;
   }
 
-  std::unique_ptr<base::SharedMemory> shared_memory(
-      new base::SharedMemory(handle.shmem(), false));
+  base::UnsafeSharedMemoryRegion shared_memory_region =
+      base::UnsafeSharedMemoryRegion::Deserialize(
+          handle.TakeSharedMemoryRegion());
 
-  // Map the shared memory on demand.
-  if (!shared_memory->memory()) {
-    if (!shared_memory->Map(handle.size())) {
-      if (last_state_.error == gpu::error::kNoError)
-        last_state_.error = gpu::error::kOutOfBounds;
-      *id = -1;
-      return NULL;
-    }
+  base::WritableSharedMemoryMapping shared_memory_mapping =
+      shared_memory_region.Map();
+  if (!shared_memory_mapping.IsValid() ||
+      (shared_memory_mapping.size() > UINT32_MAX)) {
+    if (last_state_.error == gpu::error::kNoError)
+      last_state_.error = gpu::error::kOutOfBounds;
+    *id = -1;
+    return NULL;
   }
 
-  return gpu::MakeBufferFromSharedMemory(std::move(shared_memory),
-                                         handle.size());
+  return gpu::MakeBufferFromSharedMemory(std::move(shared_memory_region),
+                                         std::move(shared_memory_mapping));
 }
 
 void PpapiCommandBufferProxy::DestroyTransferBuffer(int32_t id) {
   if (last_state_.error != gpu::error::kNoError)
     return;
 
+  if (flush_info_->flush_pending)
+    FlushInternal();
+
   Send(new PpapiHostMsg_PPBGraphics3D_DestroyTransferBuffer(
       ppapi::API_ID_PPB_GRAPHICS_3D, resource_, id));
 }
 
 void PpapiCommandBufferProxy::SetLock(base::Lock*) {
-  NOTIMPLEMENTED();
+  NOTREACHED();
 }
 
 void PpapiCommandBufferProxy::EnsureWorkVisible() {
+  if (last_state_.error != gpu::error::kNoError)
+    return;
+
+  if (flush_info_->flush_pending)
+    FlushInternal();
   DCHECK_GE(flushed_fence_sync_release_, validated_fence_sync_release_);
   Send(new PpapiHostMsg_PPBGraphics3D_EnsureWorkVisible(
       ppapi::API_ID_PPB_GRAPHICS_3D, resource_));
@@ -184,62 +194,51 @@ gpu::CommandBufferId PpapiCommandBufferProxy::GetCommandBufferID() const {
   return command_buffer_id_;
 }
 
-int32_t PpapiCommandBufferProxy::GetStreamId() const {
-  return 0;
-}
-
-void PpapiCommandBufferProxy::FlushOrderingBarrierOnStream(int32_t stream_id) {
-  // This is only relevant for out-of-process command buffers.
+void PpapiCommandBufferProxy::FlushPendingWork() {
+  if (last_state_.error != gpu::error::kNoError)
+    return;
+  if (flush_info_->flush_pending)
+    FlushInternal();
 }
 
 uint64_t PpapiCommandBufferProxy::GenerateFenceSyncRelease() {
   return next_fence_sync_release_++;
 }
 
-bool PpapiCommandBufferProxy::IsFenceSyncRelease(uint64_t release) {
-  return release != 0 && release < next_fence_sync_release_;
-}
-
-bool PpapiCommandBufferProxy::IsFenceSyncFlushed(uint64_t release) {
-  return release <= flushed_fence_sync_release_;
-}
-
-bool PpapiCommandBufferProxy::IsFenceSyncFlushReceived(uint64_t release) {
-  if (!IsFenceSyncFlushed(release))
-    return false;
-
-  if (release <= validated_fence_sync_release_)
-    return true;
-
-  EnsureWorkVisible();
-  return release <= validated_fence_sync_release_;
-}
-
 bool PpapiCommandBufferProxy::IsFenceSyncReleased(uint64_t release) {
-  NOTIMPLEMENTED();
+  NOTREACHED();
   return false;
 }
 
 void PpapiCommandBufferProxy::SignalSyncToken(const gpu::SyncToken& sync_token,
-                                              const base::Closure& callback) {
-  NOTIMPLEMENTED();
+                                              base::OnceClosure callback) {
+  NOTREACHED();
 }
 
-void PpapiCommandBufferProxy::WaitSyncTokenHint(
-    const gpu::SyncToken& sync_token) {
-  // TODO(sunnyps): Forward sync token dependency hints to the renderer.
+// Pepper plugin does not expose or call WaitSyncTokenCHROMIUM.
+void PpapiCommandBufferProxy::WaitSyncToken(const gpu::SyncToken& sync_token) {
+  NOTREACHED();
 }
 
 bool PpapiCommandBufferProxy::CanWaitUnverifiedSyncToken(
     const gpu::SyncToken& sync_token) {
+  NOTREACHED();
   return false;
 }
 
-void PpapiCommandBufferProxy::AddLatencyInfo(
-    const std::vector<ui::LatencyInfo>& latency_info) {}
-
 void PpapiCommandBufferProxy::SignalQuery(uint32_t query,
-                                          const base::Closure& callback) {
+                                          base::OnceClosure callback) {
+  NOTREACHED();
+}
+
+void PpapiCommandBufferProxy::CreateGpuFence(uint32_t gpu_fence_id,
+                                             ClientGpuFence source) {
+  NOTREACHED();
+}
+
+void PpapiCommandBufferProxy::GetGpuFence(
+    uint32_t gpu_fence_id,
+    base::OnceCallback<void(std::unique_ptr<gfx::GpuFence>)> callback) {
   NOTREACHED();
 }
 
@@ -248,14 +247,13 @@ void PpapiCommandBufferProxy::SetGpuControlClient(gpu::GpuControlClient*) {
   // to the plugin instance. Make it more uniform and use the GpuControlClient.
 }
 
-gpu::Capabilities PpapiCommandBufferProxy::GetCapabilities() {
+const gpu::Capabilities& PpapiCommandBufferProxy::GetCapabilities() const {
   return capabilities_;
 }
 
 int32_t PpapiCommandBufferProxy::CreateImage(ClientBuffer buffer,
                                              size_t width,
-                                             size_t height,
-                                             unsigned internalformat) {
+                                             size_t height) {
   NOTREACHED();
   return -1;
 }
@@ -271,7 +269,7 @@ bool PpapiCommandBufferProxy::Send(IPC::Message* msg) {
   // buffer may use a sync IPC with another lock held which could lead to lock
   // and deadlock if we dropped the proxy lock here.
   // http://crbug.com/418651
-  if (dispatcher_->SendAndStayLocked(msg))
+  if (sender_->SendAndStayLocked(msg))
     return true;
 
   last_state_.error = gpu::error::kLostContext;
@@ -300,7 +298,7 @@ void PpapiCommandBufferProxy::TryUpdateState() {
 
 gpu::CommandBufferSharedState* PpapiCommandBufferProxy::shared_state() const {
   return reinterpret_cast<gpu::CommandBufferSharedState*>(
-      shared_state_shm_->memory());
+      shared_state_mapping_.memory());
 }
 
 void PpapiCommandBufferProxy::FlushInternal() {

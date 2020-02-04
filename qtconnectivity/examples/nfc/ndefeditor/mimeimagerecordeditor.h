@@ -64,7 +64,7 @@ namespace Ui {
 }
 QT_END_NAMESPACE
 
-
+//! [0]
 class MimeImageRecordEditor : public QWidget
 {
     Q_OBJECT
@@ -83,5 +83,5 @@ private:
 private slots:
     void on_mimeImageOpen_clicked();
 };
-
+//! [0]
 #endif // MIMEIMAGERECORDEDITOR_H

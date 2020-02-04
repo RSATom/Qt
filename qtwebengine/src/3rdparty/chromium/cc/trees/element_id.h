@@ -42,24 +42,30 @@ static const ElementIdType kInvalidElementId = 0;
 // scrolling element id instead of a scrolling layer id allows for more general
 // compositing where, for example, multiple layers scroll with one scroll node.
 //
-// The animation system (see: ElementAnimations and blink::ElementAnimations) is
-// another auxilliary structure to the layer tree and uses element ids as a
-// stable identifier for animation targets. A Layer's element id can change over
-// the Layer's lifetime because non-default ElementIds are only set during an
-// animation's lifetime.
+// The animation system (see ElementAnimations) is another auxilliary structure
+// to the layer tree and uses element ids as a stable identifier for animation
+// targets. A Layer's element id can change over the Layer's lifetime because
+// non-default ElementIds are only set during an animation's lifetime.
 struct CC_EXPORT ElementId {
-  explicit ElementId(int id) : id_(id) {}
+  explicit ElementId(ElementIdType id) : id_(id) {}
   ElementId() : ElementId(kInvalidElementId) {}
 
-  bool operator==(const ElementId& o) const;
-  bool operator!=(const ElementId& o) const;
-  bool operator<(const ElementId& o) const;
+  bool operator==(const ElementId& o) const { return id_ == o.id_; }
+  bool operator!=(const ElementId& o) const { return !(*this == o); }
+  bool operator<(const ElementId& o) const { return id_ < o.id_; }
 
   // An ElementId's conversion to a boolean value depends only on its primaryId.
-  explicit operator bool() const;
+  explicit operator bool() const { return !!id_; }
 
   void AddToTracedValue(base::trace_event::TracedValue* res) const;
   std::unique_ptr<base::Value> AsValue() const;
+
+  ElementIdType GetInternalValue() const;
+
+  std::string ToString() const;
+
+ private:
+  friend struct ElementIdHash;
 
   // The compositor treats this as an opaque handle and should not know how to
   // interpret these bits. Non-blink cc clients typically operate in terms of

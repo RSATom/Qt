@@ -19,7 +19,9 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #import "ui/base/cocoa/nib_loading.h"
+#include "ui/base/cocoa/remote_views_window.h"
 #include "ui/base/l10n/l10n_util_mac.h"
+#include "ui/shell_dialogs/select_file_policy.h"
 #include "ui/strings/grit/ui_strings.h"
 
 namespace {
@@ -58,6 +60,7 @@ NSString* GetDescriptionFromExtension(const base::FilePath::StringType& ext) {
 }
 
 - (id)initWithSelectFileDialogImpl:(ui::SelectFileDialogImpl*)s;
+- (void)selectFileDialogImplWillBeDestroyed;
 - (void)endedPanel:(NSSavePanel*)panel
          didCancel:(bool)did_cancel
               type:(ui::SelectFileDialog::Type)type
@@ -87,15 +90,15 @@ NSString* GetDescriptionFromExtension(const base::FilePath::StringType& ext) {
 
 namespace ui {
 
-SelectFileDialogImpl::SelectFileDialogImpl(Listener* listener,
-                                           ui::SelectFilePolicy* policy)
-    : SelectFileDialog(listener, policy),
-      bridge_([[SelectFileDialogBridge alloc]
-               initWithSelectFileDialogImpl:this]) {
-}
+SelectFileDialogImpl::SelectFileDialogImpl(
+    Listener* listener,
+    std::unique_ptr<ui::SelectFilePolicy> policy)
+    : SelectFileDialog(listener, std::move(policy)),
+      bridge_(
+          [[SelectFileDialogBridge alloc] initWithSelectFileDialogImpl:this]) {}
 
 bool SelectFileDialogImpl::IsRunning(gfx::NativeWindow parent_window) const {
-  return parents_.find(parent_window) != parents_.end();
+  return parents_.find(parent_window.GetNativeNSWindow()) != parents_.end();
 }
 
 void SelectFileDialogImpl::ListenerDestroyed() {
@@ -139,13 +142,20 @@ void SelectFileDialogImpl::SelectFileImpl(
     const FileTypeInfo* file_types,
     int file_type_index,
     const base::FilePath::StringType& default_extension,
-    gfx::NativeWindow owning_window,
+    gfx::NativeWindow owning_native_window,
     void* params) {
-  DCHECK(type == SELECT_FOLDER ||
-         type == SELECT_UPLOAD_FOLDER ||
-         type == SELECT_OPEN_FILE ||
-         type == SELECT_OPEN_MULTI_FILE ||
-         type == SELECT_SAVEAS_FILE);
+  DCHECK(type == SELECT_FOLDER || type == SELECT_UPLOAD_FOLDER ||
+         type == SELECT_EXISTING_FOLDER || type == SELECT_OPEN_FILE ||
+         type == SELECT_OPEN_MULTI_FILE || type == SELECT_SAVEAS_FILE);
+  NSWindow* owning_window = owning_native_window.GetNativeNSWindow();
+  // TODO(https://crbug.com/913303): The select file dialog's interface to
+  // Cocoa should be wrapped in a mojo interface in order to allow instantiating
+  // across processes. As a temporary solution, raise the remote windows'
+  // transparent in-process window to the front.
+  if (ui::IsWindowUsingRemoteViews(owning_window)) {
+    [owning_window makeKeyAndOrderFront:nil];
+    [owning_window setLevel:NSModalPanelWindowLevel];
+  }
   parents_.insert(owning_window);
 
   // Note: we need to retain the dialog as owning_window can be null.
@@ -175,7 +185,8 @@ void SelectFileDialogImpl::SelectFileImpl(
   }
 
   base::scoped_nsobject<ExtensionDropdownHandler> handler;
-  if (type != SELECT_FOLDER && type != SELECT_UPLOAD_FOLDER) {
+  if (type != SELECT_FOLDER && type != SELECT_UPLOAD_FOLDER &&
+      type != SELECT_EXISTING_FOLDER) {
     if (file_types) {
       handler = SelectFileDialogImpl::SetAccessoryView(
           dialog, file_types, file_type_index, default_extension);
@@ -208,17 +219,23 @@ void SelectFileDialogImpl::SelectFileImpl(
       [dialog setCanSelectHiddenExtension:YES];
     }
   } else {
-    NSOpenPanel* open_dialog = (NSOpenPanel*)dialog;
+    NSOpenPanel* open_dialog = base::mac::ObjCCastStrict<NSOpenPanel>(dialog);
 
     if (type == SELECT_OPEN_MULTI_FILE)
       [open_dialog setAllowsMultipleSelection:YES];
     else
       [open_dialog setAllowsMultipleSelection:NO];
 
-    if (type == SELECT_FOLDER || type == SELECT_UPLOAD_FOLDER) {
+    if (type == SELECT_FOLDER || type == SELECT_UPLOAD_FOLDER ||
+        type == SELECT_EXISTING_FOLDER) {
       [open_dialog setCanChooseFiles:NO];
       [open_dialog setCanChooseDirectories:YES];
-      [open_dialog setCanCreateDirectories:YES];
+
+      if (type == SELECT_FOLDER)
+        [open_dialog setCanCreateDirectories:YES];
+      else
+        [open_dialog setCanCreateDirectories:NO];
+
       NSString *prompt = (type == SELECT_UPLOAD_FOLDER)
           ? l10n_util::GetNSString(IDS_SELECT_UPLOAD_FOLDER_BUTTON_TITLE)
           : l10n_util::GetNSString(IDS_SELECT_FOLDER_BUTTON_TITLE);
@@ -234,13 +251,23 @@ void SelectFileDialogImpl::SelectFileImpl(
     [dialog setDirectoryURL:[NSURL fileURLWithPath:default_dir]];
   if (default_filename)
     [dialog setNameFieldStringValue:default_filename];
+
+  // Ensure the bridge (rather than |this|) is retained by the block.
+  SelectFileDialogBridge* bridge = bridge_.get();
   [dialog beginSheetModalForWindow:owning_window
                  completionHandler:^(NSInteger result) {
-    [bridge_.get() endedPanel:dialog
-                    didCancel:result != NSFileHandlingPanelOKButton
-                         type:type
-                 parentWindow:owning_window];
-  }];
+                   [bridge endedPanel:dialog
+                            didCancel:result != NSFileHandlingPanelOKButton
+                                 type:type
+                         parentWindow:owning_window];
+
+                   // Balance the setDelegate above. Note this should usually
+                   // have been done already in FileWasSelected().
+                   [dialog setDelegate:nil];
+
+                   // Balance the retain at the start of SelectFileImpl().
+                   [dialog release];
+                 }];
 }
 
 SelectFileDialogImpl::DialogData::DialogData(
@@ -262,6 +289,12 @@ SelectFileDialogImpl::~SelectFileDialogImpl() {
 
   for (const auto& panel : panels)
     [panel cancel:panel];
+
+  // Running |cancel| on all the panels should have run all the completion
+  // handlers, but retaining references to C++ objects inside an NSObject can
+  // result in subtle problems. Ensure the reference to |this| is cleared.
+  DCHECK(dialog_data_map_.empty());
+  [bridge_ selectFileDialogImplWillBeDestroyed];
 }
 
 // static
@@ -366,9 +399,10 @@ bool SelectFileDialogImpl::HasMultipleFileTypeChoicesImpl() {
   return hasMultipleFileTypeChoices_;
 }
 
-SelectFileDialog* CreateSelectFileDialog(SelectFileDialog::Listener* listener,
-                                         SelectFilePolicy* policy) {
-  return new SelectFileDialogImpl(listener, policy);
+SelectFileDialog* CreateSelectFileDialog(
+    SelectFileDialog::Listener* listener,
+    std::unique_ptr<SelectFilePolicy> policy) {
+  return new SelectFileDialogImpl(listener, std::move(policy));
 }
 
 }  // namespace ui
@@ -382,10 +416,17 @@ SelectFileDialog* CreateSelectFileDialog(SelectFileDialog::Listener* listener,
   return self;
 }
 
+- (void)selectFileDialogImplWillBeDestroyed {
+  selectFileDialogImpl_ = nullptr;
+}
+
 - (void)endedPanel:(NSSavePanel*)panel
          didCancel:(bool)did_cancel
               type:(ui::SelectFileDialog::Type)type
       parentWindow:(NSWindow*)parentWindow {
+  if (!selectFileDialogImpl_)
+    return;
+
   int index = 0;
   std::vector<base::FilePath> paths;
   if (!did_cancel) {
@@ -420,11 +461,22 @@ SelectFileDialog* CreateSelectFileDialog(SelectFileDialog::Listener* listener,
                                          isMulti,
                                          paths,
                                          index);
-  [panel release];
 }
 
 - (BOOL)panel:(id)sender shouldEnableURL:(NSURL *)url {
   return [url isFileURL];
+}
+
+- (BOOL)panel:(id)sender validateURL:(NSURL*)url error:(NSError**)outError {
+  // Refuse to accept users closing the dialog with a key repeat, since the key
+  // may have been first pressed while the user was looking at insecure content.
+  // See https://crbug.com/637098.
+  if ([[NSApp currentEvent] type] == NSKeyDown &&
+      [[NSApp currentEvent] isARepeat]) {
+    return NO;
+  }
+
+  return YES;
 }
 
 @end

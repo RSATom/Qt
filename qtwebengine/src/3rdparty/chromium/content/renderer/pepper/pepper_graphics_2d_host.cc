@@ -10,14 +10,18 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
+#include "base/numerics/checked_math.h"
 #include "base/single_thread_task_runner.h"
+#include "base/stl_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "cc/paint/paint_flags.h"
-#include "components/viz/client/client_shared_bitmap_manager.h"
-#include "components/viz/common/quads/shared_bitmap.h"
-#include "components/viz/common/quads/texture_mailbox.h"
+#include "cc/resources/cross_thread_shared_bitmap.h"
+#include "components/viz/common/gpu/context_provider.h"
+#include "components/viz/common/resources/bitmap_allocation.h"
+#include "components/viz/common/resources/resource_sizes.h"
+#include "components/viz/common/resources/shared_bitmap.h"
 #include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/renderer_ppapi_host.h"
 #include "content/renderer/pepper/gfx_conversion.h"
@@ -25,6 +29,11 @@
 #include "content/renderer/pepper/plugin_instance_throttler_impl.h"
 #include "content/renderer/pepper/ppb_image_data_impl.h"
 #include "content/renderer/render_thread_impl.h"
+#include "gpu/GLES2/gl2extchromium.h"
+#include "gpu/command_buffer/client/gles2_interface.h"
+#include "gpu/command_buffer/common/capabilities.h"
+#include "gpu/command_buffer/common/gpu_memory_buffer_support.h"
+#include "gpu/ipc/common/gpu_memory_buffer_support.h"
 #include "ppapi/c/pp_bool.h"
 #include "ppapi/c/pp_errors.h"
 #include "ppapi/c/pp_rect.h"
@@ -35,7 +44,10 @@
 #include "ppapi/proxy/ppapi_messages.h"
 #include "ppapi/shared_impl/ppb_view_shared.h"
 #include "ppapi/thunk/enter.h"
+#include "services/ws/public/cpp/gpu/context_provider_command_buffer.h"
 #include "skia/ext/platform_canvas.h"
+#include "third_party/khronos/GLES2/gl2.h"
+#include "third_party/khronos/GLES2/gl2ext.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkSwizzle.h"
 #include "ui/gfx/blit.h"
@@ -170,7 +182,7 @@ PepperGraphics2DHost* PepperGraphics2DHost::Create(
                            PP_ToBool(is_always_opaque),
                            backing_store)) {
     delete resource_host;
-    return NULL;
+    return nullptr;
   }
   return resource_host;
 }
@@ -180,15 +192,23 @@ PepperGraphics2DHost::PepperGraphics2DHost(RendererPpapiHost* host,
                                            PP_Resource resource)
     : ResourceHost(host->GetPpapiHost(), instance, resource),
       renderer_ppapi_host_(host),
-      bound_instance_(NULL),
+      bound_instance_(nullptr),
       need_flush_ack_(false),
       offscreen_flush_pending_(false),
       is_always_opaque_(false),
       scale_(1.0f),
-      is_running_in_process_(host->IsRunningInProcess()),
-      texture_mailbox_modified_(true) {}
+      is_running_in_process_(host->IsRunningInProcess()) {}
 
 PepperGraphics2DHost::~PepperGraphics2DHost() {
+  // Delete textures owned by PepperGraphics2DHost, but not those sent to the
+  // compositor, since those will be deleted by ReleaseTextureCallback() when it
+  // runs.
+  while (main_thread_context_ && !recycled_texture_copies_.empty()) {
+    uint32_t texture_id = recycled_texture_copies_.back().id;
+    main_thread_context_->ContextGL()->DeleteTextures(1, &texture_id);
+    recycled_texture_copies_.pop_back();
+  }
+
   // Unbind from the instance when destroyed if we're still bound.
   if (bound_instance_)
     bound_instance_->BindGraphics(bound_instance_->pp_instance(), 0);
@@ -206,11 +226,12 @@ bool PepperGraphics2DHost::Init(
                          height,
                          true) ||
       !image_data_->Map()) {
-    image_data_ = NULL;
+    image_data_ = nullptr;
     return false;
   }
   is_always_opaque_ = is_always_opaque;
   scale_ = 1.0f;
+
   return true;
 }
 
@@ -306,8 +327,9 @@ bool PepperGraphics2DHost::BindToInstance(
     new_instance->InvalidateRect(gfx::Rect());
   }
 
-  cached_bitmap_.reset();
-  texture_mailbox_modified_ = true;
+  cached_bitmap_ = nullptr;
+  cached_bitmap_registration_ = cc::SharedBitmapIdRegistration();
+  composited_output_modified_ = true;
 
   bound_instance_ = new_instance;
   return true;
@@ -316,7 +338,7 @@ bool PepperGraphics2DHost::BindToInstance(
 // The |backing_bitmap| must be clipped to the |plugin_rect| to avoid painting
 // outside the plugin area. This can happen if the plugin has been resized since
 // PaintImageData verified the image is within the plugin size.
-void PepperGraphics2DHost::Paint(blink::WebCanvas* canvas,
+void PepperGraphics2DHost::Paint(cc::PaintCanvas* canvas,
                                  const gfx::Rect& plugin_rect,
                                  const gfx::Rect& paint_rect) {
   TRACE_EVENT0("pepper", "PepperGraphics2DHost::Paint");
@@ -342,7 +364,7 @@ void PepperGraphics2DHost::Paint(blink::WebCanvas* canvas,
     // show white (typically less jarring) rather than black or uninitialized.
     // We don't do this for non-full-frame plugins since we specifically want
     // the page background to show through.
-    cc::PaintCanvasAutoRestore auto_restore(canvas, true);
+    cc::PaintCanvasAutoRestore full_page_auto_restore(canvas, true);
     SkRect image_data_rect =
         gfx::RectToSkRect(gfx::Rect(plugin_rect.origin(), image_size));
     canvas->clipRect(image_data_rect, SkClipOp::kDifference);
@@ -365,8 +387,10 @@ void PepperGraphics2DHost::Paint(blink::WebCanvas* canvas,
     canvas->scale(scale_, scale_);
     pixel_origin.scale(1.0f / scale_);
   }
-  canvas->drawBitmap(backing_bitmap, pixel_origin.x(), pixel_origin.y(),
-                     &flags);
+  // TODO(khushalsagar): Can this be cached on image_data_, and invalidated when
+  // the bitmap changes?
+  canvas->drawImage(cc::PaintImage::CreateFromBitmap(std::move(backing_bitmap)),
+                    pixel_origin.x(), pixel_origin.y(), &flags);
 }
 
 void PepperGraphics2DHost::ViewInitiatedPaint() {
@@ -381,10 +405,6 @@ float PepperGraphics2DHost::GetScale() const { return scale_; }
 
 bool PepperGraphics2DHost::IsAlwaysOpaque() const { return is_always_opaque_; }
 
-PPB_ImageData_Impl* PepperGraphics2DHost::ImageData() {
-  return image_data_.get();
-}
-
 gfx::Size PepperGraphics2DHost::Size() const {
   if (!image_data_.get())
     return gfx::Size();
@@ -392,7 +412,8 @@ gfx::Size PepperGraphics2DHost::Size() const {
 }
 
 void PepperGraphics2DHost::ClearCache() {
-  cached_bitmap_.reset();
+  cached_bitmap_ = nullptr;
+  cached_bitmap_registration_ = cc::SharedBitmapIdRegistration();
 }
 
 int32_t PepperGraphics2DHost::OnHostMsgPaintImageData(
@@ -410,9 +431,8 @@ int32_t PepperGraphics2DHost::OnHostMsgPaintImageData(
 
   QueuedOperation operation(QueuedOperation::PAINT);
   operation.paint_image = image_resource;
-  if (!ValidateAndConvertRect(src_rect_specified ? &src_rect : NULL,
-                              image_resource->width(),
-                              image_resource->height(),
+  if (!ValidateAndConvertRect(src_rect_specified ? &src_rect : nullptr,
+                              image_resource->width(), image_resource->height(),
                               &operation.paint_src_rect))
     return PP_ERROR_BADARGUMENT;
 
@@ -441,9 +461,8 @@ int32_t PepperGraphics2DHost::OnHostMsgScroll(
     const PP_Rect& clip,
     const PP_Point& amount) {
   QueuedOperation operation(QueuedOperation::SCROLL);
-  if (!ValidateAndConvertRect(clip_specified ? &clip : NULL,
-                              image_data_->width(),
-                              image_data_->height(),
+  if (!ValidateAndConvertRect(clip_specified ? &clip : nullptr,
+                              image_data_->width(), image_data_->height(),
                               &operation.scroll_clip_rect))
     return PP_ERROR_BADARGUMENT;
 
@@ -494,7 +513,7 @@ int32_t PepperGraphics2DHost::OnHostMsgFlush(
   PP_Resource old_image_data = 0;
   flush_reply_context_ = context->MakeReplyMessageContext();
   if (is_running_in_process_)
-    return Flush(NULL);
+    return Flush(nullptr);
 
   // Reuse image data when running out of process.
   int32_t result = Flush(&old_image_data);
@@ -545,57 +564,239 @@ int32_t PepperGraphics2DHost::OnHostMsgReadImageData(
   return ReadImageData(image, &top_left) ? PP_OK : PP_ERROR_FAILED;
 }
 
-void PepperGraphics2DHost::ReleaseCallback(
-    std::unique_ptr<viz::SharedBitmap> bitmap,
-    const gfx::Size& bitmap_size,
+void PepperGraphics2DHost::ReleaseSoftwareCallback(
+    scoped_refptr<cc::CrossThreadSharedBitmap> bitmap,
+    cc::SharedBitmapIdRegistration registration,
     const gpu::SyncToken& sync_token,
     bool lost_resource) {
-  cached_bitmap_.reset();
+  cached_bitmap_ = nullptr;
+  cached_bitmap_registration_ = cc::SharedBitmapIdRegistration();
   // Only keep around a cached bitmap if the plugin is currently drawing (has
   // need_flush_ack_ set).
-  if (need_flush_ack_ && bound_instance_)
+  if (need_flush_ack_ && bound_instance_) {
     cached_bitmap_ = std::move(bitmap);
-  cached_bitmap_size_ = bitmap_size;
+    cached_bitmap_registration_ = std::move(registration);
+  }
 }
 
-bool PepperGraphics2DHost::PrepareTextureMailbox(
-    viz::TextureMailbox* mailbox,
-    std::unique_ptr<cc::SingleReleaseCallback>* release_callback) {
-  if (!texture_mailbox_modified_)
+// static
+void PepperGraphics2DHost::ReleaseTextureCallback(
+    base::WeakPtr<PepperGraphics2DHost> host,
+    scoped_refptr<viz::ContextProvider> context,
+    uint32_t id,
+    const gpu::SyncToken& sync_token,
+    bool lost) {
+  if (sync_token.HasData())
+    context->ContextGL()->WaitSyncTokenCHROMIUM(sync_token.GetConstData());
+  if (host && !lost) {
+    // Recycle the texture to be used in future frames. This moves it from
+    // the busy textures list to the recycled list.
+    auto it = host->texture_copies_.begin();
+    for (; it != host->texture_copies_.end(); ++it) {
+      if (it->id == id) {
+        host->recycled_texture_copies_.push_back(*it);
+        host->texture_copies_.erase(it);
+        break;
+      }
+    }
+    return;
+  }
+
+  // The otherwise, the texture can not be reused so remove it from the busy
+  // texture list and delete it.
+  if (host) {
+    auto matches_id = [id](const TextureInfo& info) { return info.id == id; };
+    base::EraseIf(host->texture_copies_, matches_id);
+  }
+  context->ContextGL()->DeleteTextures(1, &id);
+}
+
+bool PepperGraphics2DHost::PrepareTransferableResource(
+    cc::SharedBitmapIdRegistrar* bitmap_registrar,
+    viz::TransferableResource* transferable_resource,
+    std::unique_ptr<viz::SingleReleaseCallback>* release_callback) {
+  // Reuse the |main_thread_context_| if it is not lost. If it is lost, we
+  // can't reuse the texture ids, they are invalid. If the compositing mode
+  // changed, the context will be lost also, so we get both together.
+  if (!main_thread_context_ ||
+      main_thread_context_->ContextGL()->GetGraphicsResetStatusKHR() !=
+          GL_NO_ERROR) {
+    texture_copies_.clear();
+    recycled_texture_copies_.clear();
+    main_thread_context_ = nullptr;
+
+    if (!is_gpu_compositing_disabled_) {
+      RenderThreadImpl* rti = RenderThreadImpl::current();
+      is_gpu_compositing_disabled_ = rti->IsGpuCompositingDisabled();
+      if (!is_gpu_compositing_disabled_) {
+        // Using gpu compositing.
+        main_thread_context_ = rti->SharedMainThreadContextProvider();
+      } else {
+        // Just switched to software compositing. Force us to send the
+        // frame to the compositor again even if not changed.
+        composited_output_modified_ = true;
+      }
+    }
+  }
+
+  if (!composited_output_modified_)
     return false;
-  // TODO(jbauman): Send image_data_ through mailbox to avoid copy.
+
+  // Context creation failed, so we're unable to give this frame to the
+  // compositor. Try again next time.
+  if (!is_gpu_compositing_disabled_ && !main_thread_context_)
+    return false;
+
+  // When gpu compositing, the compositor expects gpu resources, so we copy the
+  // |image_data_| into a texture.
+  if (main_thread_context_) {
+    auto* gl = main_thread_context_->ContextGL();
+
+    // The bitmap in |image_data_| uses the skia N32 byte order.
+    constexpr bool bitmap_is_bgra = kN32_SkColorType == kBGRA_8888_SkColorType;
+    const bool texture_can_be_bgra =
+        main_thread_context_->ContextCapabilities().texture_format_bgra8888;
+    const bool upload_bgra = bitmap_is_bgra && texture_can_be_bgra;
+    const uint32_t format = upload_bgra ? GL_BGRA_EXT : GL_RGBA;
+
+    RenderThreadImpl* rti = RenderThreadImpl::current();
+    bool overlays_supported =
+        rti->IsGpuMemoryBufferCompositorResourcesEnabled() &&
+        main_thread_context_->ContextCapabilities().texture_storage_image;
+    bool overlay_candidate = false;
+    uint32_t texture_target = GL_TEXTURE_2D;
+    uint32_t storage_format = 0;
+    if (overlays_supported) {
+      if (upload_bgra) {
+        texture_target = gpu::GetBufferTextureTarget(
+            gfx::BufferUsage::SCANOUT, gfx::BufferFormat::BGRA_8888,
+            main_thread_context_->ContextCapabilities());
+        storage_format = GL_BGRA8_EXT;
+        overlay_candidate = true;
+      } else {
+        texture_target = gpu::GetBufferTextureTarget(
+            gfx::BufferUsage::SCANOUT, gfx::BufferFormat::RGBA_8888,
+            main_thread_context_->ContextCapabilities());
+        storage_format = GL_RGBA8_OES;
+        overlay_candidate = true;
+      }
+    }
+
+    const gfx::Size size(image_data_->width(), image_data_->height());
+
+    uint32_t texture_id = 0;
+    gpu::Mailbox gpu_mailbox;
+    while (!recycled_texture_copies_.empty()) {
+      if (recycled_texture_copies_.back().size == size) {
+        texture_id = recycled_texture_copies_.back().id;
+        gpu_mailbox = recycled_texture_copies_.back().mailbox;
+        recycled_texture_copies_.pop_back();
+        gl->BindTexture(texture_target, texture_id);
+        break;
+      }
+      uint32_t id = recycled_texture_copies_.back().id;
+      main_thread_context_->ContextGL()->DeleteTextures(1, &id);
+      recycled_texture_copies_.pop_back();
+    }
+    if (!texture_id) {
+      gl->GenTextures(1, &texture_id);
+      gl->BindTexture(texture_target, texture_id);
+      gl->TexParameteri(texture_target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      gl->TexParameteri(texture_target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      gl->TexParameteri(texture_target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+      gl->TexParameteri(texture_target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+      if (overlay_candidate) {
+        gl->TexStorage2DImageCHROMIUM(texture_target, storage_format,
+                                      GL_SCANOUT_CHROMIUM, size.width(),
+                                      size.height());
+      } else {
+        gl->TexImage2D(texture_target, 0, format, size.width(), size.height(),
+                       0, format, GL_UNSIGNED_BYTE, nullptr);
+      }
+
+      gl->ProduceTextureDirectCHROMIUM(texture_id, gpu_mailbox.name);
+    }
+
+    TextureInfo info;
+    info.id = texture_id;
+    info.mailbox = gpu_mailbox;
+    info.size = size;
+    texture_copies_.push_back(std::move(info));
+
+    void* src = image_data_->Map();
+
+    // Convert to RGBA if we can't upload BGRA. This is slow sad times.
+    std::unique_ptr<uint32_t[]> swizzled;
+    if (bitmap_is_bgra != upload_bgra) {
+      size_t num_pixels = (base::CheckedNumeric<size_t>(image_data_->width()) *
+                           image_data_->height())
+                              .ValueOrDie();
+      swizzled = std::make_unique<uint32_t[]>(num_pixels);
+      SkSwapRB(swizzled.get(), static_cast<uint32_t*>(src), num_pixels);
+      src = swizzled.get();
+    }
+
+    gl->TexSubImage2D(texture_target, 0, 0, 0, size.width(), size.height(),
+                      format, GL_UNSIGNED_BYTE, src);
+    image_data_->Unmap();
+    swizzled.reset();
+
+    gpu::SyncToken sync_token;
+    gl->GenUnverifiedSyncTokenCHROMIUM(sync_token.GetData());
+
+    gl->BindTexture(texture_target, 0);
+
+    *transferable_resource = viz::TransferableResource::MakeGLOverlay(
+        std::move(gpu_mailbox), GL_LINEAR, texture_target,
+        std::move(sync_token), size, overlay_candidate);
+    *release_callback = viz::SingleReleaseCallback::Create(
+        base::BindOnce(&ReleaseTextureCallback, this->AsWeakPtr(),
+                       main_thread_context_, texture_id));
+    transferable_resource->format =
+        upload_bgra ? viz::BGRA_8888 : viz::RGBA_8888;
+    composited_output_modified_ = false;
+    return true;
+  }
+
   gfx::Size pixel_image_size(image_data_->width(), image_data_->height());
-  std::unique_ptr<viz::SharedBitmap> shared_bitmap;
+  scoped_refptr<cc::CrossThreadSharedBitmap> shared_bitmap;
+  cc::SharedBitmapIdRegistration registration;
   if (cached_bitmap_) {
-    if (cached_bitmap_size_ == pixel_image_size)
+    if (cached_bitmap_->size() == pixel_image_size) {
       shared_bitmap = std::move(cached_bitmap_);
-    else
-      cached_bitmap_.reset();
+      registration = std::move(cached_bitmap_registration_);
+    } else {
+      cached_bitmap_ = nullptr;
+      cached_bitmap_registration_ = cc::SharedBitmapIdRegistration();
+    }
   }
   if (!shared_bitmap) {
-    shared_bitmap = RenderThreadImpl::current()
-                        ->shared_bitmap_manager()
-                        ->AllocateSharedBitmap(pixel_image_size);
+    viz::SharedBitmapId id = viz::SharedBitmap::GenerateId();
+    std::unique_ptr<base::SharedMemory> shm =
+        viz::bitmap_allocation::AllocateMappedBitmap(pixel_image_size,
+                                                     viz::RGBA_8888);
+    shared_bitmap = base::MakeRefCounted<cc::CrossThreadSharedBitmap>(
+        id, std::move(shm), pixel_image_size, viz::RGBA_8888);
+    registration = bitmap_registrar->RegisterSharedBitmapId(id, shared_bitmap);
   }
-  if (!shared_bitmap)
-    return false;
   void* src = image_data_->Map();
-  memcpy(shared_bitmap->pixels(), src,
-         viz::SharedBitmap::CheckedSizeInBytes(pixel_image_size));
+  memcpy(shared_bitmap->shared_memory()->memory(), src,
+         viz::ResourceSizes::CheckedSizeInBytes<size_t>(pixel_image_size,
+                                                        viz::RGBA_8888));
   image_data_->Unmap();
 
-  *mailbox = viz::TextureMailbox(shared_bitmap.get(), pixel_image_size);
-  *release_callback = cc::SingleReleaseCallback::Create(
-      base::Bind(&PepperGraphics2DHost::ReleaseCallback,
-                 this->AsWeakPtr(),
-                 base::Passed(&shared_bitmap),
-                 pixel_image_size));
-  texture_mailbox_modified_ = false;
+  *transferable_resource = viz::TransferableResource::MakeSoftware(
+      shared_bitmap->id(), pixel_image_size, viz::RGBA_8888);
+  *release_callback = viz::SingleReleaseCallback::Create(base::BindOnce(
+      &PepperGraphics2DHost::ReleaseSoftwareCallback, this->AsWeakPtr(),
+      std::move(shared_bitmap), std::move(registration)));
+  composited_output_modified_ = false;
   return true;
 }
 
 void PepperGraphics2DHost::AttachedToNewLayer() {
-  texture_mailbox_modified_ = true;
+  composited_output_modified_ = true;
 }
 
 int32_t PepperGraphics2DHost::Flush(PP_Resource* old_image_data) {
@@ -628,9 +829,9 @@ int32_t PepperGraphics2DHost::Flush(PP_Resource* old_image_data) {
         // reference, if there are more than one ReplaceContents calls queued
         // the first |old_image_data| will get overwritten and leaked. So we
         // only supply this for the first call.
-        ExecuteReplaceContents(operation.replace_image.get(),
-                               &op_rect,
-                               done_replace_contents ? NULL : old_image_data);
+        ExecuteReplaceContents(
+            operation.replace_image.get(), &op_rect,
+            done_replace_contents ? nullptr : old_image_data);
         done_replace_contents = true;
         break;
     }
@@ -674,7 +875,7 @@ int32_t PepperGraphics2DHost::Flush(PP_Resource* old_image_data) {
         if (!op_rect_in_viewport.IsEmpty())
           bound_instance_->InvalidateRect(op_rect_in_viewport);
       }
-      texture_mailbox_modified_ = true;
+      composited_output_modified_ = true;
     }
   }
   queued_operations_.clear();
@@ -702,8 +903,11 @@ int32_t PepperGraphics2DHost::Flush(PP_Resource* old_image_data) {
 void PepperGraphics2DHost::ExecuteTransform(const float& scale,
                                             const gfx::PointF& translate,
                                             gfx::Rect* invalidated_rect) {
-  bound_instance_->SetGraphics2DTransform(scale, translate);
-  *invalidated_rect = PP_ToGfxRect(bound_instance_->view_data().clip_rect);
+  if (bound_instance_) {
+    bound_instance_->SetGraphics2DTransform(scale, translate);
+    *invalidated_rect =
+        gfx::Rect(0, 0, image_data_->width(), image_data_->height());
+  }
 }
 
 void PepperGraphics2DHost::ExecutePaintImageData(PPB_ImageData_Impl* image,
@@ -795,7 +999,7 @@ void PepperGraphics2DHost::ScheduleOffscreenFlushAck() {
   offscreen_flush_pending_ = true;
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE,
-      base::Bind(&PepperGraphics2DHost::SendOffscreenFlushAck, AsWeakPtr()),
+      base::BindOnce(&PepperGraphics2DHost::SendOffscreenFlushAck, AsWeakPtr()),
       base::TimeDelta::FromMilliseconds(kOffscreenCallbackDelayMs));
 }
 

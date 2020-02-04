@@ -5,18 +5,20 @@
 #ifndef COMPONENTS_DATA_REDUCTION_PROXY_CORE_BROWSER_DATA_REDUCTION_PROXY_MUTABLE_CONFIG_VALUES_H_
 #define COMPONENTS_DATA_REDUCTION_PROXY_CORE_BROWSER_DATA_REDUCTION_PROXY_MUTABLE_CONFIG_VALUES_H_
 
-#include <memory>
 #include <vector>
 
 #include "base/macros.h"
+#include "base/optional.h"
 #include "base/threading/thread_checker.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_config_values.h"
-#include "net/proxy/proxy_server.h"
-#include "url/gurl.h"
+#include "components/data_reduction_proxy/core/common/data_reduction_proxy_type_info.h"
+
+namespace net {
+class ProxyServer;
+}
 
 namespace data_reduction_proxy {
 
-class DataReductionProxyParams;
 class DataReductionProxyServer;
 
 // A |DataReductionProxyConfigValues| which is permitted to change its
@@ -24,35 +26,40 @@ class DataReductionProxyServer;
 class DataReductionProxyMutableConfigValues
     : public DataReductionProxyConfigValues {
  public:
-  // Creates a new |DataReductionProxyMutableConfigValues| using |params| as
-  // the basis for its initial values.
-  static std::unique_ptr<DataReductionProxyMutableConfigValues>
-  CreateFromParams(const DataReductionProxyParams* params);
-
+  DataReductionProxyMutableConfigValues();
   ~DataReductionProxyMutableConfigValues() override;
 
   // Updates |proxies_for_http_| with the provided values.
-  // Virtual for testing.
-  virtual void UpdateValues(
-      const std::vector<DataReductionProxyServer>& proxies_for_http);
+  void UpdateValues(
+      const std::vector<DataReductionProxyServer>& new_proxies_for_http);
 
   // Invalidates |this| by clearing the stored Data Reduction Proxy servers.
   void Invalidate();
 
-  // Overrides of |DataReductionProxyConfigValues|
+  // Overrides of |DataReductionProxyConfigValues|.
   const std::vector<DataReductionProxyServer>& proxies_for_http()
       const override;
-
- protected:
-  DataReductionProxyMutableConfigValues();
+  base::Optional<DataReductionProxyTypeInfo> FindConfiguredDataReductionProxy(
+      const net::ProxyServer& proxy_server) const override;
+  net::ProxyList GetAllConfiguredProxies() const override;
 
  private:
   std::vector<DataReductionProxyServer> proxies_for_http_;
+  std::vector<DataReductionProxyServer> override_proxies_for_http_;
 
   // Permits use of locally specified Data Reduction Proxy servers instead of
   // ones specified from the Data Saver API.
-  bool use_override_proxies_for_http_;
-  std::vector<DataReductionProxyServer> override_proxies_for_http_;
+  const bool use_override_proxies_for_http_;
+
+  // Keep track of some of the most recently configured proxy lists. This means
+  // that any requests that were in-progress to a Data Reduction Proxy when the
+  // list of proxies to use is changed can still be recognized as using a Data
+  // Reduction Proxy for the purposes of applying bypass logic and recording
+  // metrics. The number 2 is used because that way the proxy server used by an
+  // in-progress request can still be recognized if both the list of proxy
+  // servers to use changes and the proxy config gets invalidated before that
+  // request's response is processed.
+  std::vector<DataReductionProxyServer> recently_configured_proxy_lists_[2];
 
   // Enforce usage on the IO thread.
   base::ThreadChecker thread_checker_;

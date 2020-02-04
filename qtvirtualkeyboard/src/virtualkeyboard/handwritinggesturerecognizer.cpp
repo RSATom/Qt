@@ -27,11 +27,12 @@
 **
 ****************************************************************************/
 
-#include "handwritinggesturerecognizer.h"
+#include <QtVirtualKeyboard/private/handwritinggesturerecognizer_p.h>
 
 #include <QtCore/qmath.h>
 #include <QVector2D>
 
+QT_BEGIN_NAMESPACE
 namespace QtVirtualKeyboard {
 
 HandwritingGestureRecognizer::HandwritingGestureRecognizer(QObject *parent) :
@@ -50,7 +51,7 @@ int HandwritingGestureRecognizer::dpi() const
     return m_dpi;
 }
 
-QVariantMap HandwritingGestureRecognizer::recognize(const QList<Trace *> traceList)
+QVariantMap HandwritingGestureRecognizer::recognize(const QList<QVirtualKeyboardTrace *> traceList)
 {
     if (traceList.count() > 0 && traceList.count() < 3) {
 
@@ -86,7 +87,7 @@ QVariantMap HandwritingGestureRecognizer::recognize(const QList<Trace *> traceLi
         const int traceCount = traceList.size();
         for (traceIndex = 0; traceIndex < traceCount; ++traceIndex) {
 
-            const Trace *trace = traceList.at(traceIndex);
+            const QVirtualKeyboardTrace *trace = traceList.at(traceIndex);
             const QVariantList &points = trace->points();
             QVector2D swipeVector;
             const int pointCount = points.count();
@@ -201,4 +202,5 @@ QVariantMap HandwritingGestureRecognizer::recognize(const QList<Trace *> traceLi
     return QVariantMap();
 }
 
-}
+} // namespace QtVirtualKeyboard
+QT_END_NAMESPACE

@@ -1,11 +1,13 @@
 include_rules = [
-  "+components/scheduler/child",
   "+content/child",
-  "+content/network",
   "+content/public/utility",
+  "+chromeos/services/ime",
+  "+services/audio",
   "+services/data_decoder",
+  "+services/network",
   "+services/service_manager",
   "+services/shape_detection",
   "+services/video_capture",
+  "+services/viz",
   "+sandbox/win/src",
 ]

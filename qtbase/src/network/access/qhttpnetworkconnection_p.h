@@ -71,7 +71,7 @@
 
 #include <private/qhttpnetworkconnectionchannel_p.h>
 
-#ifndef QT_NO_HTTP
+QT_REQUIRE_CONFIG(http);
 
 QT_BEGIN_NAMESPACE
 
@@ -94,7 +94,8 @@ public:
     enum ConnectionType {
         ConnectionTypeHTTP,
         ConnectionTypeSPDY,
-        ConnectionTypeHTTP2
+        ConnectionTypeHTTP2,
+        ConnectionTypeHTTP2Direct
     };
 
 #ifndef QT_NO_BEARERMANAGEMENT
@@ -153,9 +154,11 @@ public:
 
     void preConnectFinished();
 
+    QString peerVerifyName() const;
+    void setPeerVerifyName(const QString &peerName);
 private:
     Q_DECLARE_PRIVATE(QHttpNetworkConnection)
-    Q_DISABLE_COPY(QHttpNetworkConnection)
+    Q_DISABLE_COPY_MOVE(QHttpNetworkConnection)
     friend class QHttpThreadDelegate;
     friend class QHttpNetworkReply;
     friend class QHttpNetworkReplyPrivate;
@@ -288,13 +291,13 @@ public:
 
     Http2::ProtocolParameters http2Parameters;
 
+    QString peerVerifyName;
+
     friend class QHttpNetworkConnectionChannel;
 };
 
 
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_HTTP
 
 #endif

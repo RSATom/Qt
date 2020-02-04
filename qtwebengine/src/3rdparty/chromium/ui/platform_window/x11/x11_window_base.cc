@@ -4,15 +4,11 @@
 
 #include "ui/platform_window/x11/x11_window_base.h"
 
-#include <X11/extensions/XInput2.h>
-#include <X11/Xatom.h>
-#include <X11/Xlib.h>
-#include <X11/Xutil.h>
-
 #include <string>
 
 #include "base/strings/utf_string_conversions.h"
 #include "ui/base/platform_window_defaults.h"
+#include "ui/base/x/x11_util.h"
 #include "ui/base/x/x11_window_event_manager.h"
 #include "ui/events/event.h"
 #include "ui/events/event_utils.h"
@@ -40,24 +36,27 @@ X11WindowBase::X11WindowBase(PlatformWindowDelegate* delegate,
                              const gfx::Rect& bounds)
     : delegate_(delegate),
       xdisplay_(gfx::GetXDisplay()),
-      xwindow_(None),
       xroot_window_(DefaultRootWindow(xdisplay_)),
-      bounds_(bounds) {
+      bounds_(bounds),
+      state_(ui::PlatformWindowState::PLATFORM_WINDOW_STATE_UNKNOWN) {
   DCHECK(delegate_);
+  Create();
+  pointer_barriers_.fill(x11::None);
 }
 
 X11WindowBase::~X11WindowBase() {
+  UnConfineCursor();
   Destroy();
 }
 
 void X11WindowBase::Destroy() {
-  if (xwindow_ == None)
+  if (xwindow_ == x11::None)
     return;
 
   // Stop processing events.
   XID xwindow = xwindow_;
   XDisplay* xdisplay = xdisplay_;
-  xwindow_ = None;
+  xwindow_ = x11::None;
   delegate_->OnClosed();
   // |this| might be deleted because of the above call.
 
@@ -69,7 +68,7 @@ void X11WindowBase::Create() {
 
   XSetWindowAttributes swa;
   memset(&swa, 0, sizeof(swa));
-  swa.background_pixmap = None;
+  swa.background_pixmap = x11::None;
   swa.bit_gravity = NorthWestGravity;
   swa.override_redirect = UseTestConfigForPlatformWindows();
   xwindow_ =
@@ -139,29 +138,23 @@ void X11WindowBase::Create() {
   size_hints.win_gravity = StaticGravity;
   XSetWMNormalHints(xdisplay_, xwindow_, &size_hints);
 
-  // TODO(sky): provide real scale factor.
-  delegate_->OnAcceleratedWidgetAvailable(xwindow_, 1.f);
+  delegate_->OnAcceleratedWidgetAvailable(xwindow_);
 }
 
 void X11WindowBase::Show() {
   if (window_mapped_)
     return;
-  if (xwindow_ == None)
-    Create();
 
   XMapWindow(xdisplay_, xwindow_);
-
-  // We now block until our window is mapped. Some X11 APIs will crash and
-  // burn if passed |xwindow_| before the window is mapped, and XMapWindow is
-  // asynchronous.
-  if (X11EventSource::GetInstance())
-    X11EventSource::GetInstance()->BlockUntilWindowMapped(xwindow_);
+  // TODO(thomasanderson): Find out why this flush is necessary.
+  XFlush(xdisplay_);
   window_mapped_ = true;
 }
 
 void X11WindowBase::Hide() {
   if (!window_mapped_)
     return;
+
   XWithdrawWindow(xdisplay_, xwindow_, 0);
   window_mapped_ = false;
 }
@@ -171,7 +164,9 @@ void X11WindowBase::Close() {
 }
 
 void X11WindowBase::SetBounds(const gfx::Rect& bounds) {
-  if (window_mapped_) {
+  DCHECK(!bounds.size().IsEmpty());
+
+  if (xwindow_ != x11::None) {
     XWindowChanges changes = {0};
     unsigned value_mask = 0;
 
@@ -220,7 +215,7 @@ void X11WindowBase::SetTitle(const base::string16& title) {
   XTextProperty xtp;
   char* c_utf8_str = const_cast<char*>(utf8str.c_str());
   if (Xutf8TextListToTextProperty(xdisplay_, &c_utf8_str, 1, XUTF8StringStyle,
-                                  &xtp) == Success) {
+                                  &xtp) == x11::Success) {
     XSetWMName(xdisplay_, xwindow_, &xtp);
     XFree(xtp.value);
   }
@@ -230,27 +225,104 @@ void X11WindowBase::SetCapture() {}
 
 void X11WindowBase::ReleaseCapture() {}
 
-void X11WindowBase::ToggleFullscreen() {}
+bool X11WindowBase::HasCapture() const {
+  return false;
+}
 
-void X11WindowBase::Maximize() {}
+void X11WindowBase::ToggleFullscreen() {
+  ui::SetWMSpecState(xwindow_, !IsFullscreen(),
+                     gfx::GetAtom("_NET_WM_STATE_FULLSCREEN"), x11::None);
+}
 
-void X11WindowBase::Minimize() {}
+void X11WindowBase::Maximize() {
+  if (IsFullscreen())
+    ToggleFullscreen();
 
-void X11WindowBase::Restore() {}
+  ui::SetWMSpecState(xwindow_, true,
+                     gfx::GetAtom("_NET_WM_STATE_MAXIMIZED_VERT"),
+                     gfx::GetAtom("_NET_WM_STATE_MAXIMIZED_HORZ"));
+}
+
+void X11WindowBase::Minimize() {
+  XIconifyWindow(xdisplay_, xwindow_, 0);
+}
+
+void X11WindowBase::Restore() {
+  if (IsFullscreen())
+    ToggleFullscreen();
+
+  if (IsMaximized()) {
+    ui::SetWMSpecState(xwindow_, false,
+                       gfx::GetAtom("_NET_WM_STATE_MAXIMIZED_VERT"),
+                       gfx::GetAtom("_NET_WM_STATE_MAXIMIZED_HORZ"));
+  }
+}
+
+PlatformWindowState X11WindowBase::GetPlatformWindowState() const {
+  return state_;
+}
 
 void X11WindowBase::MoveCursorTo(const gfx::Point& location) {
-  XWarpPointer(xdisplay_, None, xroot_window_, 0, 0, 0, 0,
+  XWarpPointer(xdisplay_, x11::None, xroot_window_, 0, 0, 0, 0,
                bounds_.x() + location.x(), bounds_.y() + location.y());
 }
 
-void X11WindowBase::ConfineCursorToBounds(const gfx::Rect& bounds) {}
+void X11WindowBase::ConfineCursorToBounds(const gfx::Rect& bounds) {
+  UnConfineCursor();
+
+  if (bounds.IsEmpty())
+    return;
+
+  gfx::Rect barrier = bounds + bounds_.OffsetFromOrigin();
+
+  // Top horizontal barrier.
+  pointer_barriers_[0] = XFixesCreatePointerBarrier(
+      xdisplay_, xroot_window_, barrier.x(), barrier.y(), barrier.right(),
+      barrier.y(), BarrierPositiveY, 0, XIAllDevices);
+  // Bottom horizontal barrier.
+  pointer_barriers_[1] = XFixesCreatePointerBarrier(
+      xdisplay_, xroot_window_, barrier.x(), barrier.bottom(), barrier.right(),
+      barrier.bottom(), BarrierNegativeY, 0, XIAllDevices);
+  // Left vertical barrier.
+  pointer_barriers_[2] = XFixesCreatePointerBarrier(
+      xdisplay_, xroot_window_, barrier.x(), barrier.y(), barrier.x(),
+      barrier.bottom(), BarrierPositiveX, 0, XIAllDevices);
+  // Right vertical barrier.
+  pointer_barriers_[3] = XFixesCreatePointerBarrier(
+      xdisplay_, xroot_window_, barrier.right(), barrier.y(), barrier.right(),
+      barrier.bottom(), BarrierNegativeX, 0, XIAllDevices);
+
+  has_pointer_barriers_ = true;
+}
 
 PlatformImeController* X11WindowBase::GetPlatformImeController() {
   return nullptr;
 }
 
+void X11WindowBase::SetRestoredBoundsInPixels(const gfx::Rect& bounds) {
+  // TODO: https://crbug.com/848131
+  NOTIMPLEMENTED();
+}
+
+gfx::Rect X11WindowBase::GetRestoredBoundsInPixels() const {
+  // TODO: https://crbug.com/848131
+  NOTIMPLEMENTED();
+  return gfx::Rect();
+}
+
+void X11WindowBase::UnConfineCursor() {
+  if (!has_pointer_barriers_)
+    return;
+
+  for (XID pointer_barrier : pointer_barriers_)
+    XFixesDestroyPointerBarrier(xdisplay_, pointer_barrier);
+  pointer_barriers_.fill(x11::None);
+
+  has_pointer_barriers_ = false;
+}
+
 bool X11WindowBase::IsEventForXWindow(const XEvent& xev) const {
-  return xwindow_ != None && FindXEventTarget(xev) == xwindow_;
+  return xwindow_ != x11::None && FindXEventTarget(xev) == xwindow_;
 }
 
 void X11WindowBase::ProcessXWindowEvent(XEvent* xev) {
@@ -262,7 +334,7 @@ void X11WindowBase::ProcessXWindowEvent(XEvent* xev) {
       break;
     }
 
-    case FocusOut:
+    case x11::FocusOut:
       if (xev->xfocus.mode != NotifyGrab)
         delegate_->OnLostCapture();
       break;
@@ -298,14 +370,63 @@ void X11WindowBase::ProcessXWindowEvent(XEvent* xev) {
         XEvent reply_event = *xev;
         reply_event.xclient.window = xroot_window_;
 
-        XSendEvent(xdisplay_, reply_event.xclient.window, False,
+        XSendEvent(xdisplay_, reply_event.xclient.window, x11::False,
                    SubstructureRedirectMask | SubstructureNotifyMask,
                    &reply_event);
         XFlush(xdisplay_);
       }
       break;
     }
+    case PropertyNotify: {
+      ::Atom changed_atom = xev->xproperty.atom;
+      if (changed_atom == gfx::GetAtom("_NET_WM_STATE"))
+        OnWMStateUpdated();
+      break;
+    }
   }
+}
+
+void X11WindowBase::OnWMStateUpdated() {
+  std::vector<::Atom> atom_list;
+  // Ignore the return value of ui::GetAtomArrayProperty(). Fluxbox removes the
+  // _NET_WM_STATE property when no _NET_WM_STATE atoms are set.
+  ui::GetAtomArrayProperty(xwindow_, "_NET_WM_STATE", &atom_list);
+
+  window_properties_.clear();
+  std::copy(atom_list.begin(), atom_list.end(),
+            inserter(window_properties_, window_properties_.begin()));
+
+  // Propagate the window state information to the client.
+  // Note that the order of checks is important here, because window can have
+  // several proprties at the same time.
+  ui::PlatformWindowState old_state = state_;
+  if (ui::HasWMSpecProperty(window_properties_,
+                            gfx::GetAtom("_NET_WM_STATE_HIDDEN"))) {
+    state_ = ui::PlatformWindowState::PLATFORM_WINDOW_STATE_MINIMIZED;
+  } else if (ui::HasWMSpecProperty(window_properties_,
+                                   gfx::GetAtom("_NET_WM_STATE_FULLSCREEN"))) {
+    state_ = ui::PlatformWindowState::PLATFORM_WINDOW_STATE_FULLSCREEN;
+  } else if (ui::HasWMSpecProperty(
+                 window_properties_,
+                 gfx::GetAtom("_NET_WM_STATE_MAXIMIZED_VERT")) &&
+             ui::HasWMSpecProperty(
+                 window_properties_,
+                 gfx::GetAtom("_NET_WM_STATE_MAXIMIZED_HORZ"))) {
+    state_ = ui::PlatformWindowState::PLATFORM_WINDOW_STATE_MAXIMIZED;
+  } else {
+    state_ = ui::PlatformWindowState::PLATFORM_WINDOW_STATE_NORMAL;
+  }
+
+  if (old_state != state_)
+    delegate_->OnWindowStateChanged(state_);
+}
+
+bool X11WindowBase::IsMaximized() const {
+  return state_ == ui::PlatformWindowState::PLATFORM_WINDOW_STATE_MAXIMIZED;
+}
+
+bool X11WindowBase::IsFullscreen() const {
+  return state_ == ui::PlatformWindowState::PLATFORM_WINDOW_STATE_FULLSCREEN;
 }
 
 }  // namespace ui

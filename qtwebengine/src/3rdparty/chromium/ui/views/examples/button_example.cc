@@ -9,7 +9,6 @@
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/image/image.h"
 #include "ui/views/background.h"
-#include "ui/views/controls/button/blue_button.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/button/md_text_button.h"
@@ -39,9 +38,10 @@ ButtonExample::~ButtonExample() {
 
 void ButtonExample::CreateExampleView(View* container) {
   container->SetBackground(CreateSolidBackground(SK_ColorWHITE));
-  BoxLayout* layout = new BoxLayout(BoxLayout::kVertical, gfx::Insets(10), 10);
+  auto layout =
+      std::make_unique<BoxLayout>(BoxLayout::kVertical, gfx::Insets(10), 10);
   layout->set_cross_axis_alignment(BoxLayout::CROSS_AXIS_ALIGNMENT_CENTER);
-  container->SetLayoutManager(layout);
+  container->SetLayoutManager(std::move(layout));
 
   label_button_ = new LabelButton(this, ASCIIToUTF16(kLabelButton));
   label_button_->SetFocusForPlatform();
@@ -56,8 +56,6 @@ void ButtonExample::CreateExampleView(View* container) {
   disabled_button_->SetStyleDeprecated(Button::STYLE_BUTTON);
   disabled_button_->SetState(Button::STATE_DISABLED);
   container->AddChildView(disabled_button_);
-
-  container->AddChildView(new BlueButton(this, ASCIIToUTF16("Blue Button")));
 
   md_button_ =
       MdTextButton::Create(this, base::ASCIIToUTF16("Material design"));
@@ -113,8 +111,6 @@ void ButtonExample::LabelButtonPressed(LabelButton* label_button,
     }
   } else if (event.IsAltDown()) {
     label_button->SetIsDefault(!label_button->is_default());
-  } else {
-    label_button->SetMinSize(gfx::Size());
   }
   example_view()->GetLayoutManager()->Layout(example_view());
 }
@@ -127,7 +123,7 @@ void ButtonExample::ButtonPressed(Button* sender, const ui::Event& event) {
   else if (sender == disabled_button_)
     LabelButtonPressed(disabled_button_, event);
   else if (sender == md_button_ || sender == md_default_button_)
-    static_cast<CustomButton*>(sender)->StartThrobbing(5);
+    static_cast<Button*>(sender)->StartThrobbing(5);
   else
     PrintStatus("Image Button Pressed! count: %d", ++count_);
 }

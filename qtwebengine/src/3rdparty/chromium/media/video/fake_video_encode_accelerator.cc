@@ -40,26 +40,21 @@ FakeVideoEncodeAccelerator::GetSupportedProfiles() {
   return profiles;
 }
 
-bool FakeVideoEncodeAccelerator::Initialize(VideoPixelFormat input_format,
-                                            const gfx::Size& input_visible_size,
-                                            VideoCodecProfile output_profile,
-                                            uint32_t initial_bitrate,
+bool FakeVideoEncodeAccelerator::Initialize(const Config& config,
                                             Client* client) {
   if (!will_initialization_succeed_) {
     return false;
   }
-  if (output_profile == VIDEO_CODEC_PROFILE_UNKNOWN ||
-      output_profile > VIDEO_CODEC_PROFILE_MAX) {
+  if (config.output_profile == VIDEO_CODEC_PROFILE_UNKNOWN ||
+      config.output_profile > VIDEO_CODEC_PROFILE_MAX) {
     return false;
   }
   client_ = client;
   task_runner_->PostTask(
       FROM_HERE,
       base::Bind(&FakeVideoEncodeAccelerator::DoRequireBitstreamBuffers,
-                 weak_this_factory_.GetWeakPtr(),
-                 kMinimumInputCount,
-                 input_visible_size,
-                 kMinimumOutputBufferSize));
+                 weak_this_factory_.GetWeakPtr(), kMinimumInputCount,
+                 config.input_visible_size, kMinimumOutputBufferSize));
   return true;
 }
 
@@ -81,6 +76,12 @@ void FakeVideoEncodeAccelerator::RequestEncodingParametersChange(
     uint32_t bitrate,
     uint32_t framerate) {
   stored_bitrates_.push_back(bitrate);
+}
+
+void FakeVideoEncodeAccelerator::RequestEncodingParametersChange(
+    const VideoBitrateAllocation& bitrate,
+    uint32_t framerate) {
+  stored_bitrate_allocations_.push_back(bitrate);
 }
 
 void FakeVideoEncodeAccelerator::Destroy() { delete this; }
@@ -130,8 +131,10 @@ void FakeVideoEncodeAccelerator::DoBitstreamBufferReady(
     int32_t bitstream_buffer_id,
     size_t payload_size,
     bool key_frame) const {
-  client_->BitstreamBufferReady(bitstream_buffer_id, payload_size, key_frame,
-                                base::Time::Now() - base::Time());
+  client_->BitstreamBufferReady(
+      bitstream_buffer_id,
+      BitstreamBufferMetadata(payload_size, key_frame,
+                              base::Time::Now().since_origin()));
 }
 
 }  // namespace media

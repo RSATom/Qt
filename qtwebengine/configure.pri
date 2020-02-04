@@ -1,3 +1,5 @@
+include(src/core/config/functions.pri)
+
 # this must be done outside any function
 QTWEBENGINE_SOURCE_TREE = $$PWD
 
@@ -84,26 +86,6 @@ defineTest(qtConfTest_detectFlex) {
     return(true)
 }
 
-defineTest(qtConfTest_detectGlibc) {
-    ldd = $$qtConfFindInPath("ldd")
-    !isEmpty(ldd) {
-        qtLog("Found ldd from path: $$ldd")
-        qtRunLoggedCommand("$$ldd --version", version)|return(true)
-        version ~= 's/^.*[^0-9]\([0-9]*\.[0-9]*\).*$/\1/'
-        version = $$first(version)
-        qtLog("Found libc version: $$version")
-        version = $$split(version,'.')
-        version = $$member(version, 1)
-        greaterThan(version, 16) {
-            return(true)
-        }
-        qtLog("Detected too old version of glibc. Required min 2.17.")
-        return(false)
-    }
-    qtLog("No ldd found. Assuming right version of glibc.")
-    return(true)
-}
-
 defineTest(qtConfTest_detectNinja) {
     ninja = $$qtConfFindInPath("ninja$$EXE_SUFFIX")
     !isEmpty(ninja) {
@@ -145,16 +127,6 @@ defineTest(qtConfTest_embedded) {
     }
     $$qtConfEvaluate("features.cross_compile"): return(true)
     return(false)
-}
-
-defineTest(qtConfTest_detectIcuuc) {
-   pkgConfig = $$qtConfPkgConfig()
-   !isEmpty(pkgConfig) {
-       qtRunLoggedCommand("$$pkgConfig --libs --static libxml-2.0", xmllibs)
-       contains(xmllibs,".*-licuuc.*"):return(true)
-       qtLog("System libxml2 is not configured with ICU")
-   }
-   return(false)
 }
 
 defineTest(qtConfTest_detectHostPkgConfig) {
@@ -269,4 +241,56 @@ defineTest(isSanitizerLinuxClangVersionSupported) {
 defineReplace(qtConfFunc_isTestsInBuildParts) {
     contains(QT_BUILD_PARTS, tests): return(true)
     return(false)
+}
+
+defineReplace(webEngineGetMacOSVersion) {
+    value = $$system("sw_vers -productVersion 2>/dev/null")
+    return($$value)
+}
+
+defineReplace(webEngineGetMacOSSDKVersion) {
+    value = $$system("/usr/bin/xcodebuild -sdk $$QMAKE_MAC_SDK -version ProductVersion 2>/dev/null")
+    return($$value)
+}
+
+defineReplace(webEngineGetMacOSClangVerboseVersion) {
+    output = $$system("$$QMAKE_CXX --version 2>/dev/null", lines)
+    value = $$first(output)
+    return($$value)
+}
+
+defineTest(qtConfReport_macosToolchainVersion) {
+    arg = $$2
+    contains(arg, "macosVersion"): report_message = $$webEngineGetMacOSVersion()
+    contains(arg, "xcodeVersion"): report_message = "$$QMAKE_XCODE_VERSION"
+    contains(arg, "clangVersion"): report_message = $$webEngineGetMacOSClangVerboseVersion()
+    contains(arg, "sdkVersion"): report_message = $$webEngineGetMacOSSDKVersion()
+    contains(arg, "deploymentTarget"): report_message = "$$QMAKE_MACOSX_DEPLOYMENT_TARGET"
+    !isEmpty(report_message): qtConfReportPadded($$1, $$report_message)
+}
+
+defineTest(qtConfTest_isWindowsHostCompiler64) {
+    win_host_arch = $$(VSCMD_ARG_HOST_ARCH)
+    isEmpty(win_host_arch): return(true)
+    contains(win_host_arch,"x64"): return(true)
+    qtLog("Required 64-bit cross-building or native toolchain was not detected.")
+    return(false)
+}
+
+# Fixme QTBUG-71772
+defineTest(qtConfTest_hasThumbFlag) {
+    FLAG = $$qtwebengine_extractCFlag("-mthumb")
+    !isEmpty(FLAG): return(true)
+    FLAG = $$qtwebengine_extractCFlag("-marm")
+    !isEmpty(FLAG): return(false)
+
+    MARCH = $$qtwebengine_extractCFlag("-march=.*")
+    MARMV = $$replace(MARCH, "armv",)
+    !isEmpty(MARMV) {
+        MARMV = $$split(MARMV,)
+        MARMV = $$member(MARMV, 0)
+    }
+    if (isEmpty(MARMV) | lessThan(MARMV, 7)): return(false)
+    # no flag assume mthumb
+    return(true)
 }

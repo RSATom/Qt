@@ -13,39 +13,35 @@
 namespace media {
 
 MediaResourceShim::MediaResourceShim(
-    std::vector<mojom::DemuxerStreamPtr> streams,
+    std::vector<mojom::DemuxerStreamPtrInfo> streams,
     const base::Closure& demuxer_ready_cb)
     : demuxer_ready_cb_(demuxer_ready_cb),
       streams_ready_(0),
       weak_factory_(this) {
   DCHECK(!streams.empty());
-  DCHECK(!demuxer_ready_cb_.is_null());
+  DCHECK(demuxer_ready_cb_);
 
   for (auto& s : streams) {
+    mojom::DemuxerStreamPtr stream(std::move(s));
     streams_.emplace_back(new MojoDemuxerStreamAdapter(
-        std::move(s), base::Bind(&MediaResourceShim::OnStreamReady,
-                                 weak_factory_.GetWeakPtr())));
+        std::move(stream), base::Bind(&MediaResourceShim::OnStreamReady,
+                                      weak_factory_.GetWeakPtr())));
   }
 }
 
-MediaResourceShim::~MediaResourceShim() {}
+MediaResourceShim::~MediaResourceShim() = default;
 
 std::vector<DemuxerStream*> MediaResourceShim::GetAllStreams() {
-  DCHECK(demuxer_ready_cb_.is_null());
+  DCHECK(!demuxer_ready_cb_);
   std::vector<DemuxerStream*> result;
   for (auto& stream : streams_)
     result.push_back(stream.get());
   return result;
 }
 
-void MediaResourceShim::SetStreamStatusChangeCB(
-    const StreamStatusChangeCB& cb) {
-  NOTIMPLEMENTED();
-}
-
 void MediaResourceShim::OnStreamReady() {
   if (++streams_ready_ == streams_.size())
-    base::ResetAndReturn(&demuxer_ready_cb_).Run();
+    std::move(demuxer_ready_cb_).Run();
 }
 
 }  // namespace media

@@ -4,8 +4,9 @@
 
 #include "media/cdm/simple_cdm_allocator.h"
 
+#include <memory>
+
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
 #include "media/base/video_frame.h"
 #include "media/cdm/cdm_helpers.h"
 #include "media/cdm/simple_cdm_buffer.h"
@@ -18,8 +19,8 @@ namespace {
 
 class SimpleCdmVideoFrame : public VideoFrameImpl {
  public:
-  SimpleCdmVideoFrame() {}
-  ~SimpleCdmVideoFrame() final {}
+  SimpleCdmVideoFrame() = default;
+  ~SimpleCdmVideoFrame() final = default;
 
   // VideoFrameImpl implementation.
   scoped_refptr<media::VideoFrame> TransformToVideoFrame(
@@ -30,12 +31,14 @@ class SimpleCdmVideoFrame : public VideoFrameImpl {
     gfx::Size frame_size(Size().width, Size().height);
     scoped_refptr<media::VideoFrame> frame =
         media::VideoFrame::WrapExternalYuvData(
-            PIXEL_FORMAT_YV12, frame_size, gfx::Rect(frame_size), natural_size,
-            Stride(kYPlane), Stride(kUPlane), Stride(kVPlane),
-            buffer->Data() + PlaneOffset(kYPlane),
-            buffer->Data() + PlaneOffset(kUPlane),
-            buffer->Data() + PlaneOffset(kVPlane),
+            PIXEL_FORMAT_I420, frame_size, gfx::Rect(frame_size), natural_size,
+            Stride(cdm::kYPlane), Stride(cdm::kUPlane), Stride(cdm::kVPlane),
+            buffer->Data() + PlaneOffset(cdm::kYPlane),
+            buffer->Data() + PlaneOffset(cdm::kUPlane),
+            buffer->Data() + PlaneOffset(cdm::kVPlane),
             base::TimeDelta::FromMicroseconds(Timestamp()));
+
+    frame->set_color_space(MediaColorSpace().ToGfxColorSpace());
 
     // The FrameBuffer needs to remain around until |frame| is destroyed.
     frame->AddDestructionObserver(
@@ -53,9 +56,9 @@ class SimpleCdmVideoFrame : public VideoFrameImpl {
 
 }  // namespace
 
-SimpleCdmAllocator::SimpleCdmAllocator() {}
+SimpleCdmAllocator::SimpleCdmAllocator() = default;
 
-SimpleCdmAllocator::~SimpleCdmAllocator() {}
+SimpleCdmAllocator::~SimpleCdmAllocator() = default;
 
 // Creates a new SimpleCdmBuffer on every request. It does not keep track of
 // the memory allocated, so the caller is responsible for calling Destroy()
@@ -69,7 +72,7 @@ cdm::Buffer* SimpleCdmAllocator::CreateCdmBuffer(size_t capacity) {
 
 // Creates a new SimpleCdmVideoFrame on every request.
 std::unique_ptr<VideoFrameImpl> SimpleCdmAllocator::CreateCdmVideoFrame() {
-  return base::MakeUnique<SimpleCdmVideoFrame>();
+  return std::make_unique<SimpleCdmVideoFrame>();
 }
 
 }  // namespace media

@@ -59,9 +59,10 @@ public:
     QWaylandEglWindow(QWindow *window);
     ~QWaylandEglWindow();
     WindowType windowType() const override;
+    void ensureSize() override;
 
     void updateSurface(bool create);
-    virtual void setGeometry(const QRect &rect) override;
+    void setGeometry(const QRect &rect) override;
     QRect contentsRect() const;
 
     EGLSurface eglSurface() const;
@@ -76,19 +77,16 @@ public:
     void invalidateSurface() override;
     void setVisible(bool visible) override;
 
-private Q_SLOTS:
-    void doInvalidateSurface();
-
 private:
-    QWaylandEglClientBufferIntegration *m_clientBufferIntegration;
-    struct wl_egl_window *m_waylandEglWindow;
+    QWaylandEglClientBufferIntegration *m_clientBufferIntegration = nullptr;
+    struct wl_egl_window *m_waylandEglWindow = nullptr;
 
-    const QWaylandWindow *m_parentWindow;
+    const QWaylandWindow *m_parentWindow = nullptr;
 
-    EGLSurface m_eglSurface;
+    EGLSurface m_eglSurface = EGL_NO_SURFACE;
     EGLConfig m_eglConfig;
-    mutable QOpenGLFramebufferObject *m_contentFBO;
-    mutable bool m_resize;
+    mutable bool m_resize = false;
+    mutable QOpenGLFramebufferObject *m_contentFBO = nullptr;
 
     QSurfaceFormat m_format;
 };

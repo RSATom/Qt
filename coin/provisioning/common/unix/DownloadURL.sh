@@ -1,11 +1,11 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
 #############################################################################
 ##
-## Copyright (C) 2017 The Qt Company Ltd.
+## Copyright (C) 2019 The Qt Company Ltd.
 ## Contact: http://www.qt.io/licensing/
 ##
-## This file is part of the test suite of the Qt Toolkit.
+## This file is part of the provisioning scripts of the Qt Toolkit.
 ##
 ## $QT_BEGIN_LICENSE:LGPL21$
 ## Commercial License Usage
@@ -33,58 +33,78 @@
 ##
 #############################################################################
 
+
 # A helper script used for downloading a file from a URL or an alternative
-# URL. Also the SHA1 is checked for the file. Target filename should also
-# be given.
-#
-# If called directly from another script, it will exit the parent script
-# as well, if not called in its own subshell with parentheses.
+# URL. Also the SHA is checked for the file (SHA algorithm is autodetected
+# based on the SHA length). Target filename should also be given.
 
-# shellcheck source=try_catch.sh
-source "${BASH_SOURCE%/*}/try_catch.sh"
+############################ BOILERPLATE ###############################
+command -v sha1sum >/dev/null   ||  alias   sha1sum='shasum -a 1'
+command -v sha256sum >/dev/null ||  alias sha256sum='shasum -a 256'
+command -v sha384sum >/dev/null ||  alias sha384sum='shasum -a 384'
+command -v sha512sum >/dev/null ||  alias sha512sum='shasum -a 512'
+########################################################################
 
-ExceptionDownloadPrimaryUrl=100
-ExceptionDownloadAltUrl=101
-ExceptionSHA1=102
 
-function DownloadURL {
-    url=$1
-    url_alt=$2
-    expectedSha1=$3
-    targetFile=$4
+Download () {
+    url="$1"
+    targetFile="$2"
 
-    try
-    (
-        try
-        (
-            echo "Downloading from primary URL '$url'"
-            curl --fail -L --retry 5 --retry-delay 5 -o "$targetFile" "$url" || throw $ExceptionDownloadPrimaryUrl
-        )
-        catch || {
-            case $ex_code in
-                $ExceptionDownloadPrimaryUrl)
-                    echo "Failed to download '$url' multiple times"
-                    echo "Downloading tar.gz from alternative URL '$url_alt'"
-                    curl --fail -L --retry 5 --retry-delay 5 -o "$targetFile" "$url_alt" || throw $ExceptionDownloadAltUrl
-                ;;
-            esac
-        }
-        echo "Checking SHA1 on PKG '$targetFile'"
-        echo "$expectedSha1 *$targetFile" > $targetFile.sha1
-        shasum --check $targetFile.sha1 || throw $ExceptionSHA1
-    )
-
-    catch || {
-        case $ex_code in
-            $ExceptionDownloadAltUrl)
-                echo "Failed downloading PKG from primary and alternative URLs"
-                exit 1;
-            ;;
-            $ExceptionSHA1)
-                echo "Failed checksum on $targetFile."
-                exit 1;
-            ;;
-        esac
-    }
+    command -v curl >/dev/null  \
+        && curl --fail -L --retry 5 --retry-delay 5 -o "$targetFile" "$url"  \
+        || wget --tries 5 -O "$targetFile" "$url"
 }
 
+VerifyHash () {
+    file=$1
+    expectedHash=$2
+
+    if [ ! -f "$file" ]
+    then  return 2              # file does not exist
+    fi
+
+
+    hashLength="$(echo "$expectedHash" | wc -c | sed 's/ *//g')"
+    # Use backticks because of bug with bash-3 (default on macOS),
+    # caused when there are unbalanced parentheses inside $()
+    # shellcheck disable=SC2006
+    hash=`case "$hashLength" in
+            41)  sha1sum    "$file"  ;;
+            65)  sha256sum  "$file"  ;;
+            97)  sha384sum  "$file"  ;;
+            129) sha512sum  "$file"  ;;
+            *) echo "FATAL! Unknown hash length:  $hashLength" 1>&2  &&  exit 1  ;;
+        esac | cut -d ' ' -f 1`
+
+    if [ ! "$expectedHash" = "$hash" ]
+    then
+        echo "FAIL! wrong file hash:  $file  $hash"  1>&2
+        return 1
+    fi
+    echo "OK verified integrity of:  $file"
+}
+
+# Check if file already exists and is good, otherwise download it
+DownloadURL () {
+    url=$1
+    url2=$2
+    expectedHash=$3
+    targetFile=$4
+
+    if VerifyHash "$targetFile" "$expectedHash"
+    then
+        echo "Skipping download, found and validated existing file:  $targetFile"
+    else
+        echo "Downloading from primary URL:  $url"
+        if  ! Download "$url" "$targetFile"
+        then
+            echo "FAIL! to download, trying alternative URL:  $url2"  1>&2
+            if  ! Download "$url" "$targetFile"
+            then
+                echo 'FAIL! to download even from alternative url'  1>&2
+                return 1
+            fi
+        fi
+        VerifyHash "$targetFile" "$expectedHash"
+    fi
+}

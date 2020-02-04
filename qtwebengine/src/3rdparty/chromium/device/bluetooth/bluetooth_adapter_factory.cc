@@ -4,9 +4,11 @@
 
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/lazy_instance.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
@@ -19,6 +21,7 @@
 #endif
 #if defined(OS_WIN)
 #include "base/win/windows_version.h"
+#include "device/bluetooth/bluetooth_adapter_win.h"
 #endif
 #if defined(ANDROID)
 #include "base/android/build_info.h"
@@ -38,7 +41,7 @@ static base::LazyInstance<BluetoothAdapterFactory>::Leaky g_singleton =
 base::LazyInstance<base::WeakPtr<BluetoothAdapter>>::Leaky default_adapter =
     LAZY_INSTANCE_INITIALIZER;
 
-#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || defined(OS_LINUX)
 typedef std::vector<BluetoothAdapterFactory::AdapterCallback>
     AdapterCallbackList;
 
@@ -51,19 +54,36 @@ base::LazyInstance<AdapterCallbackList>::DestructorAtExit adapter_callbacks =
 void RunAdapterCallbacks() {
   DCHECK(default_adapter.Get());
   scoped_refptr<BluetoothAdapter> adapter(default_adapter.Get().get());
-  for (std::vector<BluetoothAdapterFactory::AdapterCallback>::const_iterator
-           iter = adapter_callbacks.Get().begin();
-       iter != adapter_callbacks.Get().end();
-       ++iter) {
-    iter->Run(adapter);
-  }
+  for (auto& callback : adapter_callbacks.Get())
+    std::move(callback).Run(adapter);
+
   adapter_callbacks.Get().clear();
 }
-#endif  // defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS)
+#endif  // defined(OS_WIN) || defined(OS_LINUX)
+
+#if defined(OS_WIN)
+// Shared classic adapter instance. See above why this is a lazy instance.
+// Note: This is only applicable on Windows, as here the default adapter does
+// not provide Bluetooth Classic support yet.
+base::LazyInstance<base::WeakPtr<BluetoothAdapter>>::Leaky classic_adapter =
+    LAZY_INSTANCE_INITIALIZER;
+
+base::LazyInstance<AdapterCallbackList>::DestructorAtExit
+    classic_adapter_callbacks = LAZY_INSTANCE_INITIALIZER;
+
+void RunClassicAdapterCallbacks() {
+  DCHECK(classic_adapter.Get());
+  scoped_refptr<BluetoothAdapter> adapter(classic_adapter.Get().get());
+  for (auto& callback : classic_adapter_callbacks.Get())
+    std::move(callback).Run(adapter);
+
+  classic_adapter_callbacks.Get().clear();
+}
+#endif  // defined(OS_WIN)
 
 }  // namespace
 
-BluetoothAdapterFactory::~BluetoothAdapterFactory() {}
+BluetoothAdapterFactory::~BluetoothAdapterFactory() = default;
 
 // static
 BluetoothAdapterFactory& BluetoothAdapterFactory::Get() {
@@ -76,8 +96,8 @@ bool BluetoothAdapterFactory::IsBluetoothSupported() {
   // instance even on platforms that would otherwise not support it.
   if (default_adapter.Get())
     return true;
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS) || defined(OS_WIN) || \
-    defined(OS_LINUX) || defined(OS_MACOSX)
+#if defined(OS_ANDROID) || defined(OS_WIN) || defined(OS_LINUX) || \
+    defined(OS_MACOSX)
   return true;
 #else
   return false;
@@ -99,7 +119,7 @@ bool BluetoothAdapterFactory::IsLowEnergySupported() {
   return base::win::GetVersion() >= base::win::VERSION_WIN10;
 #elif defined(OS_MACOSX)
   return base::mac::IsAtLeastOS10_10();
-#elif defined(OS_LINUX) || defined(OS_CHROMEOS)
+#elif defined(OS_LINUX)
   return true;
 #else
   return false;
@@ -107,32 +127,60 @@ bool BluetoothAdapterFactory::IsLowEnergySupported() {
 }
 
 // static
-void BluetoothAdapterFactory::GetAdapter(const AdapterCallback& callback) {
+void BluetoothAdapterFactory::GetAdapter(AdapterCallback callback) {
   DCHECK(IsBluetoothSupported());
 
-#if defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || defined(OS_LINUX)
   if (!default_adapter.Get()) {
     default_adapter.Get() =
-        BluetoothAdapter::CreateAdapter(base::Bind(&RunAdapterCallbacks));
+        BluetoothAdapter::CreateAdapter(base::BindOnce(&RunAdapterCallbacks));
     DCHECK(!default_adapter.Get()->IsInitialized());
   }
 
   if (!default_adapter.Get()->IsInitialized())
-    adapter_callbacks.Get().push_back(callback);
-#else   // !defined(OS_WIN) && !defined(OS_LINUX) && !defined(OS_CHROMEOS)
+    adapter_callbacks.Get().push_back(std::move(callback));
+#else   // !defined(OS_WIN) && !defined(OS_LINUX)
   if (!default_adapter.Get()) {
     default_adapter.Get() =
-        BluetoothAdapter::CreateAdapter(BluetoothAdapter::InitCallback());
+        BluetoothAdapter::CreateAdapter(base::NullCallback());
   }
 
   DCHECK(default_adapter.Get()->IsInitialized());
-#endif  // defined(OS_WIN) || defined(OS_LINUX) || defined(OS_CHROMEOS)
+#endif  // defined(OS_WIN) || defined(OS_LINUX)
 
-  if (default_adapter.Get()->IsInitialized())
-    callback.Run(scoped_refptr<BluetoothAdapter>(default_adapter.Get().get()));
+  if (default_adapter.Get()->IsInitialized()) {
+    std::move(callback).Run(
+        scoped_refptr<BluetoothAdapter>(default_adapter.Get().get()));
+  }
 }
 
-#if defined(OS_CHROMEOS) || defined(OS_LINUX)
+// static
+void BluetoothAdapterFactory::GetClassicAdapter(AdapterCallback callback) {
+#if defined(OS_WIN)
+  if (base::win::GetVersion() < base::win::VERSION_WIN10) {
+    // Prior to Win10, the default adapter will support Bluetooth classic.
+    GetAdapter(std::move(callback));
+    return;
+  }
+
+  if (!classic_adapter.Get()) {
+    classic_adapter.Get() = BluetoothAdapterWin::CreateClassicAdapter(
+        base::BindOnce(&RunClassicAdapterCallbacks));
+    DCHECK(!classic_adapter.Get()->IsInitialized());
+  }
+
+  if (!classic_adapter.Get()->IsInitialized()) {
+    classic_adapter_callbacks.Get().push_back(std::move(callback));
+  } else {
+    std::move(callback).Run(
+        scoped_refptr<BluetoothAdapter>(classic_adapter.Get().get()));
+  }
+#else
+  GetAdapter(std::move(callback));
+#endif  // defined(OS_WIN)
+}
+
+#if defined(OS_LINUX)
 // static
 void BluetoothAdapterFactory::Shutdown() {
   if (default_adapter.Get())
@@ -144,6 +192,9 @@ void BluetoothAdapterFactory::Shutdown() {
 void BluetoothAdapterFactory::SetAdapterForTesting(
     scoped_refptr<BluetoothAdapter> adapter) {
   default_adapter.Get() = adapter->GetWeakPtrForTesting();
+#if defined(OS_WIN)
+  classic_adapter.Get() = adapter->GetWeakPtrForTesting();
+#endif
 }
 
 // static
@@ -154,7 +205,8 @@ bool BluetoothAdapterFactory::HasSharedInstanceForTesting() {
 BluetoothAdapterFactory::GlobalValuesForTesting::GlobalValuesForTesting()
     : weak_ptr_factory_(this) {}
 
-BluetoothAdapterFactory::GlobalValuesForTesting::~GlobalValuesForTesting() {}
+BluetoothAdapterFactory::GlobalValuesForTesting::~GlobalValuesForTesting() =
+    default;
 
 base::WeakPtr<BluetoothAdapterFactory::GlobalValuesForTesting>
 BluetoothAdapterFactory::GlobalValuesForTesting::GetWeakPtr() {
@@ -163,11 +215,11 @@ BluetoothAdapterFactory::GlobalValuesForTesting::GetWeakPtr() {
 
 std::unique_ptr<BluetoothAdapterFactory::GlobalValuesForTesting>
 BluetoothAdapterFactory::InitGlobalValuesForTesting() {
-  auto v = base::MakeUnique<BluetoothAdapterFactory::GlobalValuesForTesting>();
+  auto v = std::make_unique<BluetoothAdapterFactory::GlobalValuesForTesting>();
   values_for_testing_ = v->GetWeakPtr();
   return v;
 }
 
-BluetoothAdapterFactory::BluetoothAdapterFactory() {}
+BluetoothAdapterFactory::BluetoothAdapterFactory() = default;
 
 }  // namespace device

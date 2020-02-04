@@ -13,12 +13,11 @@
 #include <algorithm>
 #include <unordered_map>
 
-#include "base/containers/hash_tables.h"
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/logging.h"
-#include "base/macros.h"
 #include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_tokenizer.h"
@@ -34,13 +33,7 @@
 GesturesProp::GesturesProp(const std::string& name,
                            const PropertyType type,
                            const size_t count)
-    : name_(name),
-      type_(type),
-      count_(count),
-      get_(NULL),
-      set_(NULL),
-      handler_data_(NULL) {
-}
+    : name_(name), type_(type), count_(count) {}
 
 std::vector<int> GesturesProp::GetIntValue() const {
   NOTREACHED();
@@ -493,10 +486,10 @@ std::string GetDeviceNodePath(
 // Check if a match criteria is currently implemented. Note that we didn't
 // implemented all of them as some are inapplicable in the non-X world.
 bool IsMatchTypeSupported(const std::string& match_type) {
-  for (size_t i = 0; i < arraysize(kSupportedMatchTypes); ++i)
+  for (size_t i = 0; i < base::size(kSupportedMatchTypes); ++i)
     if (match_type == kSupportedMatchTypes[i])
       return true;
-  for (size_t i = 0; i < arraysize(kUnsupportedMatchTypes); ++i) {
+  for (size_t i = 0; i < base::size(kUnsupportedMatchTypes); ++i) {
     if (match_type == kUnsupportedMatchTypes[i]) {
       LOG(ERROR) << "Unsupported gestures input class match type: "
                  << match_type;
@@ -513,11 +506,11 @@ bool IsMatchDeviceType(const std::string& match_type) {
 
 // Parse a boolean value keyword (e.g., on/off, true/false).
 int ParseBooleanKeyword(const std::string& value) {
-  for (size_t i = 0; i < arraysize(kTrue); ++i) {
+  for (size_t i = 0; i < base::size(kTrue); ++i) {
     if (base::LowerCaseEqualsASCII(value, kTrue[i]))
       return 1;
   }
-  for (size_t i = 0; i < arraysize(kFalse); ++i) {
+  for (size_t i = 0; i < base::size(kFalse); ++i) {
     if (base::LowerCaseEqualsASCII(value, kFalse[i]))
       return -1;
   }
@@ -620,7 +613,7 @@ struct GestureDevicePropertyData {
   // Unowned default properties (owned by the configuration file). Their values
   // will be applied when a property of the same name is created. These are
   // usually only a small portion of all properties in use.
-  base::hash_map<std::string, GesturesProp*> default_properties;
+  std::unordered_map<std::string, GesturesProp*> default_properties;
 };
 
 // Base class for device match criterias in conf files.
@@ -923,7 +916,7 @@ void GesturePropertyProvider::RegisterDevice(const DeviceId id,
   // Setup data-structures.
   device_map_[id] = device;
   device_data_map_[id] =
-      base::MakeUnique<internal::GestureDevicePropertyData>();
+      std::make_unique<internal::GestureDevicePropertyData>();
 
   // Gather default property values for the device from the parsed conf files.
   SetupDefaultProperties(id, device);
@@ -1031,7 +1024,7 @@ void GesturePropertyProvider::ParseXorgConfFile(const std::string& content) {
                                     base::SPLIT_WANT_ALL)) {
     // Create a new configuration section.
     configurations_.push_back(
-        base::MakeUnique<internal::ConfigurationSection>());
+        std::make_unique<internal::ConfigurationSection>());
     internal::ConfigurationSection* config = configurations_.back().get();
 
     // Break the section into lines.
@@ -1187,17 +1180,17 @@ GesturePropertyProvider::CreateMatchCriteria(const std::string& match_type,
                                              const std::string& arg) {
   DVLOG(2) << "Creating match criteria: (" << match_type << ", " << arg << ")";
   if (match_type == "MatchProduct")
-    return base::MakeUnique<internal::MatchProduct>(arg);
+    return std::make_unique<internal::MatchProduct>(arg);
   if (match_type == "MatchDevicePath")
-    return base::MakeUnique<internal::MatchDevicePath>(arg);
+    return std::make_unique<internal::MatchDevicePath>(arg);
   if (match_type == "MatchUSBID")
-    return base::MakeUnique<internal::MatchUSBID>(arg);
+    return std::make_unique<internal::MatchUSBID>(arg);
   if (match_type == "MatchIsPointer")
-    return base::MakeUnique<internal::MatchIsPointer>(arg);
+    return std::make_unique<internal::MatchIsPointer>(arg);
   if (match_type == "MatchIsTouchpad")
-    return base::MakeUnique<internal::MatchIsTouchpad>(arg);
+    return std::make_unique<internal::MatchIsTouchpad>(arg);
   if (match_type == "MatchIsTouchscreen")
-    return base::MakeUnique<internal::MatchIsTouchscreen>(arg);
+    return std::make_unique<internal::MatchIsTouchscreen>(arg);
   NOTREACHED();
   return NULL;
 }

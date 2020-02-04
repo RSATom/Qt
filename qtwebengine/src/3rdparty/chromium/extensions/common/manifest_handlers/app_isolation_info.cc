@@ -8,7 +8,6 @@
 
 #include <memory>
 
-#include "base/memory/ptr_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -46,7 +45,7 @@ bool AppIsolationHandler::Parse(Extension* extension, base::string16* error) {
   // Platform apps always get isolated storage.
   if (extension->is_platform_app()) {
     extension->SetManifestData(keys::kIsolation,
-                               base::MakeUnique<AppIsolationInfo>(true));
+                               std::make_unique<AppIsolationInfo>(true));
     return true;
   }
 
@@ -62,21 +61,22 @@ bool AppIsolationHandler::Parse(Extension* extension, base::string16* error) {
   // or is a platform app (which we already handled).
   DCHECK(extension->manifest()->HasPath(keys::kIsolation));
 
-  const base::ListValue* isolation_list = NULL;
+  const base::Value* isolation_list = nullptr;
   if (!extension->manifest()->GetList(keys::kIsolation, &isolation_list)) {
     *error = base::ASCIIToUTF16(manifest_errors::kInvalidIsolation);
     return false;
   }
 
   bool has_isolated_storage = false;
-  for (size_t i = 0; i < isolation_list->GetSize(); ++i) {
-    std::string isolation_string;
-    if (!isolation_list->GetString(i, &isolation_string)) {
+  const base::Value::ListStorage& list_storage = isolation_list->GetList();
+  for (size_t i = 0; i < list_storage.size(); ++i) {
+    if (!list_storage[i].is_string()) {
       *error = ErrorUtils::FormatErrorMessageUTF16(
-          manifest_errors::kInvalidIsolationValue, base::SizeTToString(i));
+          manifest_errors::kInvalidIsolationValue, base::NumberToString(i));
       return false;
     }
 
+    const std::string& isolation_string = list_storage[i].GetString();
     // Check for isolated storage.
     if (isolation_string == manifest_values::kIsolatedStorage) {
       has_isolated_storage = true;
@@ -87,7 +87,7 @@ bool AppIsolationHandler::Parse(Extension* extension, base::string16* error) {
 
   if (has_isolated_storage)
     extension->SetManifestData(keys::kIsolation,
-                               base::MakeUnique<AppIsolationInfo>(true));
+                               std::make_unique<AppIsolationInfo>(true));
 
   return true;
 }
@@ -96,8 +96,13 @@ bool AppIsolationHandler::AlwaysParseForType(Manifest::Type type) const {
   return type == Manifest::TYPE_PLATFORM_APP;
 }
 
-const std::vector<std::string> AppIsolationHandler::Keys() const {
-  return SingleKey(keys::kIsolation);
+base::span<const char* const> AppIsolationHandler::Keys() const {
+  static constexpr const char* kKeys[] = {keys::kIsolation};
+#if !defined(__GNUC__) || __GNUC__ > 5
+  return kKeys;
+#else
+  return base::make_span(kKeys, 1);
+#endif
 }
 
 }  // namespace extensions

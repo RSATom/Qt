@@ -176,9 +176,9 @@ class Worker : public Listener, public Sender {
   }
 
   virtual SyncChannel* CreateChannel() {
-    std::unique_ptr<SyncChannel> channel =
-        SyncChannel::Create(TakeChannelHandle(), mode_, this,
-                            ipc_thread_.task_runner(), true, &shutdown_event_);
+    std::unique_ptr<SyncChannel> channel = SyncChannel::Create(
+        TakeChannelHandle(), mode_, this, ipc_thread_.task_runner(),
+        base::ThreadTaskRunnerHandle::Get(), true, &shutdown_event_);
     return channel.release();
   }
 
@@ -366,8 +366,9 @@ class TwoStepServer : public Worker {
   SyncChannel* CreateChannel() override {
     SyncChannel* channel =
         SyncChannel::Create(TakeChannelHandle(), mode(), this,
-                            ipc_thread().task_runner(), create_pipe_now_,
-                            shutdown_event())
+                            ipc_thread().task_runner(),
+                            base::ThreadTaskRunnerHandle::Get(),
+                            create_pipe_now_, shutdown_event())
             .release();
     return channel;
   }
@@ -392,8 +393,9 @@ class TwoStepClient : public Worker {
   SyncChannel* CreateChannel() override {
     SyncChannel* channel =
         SyncChannel::Create(TakeChannelHandle(), mode(), this,
-                            ipc_thread().task_runner(), create_pipe_now_,
-                            shutdown_event())
+                            ipc_thread().task_runner(),
+                            base::ThreadTaskRunnerHandle::Get(),
+                            create_pipe_now_, shutdown_event())
             .release();
     return channel;
   }
@@ -943,60 +945,6 @@ TEST_F(IPCSyncChannelTest, QueuedReply) {
 
 //------------------------------------------------------------------------------
 
-class ChattyClient : public Worker {
- public:
-  explicit ChattyClient(mojo::ScopedMessagePipeHandle channel_handle)
-      : Worker(Channel::MODE_CLIENT,
-               "chatty_client",
-               std::move(channel_handle)) {}
-
-  void OnAnswer(int* answer) override {
-    // The PostMessage limit is 10k.  Send 20% more than that.
-    const int kMessageLimit = 10000;
-    const int kMessagesToSend = kMessageLimit * 120 / 100;
-    for (int i = 0; i < kMessagesToSend; ++i) {
-      if (!SendDouble(false, true))
-        break;
-    }
-    *answer = 42;
-    Done();
-  }
-};
-
-void ChattyServer(bool pump_during_send) {
-  std::vector<Worker*> workers;
-  mojo::MessagePipe pipe;
-  workers.push_back(
-      new UnblockServer(pump_during_send, false, std::move(pipe.handle0)));
-  workers.push_back(new ChattyClient(std::move(pipe.handle1)));
-  RunTest(workers);
-}
-
-#if defined(OS_ANDROID)
-// Times out.
-#define MAYBE_ChattyServer DISABLED_ChattyServer
-#else
-#define MAYBE_ChattyServer ChattyServer
-#endif
-// Tests http://b/1093251 - that sending lots of sync messages while
-// the receiver is waiting for a sync reply does not overflow the PostMessage
-// queue.
-TEST_F(IPCSyncChannelTest, MAYBE_ChattyServer) {
-  ChattyServer(false);
-}
-
-#if defined(OS_ANDROID)
-// Times out.
-#define MAYBE_ChattyServerPumpDuringSend DISABLED_ChattyServerPumpDuringSend
-#else
-#define MAYBE_ChattyServerPumpDuringSend ChattyServerPumpDuringSend
-#endif
-TEST_F(IPCSyncChannelTest, MAYBE_ChattyServerPumpDuringSend) {
-  ChattyServer(true);
-}
-
-//------------------------------------------------------------------------------
-
 void NestedCallback(Worker* server) {
   // Sleep a bit so that we wake up after the reply has been received.
   base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(250));
@@ -1077,7 +1025,7 @@ class TestSyncMessageFilter : public SyncMessageFilter {
   }
 
  private:
-  ~TestSyncMessageFilter() override {}
+  ~TestSyncMessageFilter() override = default;
 
   Worker* worker_;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
@@ -1280,7 +1228,8 @@ class RestrictedDispatchClient : public Worker {
 
     non_restricted_channel_ = SyncChannel::Create(
         non_restricted_channel_handle_.release(), IPC::Channel::MODE_CLIENT,
-        this, ipc_thread().task_runner(), true, shutdown_event());
+        this, ipc_thread().task_runner(), base::ThreadTaskRunnerHandle::Get(),
+        true, shutdown_event());
 
     server_->ListenerThread()->task_runner()->PostTask(
         FROM_HERE, base::Bind(&RestrictedDispatchServer::OnDoPing,
@@ -1686,7 +1635,8 @@ class RestrictedDispatchPipeWorker : public Worker {
     event2_->Wait();
     other_channel_ = SyncChannel::Create(
         other_channel_handle_.release(), IPC::Channel::MODE_CLIENT, this,
-        ipc_thread().task_runner(), true, shutdown_event());
+        ipc_thread().task_runner(), base::ThreadTaskRunnerHandle::Get(), true,
+        shutdown_event());
     other_channel_->SetRestrictDispatchChannelGroup(group_);
     if (!is_first()) {
       event1_->Signal();
@@ -1780,7 +1730,8 @@ class ReentrantReplyServer1 : public Worker {
   void Run() override {
     server2_channel_ = SyncChannel::Create(
         other_channel_handle_.release(), IPC::Channel::MODE_CLIENT, this,
-        ipc_thread().task_runner(), true, shutdown_event());
+        ipc_thread().task_runner(), base::ThreadTaskRunnerHandle::Get(), true,
+        shutdown_event());
     server_ready_->Signal();
     Message* msg = new SyncChannelTestMsg_Reentrant1();
     server2_channel_->Send(msg);

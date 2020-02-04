@@ -18,6 +18,7 @@ from grit import grd_reader
 from grit import util
 from grit.node import base
 from grit.node import empty
+from grit.node import message
 
 
 class GrdReaderUnittest(unittest.TestCase):
@@ -210,14 +211,13 @@ class GrdReaderUnittest(unittest.TestCase):
     hello = root.GetNodeById('IDS_HELLO')
     self.failUnless(hello.GetCliques()[0].GetId() == 'IDS_HELLO')
 
-  def testPartInclusion(self):
+  def testPartInclusionAndCorrectSource(self):
     arbitrary_path_grd = u'''\
         <grit-part>
           <message name="IDS_TEST5" desc="test5">test5</message>
         </grit-part>'''
-    arbitrary_path_grd_file = os.path.join(
-      util.TempDir({'arbitrary_path.grp': arbitrary_path_grd}).GetPath(),
-      'arbitrary_path.grp')
+    tmp_dir = util.TempDir({'arbitrary_path.grp': arbitrary_path_grd})
+    arbitrary_path_grd_file = tmp_dir.GetPath('arbitrary_path.grp')
     top_grd = u'''\
         <grit latest_public_release="2" current_release="3">
           <release seq="3">
@@ -268,10 +268,25 @@ class GrdReaderUnittest(unittest.TestCase):
             </messages>
           </release>
         </grit>''' % arbitrary_path_grd_file
+
     with util.TempDir({'sub.grp': sub_grd,
-                       'subsub.grp': subsub_grd}) as temp_dir:
-      output = grd_reader.Parse(StringIO.StringIO(top_grd), temp_dir.GetPath())
+                       'subsub.grp': subsub_grd}) as tmp_sub_dir:
+      output = grd_reader.Parse(StringIO.StringIO(top_grd),
+                                tmp_sub_dir.GetPath())
+      correct_sources = {
+        'IDS_TEST': None,
+        'IDS_TEST2': tmp_sub_dir.GetPath('sub.grp'),
+        'IDS_TEST3': tmp_sub_dir.GetPath('sub.grp'),
+        'IDS_TEST4': tmp_sub_dir.GetPath('subsub.grp'),
+        'IDS_TEST5': arbitrary_path_grd_file,
+      }
+
+    for node in output.ActiveDescendants():
+      with node:
+        if isinstance(node, message.MessageNode):
+          self.assertEqual(correct_sources[node.attrs.get('name')], node.source)
     self.assertEqual(expected_output.split(), output.FormatXml().split())
+    tmp_dir.CleanUp()
 
   def testPartInclusionFailure(self):
     template = u'''

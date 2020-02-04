@@ -14,6 +14,7 @@
 #include <utility>
 
 #include "util/logging.h"
+#include "util/pod_array.h"
 #include "util/utf.h"
 #include "re2/prog.h"
 #include "re2/re2.h"
@@ -136,8 +137,7 @@ class Compiler : public Regexp::Walker<Frag> {
 
   // Compiles alternation of all the re to a new Prog.
   // Each re has a match with an id equal to its index in the vector.
-  static Prog* CompileSet(const RE2::Options& options, RE2::Anchor anchor,
-                          Regexp* re);
+  static Prog* CompileSet(Regexp* re, RE2::Anchor anchor, int64_t max_mem);
 
   // Interface for Regexp::Walker, which helps traverse the Regexp.
   // The walk is purely post-recursive: given the machines for the
@@ -237,11 +237,9 @@ class Compiler : public Regexp::Walker<Frag> {
   Encoding encoding_;  // Input encoding
   bool reversed_;      // Should program run backward over text?
 
-  int max_inst_;       // Maximum number of instructions.
-
-  Prog::Inst* inst_;   // Pointer to first instruction.
-  int inst_len_;       // Number of instructions used.
-  int inst_cap_;       // Number of instructions allocated.
+  PODArray<Prog::Inst> inst_;
+  int ninst_;          // Number of instructions used.
+  int max_ninst_;      // Maximum number of instructions.
 
   int64_t max_mem_;    // Total memory budget.
 
@@ -259,40 +257,38 @@ Compiler::Compiler() {
   failed_ = false;
   encoding_ = kEncodingUTF8;
   reversed_ = false;
-  inst_ = NULL;
-  inst_len_ = 0;
-  inst_cap_ = 0;
-  max_inst_ = 1;  // make AllocInst for fail instruction okay
+  ninst_ = 0;
+  max_ninst_ = 1;  // make AllocInst for fail instruction okay
   max_mem_ = 0;
   int fail = AllocInst(1);
   inst_[fail].InitFail();
-  max_inst_ = 0;  // Caller must change
+  max_ninst_ = 0;  // Caller must change
 }
 
 Compiler::~Compiler() {
   delete prog_;
-  delete[] inst_;
 }
 
 int Compiler::AllocInst(int n) {
-  if (failed_ || inst_len_ + n > max_inst_) {
+  if (failed_ || ninst_ + n > max_ninst_) {
     failed_ = true;
     return -1;
   }
 
-  if (inst_len_ + n > inst_cap_) {
-    if (inst_cap_ == 0)
-      inst_cap_ = 8;
-    while (inst_len_ + n > inst_cap_)
-      inst_cap_ *= 2;
-    Prog::Inst* ip = new Prog::Inst[inst_cap_];
-    memmove(ip, inst_, inst_len_ * sizeof ip[0]);
-    memset(ip + inst_len_, 0, (inst_cap_ - inst_len_) * sizeof ip[0]);
-    delete[] inst_;
-    inst_ = ip;
+  if (ninst_ + n > inst_.size()) {
+    int cap = inst_.size();
+    if (cap == 0)
+      cap = 8;
+    while (ninst_ + n > cap)
+      cap *= 2;
+    PODArray<Prog::Inst> inst(cap);
+    if (inst_.data() != NULL)
+      memmove(inst.data(), inst_.data(), ninst_*sizeof inst_[0]);
+    memset(inst.data() + ninst_, 0, (cap - ninst_)*sizeof inst_[0]);
+    inst_ = std::move(inst);
   }
-  int id = inst_len_;
-  inst_len_ += n;
+  int id = ninst_;
+  ninst_ += n;
   return id;
 }
 
@@ -320,17 +316,18 @@ Frag Compiler::Cat(Frag a, Frag b) {
   if (begin->opcode() == kInstNop &&
       a.end.p == (a.begin << 1) &&
       begin->out() == 0) {
-    PatchList::Patch(inst_, a.end, b.begin);  // in case refs to a somewhere
+    // in case refs to a somewhere
+    PatchList::Patch(inst_.data(), a.end, b.begin);
     return b;
   }
 
   // To run backward over string, reverse all concatenations.
   if (reversed_) {
-    PatchList::Patch(inst_, b.end, a.begin);
+    PatchList::Patch(inst_.data(), b.end, a.begin);
     return Frag(b.begin, a.end);
   }
 
-  PatchList::Patch(inst_, a.end, b.begin);
+  PatchList::Patch(inst_.data(), a.end, b.begin);
   return Frag(a.begin, b.end);
 }
 
@@ -347,7 +344,7 @@ Frag Compiler::Alt(Frag a, Frag b) {
     return NoMatch();
 
   inst_[id].InitAlt(a.begin, b.begin);
-  return Frag(id, PatchList::Append(inst_, a.end, b.end));
+  return Frag(id, PatchList::Append(inst_.data(), a.end, b.end));
 }
 
 // When capturing submatches in like-Perl mode, a kOpAlt Inst
@@ -363,7 +360,7 @@ Frag Compiler::Star(Frag a, bool nongreedy) {
   if (id < 0)
     return NoMatch();
   inst_[id].InitAlt(0, 0);
-  PatchList::Patch(inst_, a.end, id);
+  PatchList::Patch(inst_.data(), a.end, id);
   if (nongreedy) {
     inst_[id].out1_ = a.begin;
     return Frag(id, PatchList::Mk(id << 1));
@@ -395,7 +392,7 @@ Frag Compiler::Quest(Frag a, bool nongreedy) {
     inst_[id].InitAlt(a.begin, 0);
     pl = PatchList::Mk((id << 1) | 1);
   }
-  return Frag(id, PatchList::Append(inst_, pl, a.end));
+  return Frag(id, PatchList::Append(inst_.data(), pl, a.end));
 }
 
 // Returns a fragment for the byte range lo-hi.
@@ -443,7 +440,7 @@ Frag Compiler::Capture(Frag a, int n) {
     return NoMatch();
   inst_[id].InitCapture(2*n, a.begin);
   inst_[id+1].InitCapture(2*n+1, 0);
-  PatchList::Patch(inst_, a.end, id+1);
+  PatchList::Patch(inst_.data(), a.end, id+1);
 
   return Frag(id, PatchList::Mk((id+1) << 1));
 }
@@ -477,9 +474,9 @@ int Compiler::UncachedRuneByteSuffix(uint8_t lo, uint8_t hi, bool foldcase,
                                      int next) {
   Frag f = ByteRange(lo, hi, foldcase);
   if (next != 0) {
-    PatchList::Patch(inst_, f.end, next);
+    PatchList::Patch(inst_.data(), f.end, next);
   } else {
-    rune_range_.end = PatchList::Append(inst_, rune_range_.end, f.end);
+    rune_range_.end = PatchList::Append(inst_.data(), rune_range_.end, f.end);
   }
   return f.begin;
 }
@@ -581,10 +578,10 @@ int Compiler::AddSuffixRecursive(int root, int id) {
   if (!IsCachedRuneByteSuffix(id)) {
     // The head should be the instruction most recently allocated, so free it
     // instead of leaving it unreachable.
-    DCHECK_EQ(id, inst_len_-1);
+    DCHECK_EQ(id, ninst_-1);
     inst_[id].out_opcode_ = 0;
     inst_[id].out1_ = 0;
-    inst_len_--;
+    ninst_--;
   }
 
   out = AddSuffixRecursive(inst_[br].out(), out);
@@ -877,9 +874,11 @@ Frag Compiler::PostVisit(Regexp* re, Frag, Frag, Frag* child_frags,
 
     case kRegexpHaveMatch: {
       Frag f = Match(re->match_id());
-      // Remember unanchored match to end of string.
-      if (anchor_ != RE2::ANCHOR_BOTH)
-        f = Cat(DotStar(), Cat(EmptyWidth(kEmptyEndText), f));
+      if (anchor_ == RE2::ANCHOR_BOTH) {
+        // Append \z or else the subexpression will effectively be unanchored.
+        // Complemented by the UNANCHORED case in CompileSet().
+        f = Cat(EmptyWidth(kEmptyEndText), f);
+      }
       return f;
     }
 
@@ -1019,12 +1018,11 @@ static bool IsAnchorStart(Regexp** pre, int depth) {
       if (re->nsub() > 0) {
         sub = re->sub()[0]->Incref();
         if (IsAnchorStart(&sub, depth+1)) {
-          Regexp** subcopy = new Regexp*[re->nsub()];
+          PODArray<Regexp*> subcopy(re->nsub());
           subcopy[0] = sub;  // already have reference
           for (int i = 1; i < re->nsub(); i++)
             subcopy[i] = re->sub()[i]->Incref();
-          *pre = Regexp::Concat(subcopy, re->nsub(), re->parse_flags());
-          delete[] subcopy;
+          *pre = Regexp::Concat(subcopy.data(), re->nsub(), re->parse_flags());
           re->Decref();
           return true;
         }
@@ -1067,12 +1065,11 @@ static bool IsAnchorEnd(Regexp** pre, int depth) {
       if (re->nsub() > 0) {
         sub = re->sub()[re->nsub() - 1]->Incref();
         if (IsAnchorEnd(&sub, depth+1)) {
-          Regexp** subcopy = new Regexp*[re->nsub()];
+          PODArray<Regexp*> subcopy(re->nsub());
           subcopy[re->nsub() - 1] = sub;  // already have reference
           for (int i = 0; i < re->nsub() - 1; i++)
             subcopy[i] = re->sub()[i]->Incref();
-          *pre = Regexp::Concat(subcopy, re->nsub(), re->parse_flags());
-          delete[] subcopy;
+          *pre = Regexp::Concat(subcopy.data(), re->nsub(), re->parse_flags());
           re->Decref();
           return true;
         }
@@ -1104,15 +1101,15 @@ void Compiler::Setup(Regexp::ParseFlags flags, int64_t max_mem,
     encoding_ = kEncodingLatin1;
   max_mem_ = max_mem;
   if (max_mem <= 0) {
-    max_inst_ = 100000;  // more than enough
+    max_ninst_ = 100000;  // more than enough
   } else if (static_cast<size_t>(max_mem) <= sizeof(Prog)) {
     // No room for anything.
-    max_inst_ = 0;
+    max_ninst_ = 0;
   } else {
     int64_t m = (max_mem - sizeof(Prog)) / sizeof(Prog::Inst);
     // Limit instruction count so that inst->id() fits nicely in an int.
     // SparseArray also assumes that the indices (inst->id()) are ints.
-    // The call to WalkExponential uses 2*max_inst_ below,
+    // The call to WalkExponential uses 2*max_ninst_ below,
     // and other places in the code use 2 or 3 * prog->size().
     // Limiting to 2^24 should avoid overflow in those places.
     // (The point of allowing more than 32 bits of memory is to
@@ -1125,7 +1122,7 @@ void Compiler::Setup(Regexp::ParseFlags flags, int64_t max_mem,
     if (m > Prog::Inst::kMaxInst)
       m = Prog::Inst::kMaxInst;
 
-    max_inst_ = static_cast<int>(m);
+    max_ninst_ = static_cast<int>(m);
   }
 
   anchor_ = anchor;
@@ -1138,8 +1135,7 @@ void Compiler::Setup(Regexp::ParseFlags flags, int64_t max_mem,
 // The reversed flag is also recorded in the returned program.
 Prog* Compiler::Compile(Regexp* re, bool reversed, int64_t max_mem) {
   Compiler c;
-
-  c.Setup(re->parse_flags(), max_mem, RE2::ANCHOR_BOTH /* unused */);
+  c.Setup(re->parse_flags(), max_mem, RE2::UNANCHORED /* unused */);
   c.reversed_ = reversed;
 
   // Simplify to remove things like counted repetitions
@@ -1154,7 +1150,7 @@ Prog* Compiler::Compile(Regexp* re, bool reversed, int64_t max_mem) {
   bool is_anchor_end = IsAnchorEnd(&sre, 0);
 
   // Generate fragment for entire regexp.
-  Frag f = c.WalkExponential(sre, Frag(), 2*c.max_inst_);
+  Frag all = c.WalkExponential(sre, Frag(), 2*c.max_ninst_);
   sre->Decref();
   if (c.failed_)
     return NULL;
@@ -1163,10 +1159,10 @@ Prog* Compiler::Compile(Regexp* re, bool reversed, int64_t max_mem) {
   // Turn off c.reversed_ (if it is set) to force the remaining concatenations
   // to behave normally.
   c.reversed_ = false;
-  Frag all = c.Cat(f, c.Match(0));
-  c.prog_->set_start(all.begin);
+  all = c.Cat(all, c.Match(0));
 
-  if (reversed) {
+  c.prog_->set_reversed(reversed);
+  if (c.prog_->reversed()) {
     c.prog_->set_anchor_start(is_anchor_end);
     c.prog_->set_anchor_end(is_anchor_start);
   } else {
@@ -1174,15 +1170,12 @@ Prog* Compiler::Compile(Regexp* re, bool reversed, int64_t max_mem) {
     c.prog_->set_anchor_end(is_anchor_end);
   }
 
-  // Also create unanchored version, which starts with a .*? loop.
-  if (c.prog_->anchor_start()) {
-    c.prog_->set_start_unanchored(c.prog_->start());
-  } else {
-    Frag unanchored = c.Cat(c.DotStar(), all);
-    c.prog_->set_start_unanchored(unanchored.begin);
+  c.prog_->set_start(all.begin);
+  if (!c.prog_->anchor_start()) {
+    // Also create unanchored version, which starts with a .*? loop.
+    all = c.Cat(c.DotStar(), all);
   }
-
-  c.prog_->set_reversed(reversed);
+  c.prog_->set_start_unanchored(all.begin);
 
   // Hand ownership of prog_ to caller.
   return c.Finish();
@@ -1194,13 +1187,12 @@ Prog* Compiler::Finish() {
 
   if (prog_->start() == 0 && prog_->start_unanchored() == 0) {
     // No possible matches; keep Fail instruction only.
-    inst_len_ = 1;
+    ninst_ = 1;
   }
 
   // Hand off the array to Prog.
-  prog_->inst_ = inst_;
-  prog_->size_ = inst_len_;
-  inst_ = NULL;
+  prog_->inst_ = std::move(inst_);
+  prog_->size_ = ninst_;
 
   prog_->Optimize();
   prog_->Flatten();
@@ -1235,29 +1227,29 @@ Frag Compiler::DotStar() {
 }
 
 // Compiles RE set to Prog.
-Prog* Compiler::CompileSet(const RE2::Options& options, RE2::Anchor anchor,
-                           Regexp* re) {
+Prog* Compiler::CompileSet(Regexp* re, RE2::Anchor anchor, int64_t max_mem) {
   Compiler c;
+  c.Setup(re->parse_flags(), max_mem, anchor);
 
-  Regexp::ParseFlags pf = static_cast<Regexp::ParseFlags>(options.ParseFlags());
-  c.Setup(pf, options.max_mem(), anchor);
+  Regexp* sre = re->Simplify();
+  if (sre == NULL)
+    return NULL;
 
-  // Compile alternation of fragments.
-  Frag all = c.WalkExponential(re, Frag(), 2*c.max_inst_);
-  re->Decref();
+  Frag all = c.WalkExponential(sre, Frag(), 2*c.max_ninst_);
+  sre->Decref();
   if (c.failed_)
     return NULL;
 
-  if (anchor == RE2::UNANCHORED) {
-    // The trailing .* was added while handling kRegexpHaveMatch.
-    // We just have to add the leading one.
-    all = c.Cat(c.DotStar(), all);
-  }
-
-  c.prog_->set_start(all.begin);
-  c.prog_->set_start_unanchored(all.begin);
   c.prog_->set_anchor_start(true);
   c.prog_->set_anchor_end(true);
+
+  if (anchor == RE2::UNANCHORED) {
+    // Prepend .* or else the expression will effectively be anchored.
+    // Complemented by the ANCHOR_BOTH case in PostVisit().
+    all = c.Cat(c.DotStar(), all);
+  }
+  c.prog_->set_start(all.begin);
+  c.prog_->set_start_unanchored(all.begin);
 
   Prog* prog = c.Finish();
   if (prog == NULL)
@@ -1277,9 +1269,8 @@ Prog* Compiler::CompileSet(const RE2::Options& options, RE2::Anchor anchor,
   return prog;
 }
 
-Prog* Prog::CompileSet(const RE2::Options& options, RE2::Anchor anchor,
-                       Regexp* re) {
-  return Compiler::CompileSet(options, anchor, re);
+Prog* Prog::CompileSet(Regexp* re, RE2::Anchor anchor, int64_t max_mem) {
+  return Compiler::CompileSet(re, anchor, max_mem);
 }
 
 }  // namespace re2

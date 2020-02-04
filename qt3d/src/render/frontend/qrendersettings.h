@@ -51,7 +51,7 @@ namespace Qt3DRender {
 class QFrameGraphNode;
 class QRenderSettingsPrivate;
 
-class QT3DRENDERSHARED_EXPORT QRenderSettings : public Qt3DCore::QComponent
+class Q_3DRENDERSHARED_EXPORT QRenderSettings : public Qt3DCore::QComponent
 {
     Q_OBJECT
 
@@ -91,7 +91,7 @@ private:
     Q_PRIVATE_SLOT(d_func(), void _q_onPickResultModeChanged(QPickingSettings::PickResultMode))
     Q_PRIVATE_SLOT(d_func(), void _q_onFaceOrientationPickingModeChanged(QPickingSettings::FaceOrientationPickingMode))
     Q_PRIVATE_SLOT(d_func(), void _q_onWorldSpaceToleranceChanged(float))
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3Drender

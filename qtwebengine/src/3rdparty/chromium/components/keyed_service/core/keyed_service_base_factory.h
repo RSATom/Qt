@@ -28,13 +28,10 @@ class PrefRegistrySyncable;
 //
 // This object describes general dependency management between factories while
 // direct subclasses react to lifecycle events and implement memory management.
-class KEYED_SERVICE_EXPORT KeyedServiceBaseFactory
-    : NON_EXPORTED_BASE(public DependencyNode) {
+class KEYED_SERVICE_EXPORT KeyedServiceBaseFactory : public DependencyNode {
  public:
-#ifndef NDEBUG
-  // Returns our name. We don't keep track of this in release mode.
+  // Returns our name.
   const char* name() const { return service_name_; }
-#endif
 
  protected:
   KeyedServiceBaseFactory(const char* service_name, DependencyManager* manager);
@@ -136,12 +133,9 @@ class KEYED_SERVICE_EXPORT KeyedServiceBaseFactory
   // Contexts that have this service's preferences registered on them.
   std::set<base::SupportsUserData*> registered_preferences_;
 
-#if !defined(NDEBUG)
   // A static string passed in to the constructor. Should be unique across all
-  // services. This is used only for debugging in debug mode. (Used to print
-  // pretty graphs with GraphViz.)
+  // services.
   const char* service_name_;
-#endif
 };
 
 #endif  // COMPONENTS_KEYED_SERVICE_CORE_KEYED_SERVICE_BASE_FACTORY_H_

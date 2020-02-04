@@ -11,12 +11,14 @@
 
 #include "base/bind.h"
 #include "base/location.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/default_clock.h"
 #include "base/values.h"
+#include "components/favicon/core/favicon_server_fetcher_params.h"
 #include "components/favicon/core/large_icon_service.h"
 #include "components/favicon_base/fallback_icon_style.h"
 #include "components/favicon_base/favicon_types.h"
@@ -53,30 +55,34 @@ void RecordFaviconFetchResult(FaviconFetchResult result) {
 
 ContentSuggestionsService::ContentSuggestionsService(
     State state,
-    SigninManagerBase* signin_manager,
+    identity::IdentityManager* identity_manager,
     history::HistoryService* history_service,
     favicon::LargeIconService* large_icon_service,
     PrefService* pref_service,
     std::unique_ptr<CategoryRanker> category_ranker,
     std::unique_ptr<UserClassifier> user_classifier,
-    std::unique_ptr<RemoteSuggestionsScheduler> remote_suggestions_scheduler)
+    std::unique_ptr<RemoteSuggestionsScheduler> remote_suggestions_scheduler,
+    std::unique_ptr<Logger> debug_logger)
     : state_(state),
-      signin_observer_(this),
+      identity_manager_observer_(this),
       history_service_observer_(this),
       remote_suggestions_provider_(nullptr),
       large_icon_service_(large_icon_service),
       pref_service_(pref_service),
       remote_suggestions_scheduler_(std::move(remote_suggestions_scheduler)),
       user_classifier_(std::move(user_classifier)),
-      category_ranker_(std::move(category_ranker)) {
+      category_ranker_(std::move(category_ranker)),
+      debug_logger_(std::move(debug_logger)) {
   // Can be null in tests.
-  if (signin_manager) {
-    signin_observer_.Add(signin_manager);
+  if (identity_manager) {
+    identity_manager_observer_.Add(identity_manager);
   }
 
   if (history_service) {
     history_service_observer_.Add(history_service);
   }
+
+  debug_logger_->Log(FROM_HERE, /*message=*/std::string());
 
   RestoreDismissedCategoriesFromPrefs();
 }
@@ -145,16 +151,30 @@ ContentSuggestionsService::GetSuggestionsForCategory(Category category) const {
 
 void ContentSuggestionsService::FetchSuggestionImage(
     const ContentSuggestion::ID& suggestion_id,
-    const ImageFetchedCallback& callback) {
+    ImageFetchedCallback callback) {
   if (!providers_by_category_.count(suggestion_id.category())) {
     LOG(WARNING) << "Requested image for suggestion " << suggestion_id
                  << " for unavailable category " << suggestion_id.category();
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(callback, gfx::Image()));
+        FROM_HERE, base::BindOnce(std::move(callback), gfx::Image()));
     return;
   }
   providers_by_category_[suggestion_id.category()]->FetchSuggestionImage(
-      suggestion_id, callback);
+      suggestion_id, std::move(callback));
+}
+
+void ContentSuggestionsService::FetchSuggestionImageData(
+    const ContentSuggestion::ID& suggestion_id,
+    ImageDataFetchedCallback callback) {
+  if (!providers_by_category_.count(suggestion_id.category())) {
+    LOG(WARNING) << "Requested image for suggestion " << suggestion_id
+                 << " for unavailable category " << suggestion_id.category();
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(callback), std::string()));
+    return;
+  }
+  providers_by_category_[suggestion_id.category()]->FetchSuggestionImageData(
+      suggestion_id, std::move(callback));
 }
 
 // TODO(jkrcal): Split the favicon fetching into a separate class.
@@ -162,17 +182,17 @@ void ContentSuggestionsService::FetchSuggestionFavicon(
     const ContentSuggestion::ID& suggestion_id,
     int minimum_size_in_pixel,
     int desired_size_in_pixel,
-    const ImageFetchedCallback& callback) {
+    ImageFetchedCallback callback) {
   const GURL& domain_with_favicon = GetFaviconDomain(suggestion_id);
   if (!domain_with_favicon.is_valid() || !large_icon_service_) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(callback, gfx::Image()));
+        FROM_HERE, base::BindOnce(std::move(callback), gfx::Image()));
     RecordFaviconFetchResult(FaviconFetchResult::FAILURE);
     return;
   }
 
   GetFaviconFromCache(domain_with_favicon, minimum_size_in_pixel,
-                      desired_size_in_pixel, callback,
+                      desired_size_in_pixel, std::move(callback),
                       /*continue_to_google_server=*/true);
 }
 
@@ -203,7 +223,7 @@ void ContentSuggestionsService::GetFaviconFromCache(
     const GURL& publisher_url,
     int minimum_size_in_pixel,
     int desired_size_in_pixel,
-    const ImageFetchedCallback& callback,
+    ImageFetchedCallback callback,
     bool continue_to_google_server) {
   // TODO(jkrcal): Create a general wrapper function in LargeIconService that
   // does handle the get-from-cache-and-fallback-to-google-server functionality
@@ -211,11 +231,12 @@ void ContentSuggestionsService::GetFaviconFromCache(
 
   // Use desired_size = 0 for getting the icon from the cache (so that the icon
   // is not poorly rescaled by LargeIconService).
-  large_icon_service_->GetLargeIconImageOrFallbackStyle(
+  large_icon_service_->GetLargeIconImageOrFallbackStyleForPageUrl(
       publisher_url, minimum_size_in_pixel, /*desired_size_in_pixel=*/0,
       base::Bind(&ContentSuggestionsService::OnGetFaviconFromCacheFinished,
                  base::Unretained(this), publisher_url, minimum_size_in_pixel,
-                 desired_size_in_pixel, callback, continue_to_google_server),
+                 desired_size_in_pixel, base::Passed(std::move(callback)),
+                 continue_to_google_server),
       &favicons_task_tracker_);
 }
 
@@ -223,11 +244,11 @@ void ContentSuggestionsService::OnGetFaviconFromCacheFinished(
     const GURL& publisher_url,
     int minimum_size_in_pixel,
     int desired_size_in_pixel,
-    const ImageFetchedCallback& callback,
+    ImageFetchedCallback callback,
     bool continue_to_google_server,
     const favicon_base::LargeIconImageResult& result) {
   if (!result.image.IsEmpty()) {
-    callback.Run(result.image);
+    std::move(callback).Run(result.image);
     // The icon is from cache if we haven't gone to Google server yet. The icon
     // is freshly fetched, otherwise.
     RecordFaviconFetchResult(continue_to_google_server
@@ -245,7 +266,7 @@ void ContentSuggestionsService::OnGetFaviconFromCacheFinished(
     // We cannot download from the server if there is some small icon in the
     // cache (resulting in non-default background color) or if we already did
     // so.
-    callback.Run(gfx::Image());
+    std::move(callback).Run(gfx::Image());
     RecordFaviconFetchResult(FaviconFetchResult::FAILURE);
     return;
   }
@@ -269,34 +290,35 @@ void ContentSuggestionsService::OnGetFaviconFromCacheFinished(
           destination: GOOGLE_OWNED_SERVICE
         }
         policy {
-          cookies_allowed: false
+          cookies_allowed: NO
           setting: "This feature cannot be disabled by settings."
           policy_exception_justification: "Not implemented."
         })");
   large_icon_service_
       ->GetLargeIconOrFallbackStyleFromGoogleServerSkippingLocalCache(
-          publisher_url, minimum_size_in_pixel, desired_size_in_pixel,
+          favicon::FaviconServerFetcherParams::CreateForMobile(
+              publisher_url, minimum_size_in_pixel, desired_size_in_pixel),
           /*may_page_url_be_private=*/false, traffic_annotation,
           base::Bind(
               &ContentSuggestionsService::OnGetFaviconFromGoogleServerFinished,
               base::Unretained(this), publisher_url, minimum_size_in_pixel,
-              desired_size_in_pixel, callback));
+              desired_size_in_pixel, base::Passed(std::move(callback))));
 }
 
 void ContentSuggestionsService::OnGetFaviconFromGoogleServerFinished(
     const GURL& publisher_url,
     int minimum_size_in_pixel,
     int desired_size_in_pixel,
-    const ImageFetchedCallback& callback,
+    ImageFetchedCallback callback,
     favicon_base::GoogleFaviconServerRequestStatus status) {
   if (status != favicon_base::GoogleFaviconServerRequestStatus::SUCCESS) {
-    callback.Run(gfx::Image());
+    std::move(callback).Run(gfx::Image());
     RecordFaviconFetchResult(FaviconFetchResult::FAILURE);
     return;
   }
 
   GetFaviconFromCache(publisher_url, minimum_size_in_pixel,
-                      desired_size_in_pixel, callback,
+                      desired_size_in_pixel, std::move(callback),
                       /*continue_to_google_server=*/false);
 }
 
@@ -317,31 +339,23 @@ void ContentSuggestionsService::ClearHistory(
 
 void ContentSuggestionsService::ClearAllCachedSuggestions() {
   suggestions_by_category_.clear();
-  for (const auto& category_provider_pair : providers_by_category_) {
-    category_provider_pair.second->ClearCachedSuggestions(
-        category_provider_pair.first);
-    for (Observer& observer : observers_) {
-      observer.OnNewSuggestions(category_provider_pair.first);
-    }
+  for (const auto& provider : providers_) {
+    provider->ClearCachedSuggestions();
   }
-}
-
-void ContentSuggestionsService::ClearCachedSuggestions(Category category) {
-  suggestions_by_category_[category].clear();
-  auto iterator = providers_by_category_.find(category);
-  if (iterator != providers_by_category_.end()) {
-    iterator->second->ClearCachedSuggestions(category);
+  for (Observer& observer : observers_) {
+    observer.OnFullRefreshRequired();
   }
 }
 
 void ContentSuggestionsService::GetDismissedSuggestionsForDebugging(
     Category category,
-    const DismissedSuggestionsCallback& callback) {
+    DismissedSuggestionsCallback callback) {
   auto iterator = providers_by_category_.find(category);
   if (iterator != providers_by_category_.end()) {
-    iterator->second->GetDismissedSuggestionsForDebugging(category, callback);
+    iterator->second->GetDismissedSuggestionsForDebugging(category,
+                                                          std::move(callback));
   } else {
-    callback.Run(std::vector<ContentSuggestion>());
+    std::move(callback).Run(std::vector<ContentSuggestion>());
   }
 }
 
@@ -417,7 +431,7 @@ void ContentSuggestionsService::RegisterProvider(
 void ContentSuggestionsService::Fetch(
     const Category& category,
     const std::set<std::string>& known_suggestion_ids,
-    const FetchDoneCallback& callback) {
+    FetchDoneCallback callback) {
   auto providers_it = providers_by_category_.find(category);
   if (providers_it == providers_by_category_.end()) {
     return;
@@ -425,7 +439,8 @@ void ContentSuggestionsService::Fetch(
 
   metrics::RecordFetchAction();
 
-  providers_it->second->Fetch(category, known_suggestion_ids, callback);
+  providers_it->second->Fetch(category, known_suggestion_ids,
+                              std::move(callback));
 }
 
 void ContentSuggestionsService::ReloadSuggestions() {
@@ -434,29 +449,9 @@ void ContentSuggestionsService::ReloadSuggestions() {
   }
 }
 
-void ContentSuggestionsService::SetRemoteSuggestionsEnabled(bool enabled) {
-  // TODO(dgn): Rewire if we decide to implement a dedicated prefs page. If not
-  // remove by M62.
-  NOTREACHED();
-}
-
 bool ContentSuggestionsService::AreRemoteSuggestionsEnabled() const {
   return remote_suggestions_provider_ &&
          !remote_suggestions_provider_->IsDisabled();
-}
-
-bool ContentSuggestionsService::AreRemoteSuggestionsManaged() const {
-  // TODO(dgn): Rewire if we decide to implement a dedicated prefs page. If not
-  // remove by M62.
-  NOTREACHED();
-  return false;
-}
-
-bool ContentSuggestionsService::AreRemoteSuggestionsManagedByCustodian() const {
-  // TODO(dgn): Rewire if we decide to implement a dedicated prefs page. If not
-  // remove by M62.
-  NOTREACHED();
-  return false;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -525,32 +520,27 @@ void ContentSuggestionsService::OnSuggestionInvalidated(
     observer.OnSuggestionInvalidated(suggestion_id);
   }
 }
-
-// SigninManagerBase::Observer implementation
-void ContentSuggestionsService::GoogleSigninSucceeded(
-    const std::string& account_id,
-    const std::string& username) {
-  OnSignInStateChanged();
+// identity::IdentityManager::Observer implementation
+void ContentSuggestionsService::OnPrimaryAccountSet(
+    const AccountInfo& account_info) {
+  OnSignInStateChanged(/*has_signed_in=*/true);
 }
 
-void ContentSuggestionsService::GoogleSignedOut(const std::string& account_id,
-                                                const std::string& username) {
-  OnSignInStateChanged();
+void ContentSuggestionsService::OnPrimaryAccountCleared(
+    const AccountInfo& account_info) {
+  OnSignInStateChanged(/*has_signed_in=*/false);
 }
 
 // history::HistoryServiceObserver implementation.
 void ContentSuggestionsService::OnURLsDeleted(
     history::HistoryService* history_service,
-    bool all_history,
-    bool expired,
-    const history::URLRows& deleted_rows,
-    const std::set<GURL>& favicon_urls) {
+    const history::DeletionInfo& deletion_info) {
   // We don't care about expired entries.
-  if (expired) {
+  if (deletion_info.is_from_expiration()) {
     return;
   }
 
-  if (all_history) {
+  if (deletion_info.IsAllHistory()) {
     base::Callback<bool(const GURL& url)> filter =
         base::Bind([](const GURL& url) { return true; });
     ClearHistory(base::Time(), base::Time::Max(), filter);
@@ -561,11 +551,11 @@ void ContentSuggestionsService::OnURLsDeleted(
     // basis. However this depends on the provider's details and thus cannot be
     // done here. Introduce a OnURLsDeleted() method on the providers to move
     // this decision further down.
-    if (deleted_rows.size() < 2) {
+    if (deletion_info.deleted_rows().size() < 2) {
       return;
     }
     std::set<GURL> deleted_urls;
-    for (const history::URLRow& row : deleted_rows) {
+    for (const history::URLRow& row : deletion_info.deleted_rows()) {
       deleted_urls.insert(row.url());
     }
     base::Callback<bool(const GURL& url)> filter =
@@ -663,10 +653,10 @@ void ContentSuggestionsService::NotifyCategoryStatusChanged(Category category) {
   }
 }
 
-void ContentSuggestionsService::OnSignInStateChanged() {
+void ContentSuggestionsService::OnSignInStateChanged(bool has_signed_in) {
   // First notify the providers, so they can make the required changes.
   for (const auto& provider : providers_) {
-    provider->OnSignInStateChanged();
+    provider->OnSignInStateChanged(has_signed_in);
   }
 
   // Finally notify the observers so they refresh only after the backend is
@@ -720,6 +710,39 @@ void ContentSuggestionsService::StoreDismissedCategoriesToPrefs() {
   }
 
   pref_service_->Set(prefs::kDismissedCategories, list);
+}
+
+void ContentSuggestionsService::DestroyCategoryAndItsProvider(
+    Category category) {
+  // Destroying articles category is more complex and not implemented.
+  DCHECK_NE(category, Category::FromKnownCategory(KnownCategories::ARTICLES));
+
+  if (providers_by_category_.count(category) != 1) {
+    return;
+  }
+
+  {  // Destroy the provider and delete its mentions.
+    ContentSuggestionsProvider* raw_provider = providers_by_category_[category];
+    base::EraseIf(
+        providers_,
+        [&raw_provider](
+            const std::unique_ptr<ContentSuggestionsProvider>& provider) {
+          return provider.get() == raw_provider;
+        });
+    providers_by_category_.erase(category);
+
+    if (dismissed_providers_by_category_.count(category) == 1) {
+      dismissed_providers_by_category_[category] = nullptr;
+    }
+  }
+
+  suggestions_by_category_.erase(category);
+
+  auto it = std::find(categories_.begin(), categories_.end(), category);
+  categories_.erase(it);
+
+  // Notify observers that the category is gone.
+  NotifyCategoryStatusChanged(category);
 }
 
 }  // namespace ntp_snippets

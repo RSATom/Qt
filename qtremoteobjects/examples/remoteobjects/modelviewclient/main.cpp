@@ -66,6 +66,7 @@ int main(int argc, char **argv)
 
 
     QRemoteObjectNode node(QUrl(QStringLiteral("local:registry")));
+    node.setHeartbeatInterval(1000);
     QTreeView view;
     view.setWindowTitle(QStringLiteral("RemoteView"));
     view.resize(640,480);

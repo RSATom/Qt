@@ -43,21 +43,13 @@
 #include "qeglfskmsgbmdevice.h"
 #include "qeglfskmsgbmscreen.h"
 #include "qeglfskmsgbmcursor.h"
-#include "private/qeglfswindow_p.h"
+#include "qeglfskmsgbmwindow.h"
 #include "private/qeglfscursor_p.h"
 
-#include <QtDeviceDiscoverySupport/private/qdevicediscovery_p.h>
-#include <QtEglSupport/private/qeglconvenience_p.h>
 #include <QtCore/QLoggingCategory>
-#include <QtCore/QJsonDocument>
-#include <QtCore/QJsonObject>
-#include <QtCore/QJsonArray>
-#include <QtGui/qpa/qplatformwindow.h>
-#include <QtGui/qpa/qplatformcursor.h>
 #include <QtGui/QScreen>
+#include <QtDeviceDiscoverySupport/private/qdevicediscovery_p.h>
 
-#include <xf86drm.h>
-#include <xf86drmMode.h>
 #include <gbm.h>
 
 QT_BEGIN_NAMESPACE
@@ -71,7 +63,6 @@ QEglFSKmsGbmIntegration::QEglFSKmsGbmIntegration()
 
 #ifndef EGL_EXT_platform_base
 typedef EGLDisplay (EGLAPIENTRYP PFNEGLGETPLATFORMDISPLAYEXTPROC) (EGLenum platform, void *native_display, const EGLint *attrib_list);
-typedef EGLSurface (EGLAPIENTRYP PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC) (EGLDisplay dpy, EGLConfig config, void *native_window, const EGLint *attrib_list);
 #endif
 
 #ifndef EGL_PLATFORM_GBM_KHR
@@ -105,7 +96,6 @@ EGLNativeWindowType QEglFSKmsGbmIntegration::createNativeOffscreenWindow(const Q
     Q_UNUSED(format);
     Q_ASSERT(device());
 
-    qCDebug(qLcEglfsKmsDebug) << "Creating native off screen window";
     gbm_surface *surface = gbm_surface_create(static_cast<QEglFSKmsGbmDevice *>(device())->gbmDevice(),
                                               1, 1,
                                               GBM_FORMAT_XRGB8888,
@@ -127,6 +117,8 @@ QPlatformCursor *QEglFSKmsGbmIntegration::createCursor(QPlatformScreen *screen) 
         qCDebug(qLcEglfsKmsDebug, "Using plain OpenGL mouse cursor");
         return new QEglFSCursor(screen);
     }
+#else
+    Q_UNUSED(screen);
 #endif
     return nullptr;
 }
@@ -134,8 +126,7 @@ QPlatformCursor *QEglFSKmsGbmIntegration::createCursor(QPlatformScreen *screen) 
 void QEglFSKmsGbmIntegration::presentBuffer(QPlatformSurface *surface)
 {
     QWindow *window = static_cast<QWindow *>(surface->surface());
-    QEglFSKmsScreen *screen = static_cast<QEglFSKmsScreen *>(window->screen()->handle());
-
+    QEglFSKmsGbmScreen *screen = static_cast<QEglFSKmsGbmScreen *>(window->screen()->handle());
     screen->flip();
 }
 
@@ -158,46 +149,6 @@ QKmsDevice *QEglFSKmsGbmIntegration::createDevice()
     }
 
     return new QEglFSKmsGbmDevice(screenConfig(), path);
-}
-
-class QEglFSKmsGbmWindow : public QEglFSWindow
-{
-public:
-    QEglFSKmsGbmWindow(QWindow *w, const QEglFSKmsGbmIntegration *integration)
-        : QEglFSWindow(w)
-        , m_integration(integration)
-    {}
-    void resetSurface() override;
-    const QEglFSKmsGbmIntegration *m_integration;
-};
-
-void QEglFSKmsGbmWindow::resetSurface()
-{
-    QEglFSKmsGbmScreen *gbmScreen = static_cast<QEglFSKmsGbmScreen *>(screen());
-    if (gbmScreen->surface()) {
-        qWarning("Only single window per screen supported!");
-        return;
-    }
-
-    EGLDisplay display = gbmScreen->display();
-    QSurfaceFormat platformFormat = m_integration->surfaceFormatFor(window()->requestedFormat());
-    m_config = QEglFSDeviceIntegration::chooseConfig(display, platformFormat);
-    m_format = q_glFormatFromConfig(display, m_config, platformFormat);
-    m_window = reinterpret_cast<EGLNativeWindowType>(gbmScreen->createSurface());
-
-    PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC createPlatformWindowSurface = nullptr;
-    const char *extensions = eglQueryString(EGL_NO_DISPLAY, EGL_EXTENSIONS);
-    if (extensions && (strstr(extensions, "EGL_KHR_platform_gbm") || strstr(extensions, "EGL_MESA_platform_gbm"))) {
-        createPlatformWindowSurface = reinterpret_cast<PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC>(
-            eglGetProcAddress("eglCreatePlatformWindowSurfaceEXT"));
-    }
-
-    if (createPlatformWindowSurface) {
-        m_surface = createPlatformWindowSurface(display, m_config, reinterpret_cast<void *>(m_window), nullptr);
-    } else {
-        qCDebug(qLcEglfsKmsDebug, "No eglCreatePlatformWindowSurface for GBM, falling back to eglCreateWindowSurface");
-        m_surface = eglCreateWindowSurface(display, m_config, m_window, nullptr);
-    }
 }
 
 QEglFSWindow *QEglFSKmsGbmIntegration::createWindow(QWindow *window) const

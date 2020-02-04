@@ -22,23 +22,15 @@ class COMPOSITOR_EXPORT CompositorVSyncManager
  public:
   class Observer {
    public:
+    virtual ~Observer() = default;
     virtual void OnUpdateVSyncParameters(base::TimeTicks timebase,
                                          base::TimeDelta interval) = 0;
   };
 
   CompositorVSyncManager();
 
-  // The "authoritative" vsync interval, if provided, will override |interval|
-  // as reported by UpdateVSyncParameters() whenever it is called.  This is
-  // typically the value reported by a more reliable source, e.g. the platform
-  // display configuration.  In the particular case of ChromeOS -- this is the
-  // value queried through XRandR, which is more reliable than the value
-  // queried through the 3D context.
-  void SetAuthoritativeVSyncInterval(base::TimeDelta interval);
-
   // The vsync parameters consist of |timebase|, which is the platform timestamp
   // of the last vsync, and |interval|, which is the interval between vsyncs.
-  // |interval| may be overriden by SetAuthoritativeVSyncInterval() above.
   void UpdateVSyncParameters(base::TimeTicks timebase,
                              base::TimeDelta interval);
 
@@ -52,11 +44,10 @@ class COMPOSITOR_EXPORT CompositorVSyncManager
 
   void NotifyObservers(base::TimeTicks timebase, base::TimeDelta interval);
 
-  base::ObserverList<Observer> observer_list_;
+  base::ObserverList<Observer>::Unchecked observer_list_;
 
   base::TimeTicks last_timebase_;
   base::TimeDelta last_interval_;
-  base::TimeDelta authoritative_vsync_interval_;
 
   DISALLOW_COPY_AND_ASSIGN(CompositorVSyncManager);
 };

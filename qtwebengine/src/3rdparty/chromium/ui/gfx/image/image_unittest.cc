@@ -50,26 +50,6 @@ TEST_F(ImageTest, EmptyImage) {
   EXPECT_TRUE(image.IsEmpty());
   EXPECT_EQ(0, image.Width());
   EXPECT_EQ(0, image.Height());
-
-  // Test the copy constructor.
-  gfx::Image imageCopy(image);
-  EXPECT_TRUE(imageCopy.IsEmpty());
-  EXPECT_EQ(0, imageCopy.Width());
-  EXPECT_EQ(0, imageCopy.Height());
-
-  // Test calling SwapRepresentations() with an empty image.
-  gfx::Image image2(gt::CreateImageSkia(25, 25));
-  EXPECT_FALSE(image2.IsEmpty());
-  EXPECT_EQ(25, image2.Width());
-  EXPECT_EQ(25, image2.Height());
-
-  image.SwapRepresentations(&image2);
-  EXPECT_FALSE(image.IsEmpty());
-  EXPECT_EQ(25, image.Width());
-  EXPECT_EQ(25, image.Height());
-  EXPECT_TRUE(image2.IsEmpty());
-  EXPECT_EQ(0, image2.Width());
-  EXPECT_EQ(0, image2.Height());
 }
 
 // Test constructing a gfx::Image from an empty PlatformImage.
@@ -247,11 +227,11 @@ TEST_F(ImageTest, MultiResolutionPNGToImageSkia) {
   scales.push_back(1.0f);
   scales.push_back(2.0f);
   gfx::ImageSkia image_skia = image.AsImageSkia();
-  EXPECT_TRUE(gt::ArePNGBytesCloseToBitmap(bytes1x,
-      image_skia.GetRepresentation(1.0f).sk_bitmap(),
+  EXPECT_TRUE(gt::ArePNGBytesCloseToBitmap(
+      bytes1x, image_skia.GetRepresentation(1.0f).GetBitmap(),
       gt::MaxColorSpaceConversionColorShift()));
-  EXPECT_TRUE(gt::ArePNGBytesCloseToBitmap(bytes2x,
-      image_skia.GetRepresentation(2.0f).sk_bitmap(),
+  EXPECT_TRUE(gt::ArePNGBytesCloseToBitmap(
+      bytes2x, image_skia.GetRepresentation(2.0f).GetBitmap(),
       gt::MaxColorSpaceConversionColorShift()));
   EXPECT_TRUE(gt::ImageSkiaStructureMatches(image_skia, kSize1x, kSize1x,
                                             scales));
@@ -269,15 +249,7 @@ TEST_F(ImageTest, MultiResolutionPNGToImageSkia) {
 #endif
 }
 
-// TODO(crbug.com/153782): disable this test as it fails on iOS retina devices.
-#if defined(OS_IOS)
-#define MAYBE_MultiResolutionPNGToPlatform \
-    DISABLED_MultiResolutionPNGToPlatform
-#else
-#define MAYBE_MultiResolutionPNGToPlatform \
-    MultiResolutionPNGToPlatform
-#endif
-TEST_F(ImageTest, MAYBE_MultiResolutionPNGToPlatform) {
+TEST_F(ImageTest, MultiResolutionPNGToPlatform) {
   const int kSize1x = 25;
   const int kSize2x = 50;
 
@@ -288,7 +260,7 @@ TEST_F(ImageTest, MAYBE_MultiResolutionPNGToPlatform) {
   image_png_reps.push_back(gfx::ImagePNGRep(bytes2x, 2.0f));
 
   gfx::Image from_png(image_png_reps);
-  gfx::Image from_platform(gt::CopyPlatformType(from_png));
+  gfx::Image from_platform(gt::CopyViaPlatformType(from_png));
 #if defined(OS_IOS)
   // On iOS the platform type (UIImage) only supports one resolution.
   std::vector<float> scales = gfx::ImageSkia::GetSupportedScales();
@@ -327,15 +299,7 @@ TEST_F(ImageTest, PlatformToPNGEncodeAndDecode) {
 
 // The platform types use the platform provided encoding/decoding of PNGs. Make
 // sure these work with the Skia Encode/Decode.
-// TODO(crbug.com/153782): disable this test as it fails on iOS retina devices.
-#if defined(OS_IOS)
-#define MAYBE_PNGEncodeFromSkiaDecodeToPlatform \
-    DISABLED_PNGEncodeFromSkiaDecodeToPlatform
-#else
-#define MAYBE_PNGEncodeFromSkiaDecodeToPlatform \
-    PNGEncodeFromSkiaDecodeToPlatform
-#endif
-TEST_F(ImageTest, MAYBE_PNGEncodeFromSkiaDecodeToPlatform) {
+TEST_F(ImageTest, PNGEncodeFromSkiaDecodeToPlatform) {
   // Force the conversion sequence skia to png to platform_type.
   gfx::Image from_bitmap = gfx::Image::CreateFrom1xBitmap(
       gt::CreateBitmap(25, 25));
@@ -346,7 +310,7 @@ TEST_F(ImageTest, MAYBE_PNGEncodeFromSkiaDecodeToPlatform) {
   image_png_reps.push_back(gfx::ImagePNGRep(png_bytes, 1.0f));
   gfx::Image from_png(image_png_reps);
 
-  gfx::Image from_platform(gt::CopyPlatformType(from_png));
+  gfx::Image from_platform(gt::CopyViaPlatformType(from_png));
 
   EXPECT_TRUE(gt::IsPlatformImageValid(gt::ToPlatformType(from_platform)));
   EXPECT_TRUE(
@@ -387,7 +351,7 @@ TEST_F(ImageTest, PNGDecodeToPlatformFailure) {
   image_png_reps.push_back(gfx::ImagePNGRep(
       invalid_bytes, 1.0f));
   gfx::Image from_png(image_png_reps);
-  gfx::Image from_platform(gt::CopyPlatformType(from_png));
+  gfx::Image from_platform(gt::CopyViaPlatformType(from_png));
   gt::CheckImageIndicatesPNGDecodeFailure(from_platform);
 }
 
@@ -455,53 +419,6 @@ TEST_F(ImageTest, PlatformToPlatform) {
   EXPECT_EQ(25, image.Height());
 }
 
-TEST_F(ImageTest, PlatformToSkiaToCopy) {
-  const gfx::ImageSkia* image_skia = NULL;
-  {
-    gfx::Image image(gt::CreatePlatformImage());
-    image_skia = image.CopyImageSkia();
-  }
-  EXPECT_TRUE(image_skia);
-  EXPECT_FALSE(image_skia->isNull());
-  delete image_skia;
-
-  const SkBitmap* bitmap = NULL;
-  {
-    gfx::Image image(gt::CreatePlatformImage());
-    bitmap = image.CopySkBitmap();
-  }
-
-  EXPECT_TRUE(bitmap);
-  EXPECT_FALSE(bitmap->isNull());
-  delete bitmap;
-}
-
-#if defined(OS_IOS)
-TEST_F(ImageTest, SkiaToCocoaTouchCopy) {
-  UIImage* ui_image;
-
-  {
-    gfx::Image image(gt::CreateImageSkia(25, 25));
-    ui_image = image.CopyUIImage();
-  }
-
-  EXPECT_TRUE(ui_image);
-  base::mac::NSObjectRelease(ui_image);
-}
-#elif defined(OS_MACOSX)
-TEST_F(ImageTest, SkiaToCocoaCopy) {
-  NSImage* ns_image;
-
-  {
-    gfx::Image image(gt::CreateImageSkia(25, 25));
-    ns_image = image.CopyNSImage();
-  }
-
-  EXPECT_TRUE(ns_image);
-  base::mac::NSObjectRelease(ns_image);
-}
-#endif
-
 TEST_F(ImageTest, CheckSkiaColor) {
   gfx::Image image(gt::CreatePlatformImage());
 
@@ -541,7 +458,7 @@ TEST_F(ImageTest, SkBitmapConversionPreservesOrientation) {
   }
 
   // Force a conversion back to SkBitmap and check that the upper half is red.
-  gfx::Image from_platform(gt::CopyPlatformType(from_skbitmap));
+  gfx::Image from_platform(gt::CopyViaPlatformType(from_skbitmap));
   const SkBitmap* bitmap2 = from_platform.ToSkBitmap();
   {
     SCOPED_TRACE("Checking color after conversion back to SkBitmap");
@@ -581,35 +498,13 @@ TEST_F(ImageTest, SkBitmapConversionPreservesTransparency) {
   }
 
   // Force a conversion back to SkBitmap and check that the upper half is red.
-  gfx::Image from_platform(gt::CopyPlatformType(from_skbitmap));
+  gfx::Image from_platform(gt::CopyViaPlatformType(from_skbitmap));
   const SkBitmap* bitmap2 = from_platform.ToSkBitmap();
   {
     SCOPED_TRACE("Checking color after conversion back to SkBitmap");
     gt::CheckColors(bitmap2->getColor(10, 10), SK_ColorRED);
     gt::CheckIsTransparent(bitmap.getColor(10, 40));
   }
-}
-
-TEST_F(ImageTest, SwapRepresentations) {
-  const size_t kRepCount = kUsesSkiaNatively ? 1U : 2U;
-
-  gfx::Image image1(gt::CreateImageSkia(25, 25));
-  const gfx::ImageSkia* image_skia1 = image1.ToImageSkia();
-  EXPECT_EQ(1U, image1.RepresentationCount());
-
-  gfx::Image image2(gt::CreatePlatformImage());
-  const gfx::ImageSkia* image_skia2 = image2.ToImageSkia();
-  gt::PlatformImage platform_image = gt::ToPlatformType(image2);
-  EXPECT_EQ(kRepCount, image2.RepresentationCount());
-
-  image1.SwapRepresentations(&image2);
-
-  EXPECT_EQ(image_skia2, image1.ToImageSkia());
-  EXPECT_TRUE(gt::PlatformImagesEqual(platform_image,
-                                      gt::ToPlatformType(image1)));
-  EXPECT_EQ(image_skia1, image2.ToImageSkia());
-  EXPECT_EQ(kRepCount, image1.RepresentationCount());
-  EXPECT_EQ(1U, image2.RepresentationCount());
 }
 
 TEST_F(ImageTest, Copy) {
@@ -645,6 +540,39 @@ TEST_F(ImageTest, Assign) {
   EXPECT_EQ(1U, image1.RepresentationCount());
   EXPECT_EQ(1U, image2.RepresentationCount());
   EXPECT_EQ(image1.ToSkBitmap(), image2.ToSkBitmap());
+}
+
+TEST_F(ImageTest, Move) {
+  const size_t kRepCount = kUsesSkiaNatively ? 1U : 2U;
+
+  gfx::Image image1(gt::CreateImageSkia(25, 25));
+  EXPECT_EQ(25, image1.Width());
+  EXPECT_EQ(25, image1.Height());
+  gfx::Image image2(std::move(image1));
+  EXPECT_EQ(25, image2.Width());
+  EXPECT_EQ(25, image2.Height());
+
+  EXPECT_EQ(0U, image1.RepresentationCount());
+  EXPECT_EQ(1U, image2.RepresentationCount());
+
+  EXPECT_TRUE(gt::IsPlatformImageValid(gt::ToPlatformType(image2)));
+  EXPECT_EQ(0U, image1.RepresentationCount());
+  EXPECT_EQ(kRepCount, image2.RepresentationCount());
+}
+
+TEST_F(ImageTest, MoveAssign) {
+  gfx::Image image1(gt::CreatePlatformImage());
+  EXPECT_EQ(25, image1.Width());
+  EXPECT_EQ(25, image1.Height());
+  // Assignment must be on a separate line to the declaration in order to test
+  // move assignment operator (instead of move constructor).
+  gfx::Image image2;
+  image2 = std::move(image1);
+  EXPECT_EQ(25, image2.Width());
+  EXPECT_EQ(25, image2.Height());
+
+  EXPECT_EQ(0U, image1.RepresentationCount());
+  EXPECT_EQ(1U, image2.RepresentationCount());
 }
 
 TEST_F(ImageTest, MultiResolutionImageSkia) {

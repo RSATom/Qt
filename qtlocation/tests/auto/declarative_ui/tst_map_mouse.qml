@@ -107,13 +107,12 @@ Item {
 
             preventStealing: true
 
-            // The following signal handlers use arguments[0] instead of mouse due to QTBUG-36560
-            onClicked: page.setMouseData(mouseUpper, arguments[0])
-            onDoubleClicked: page.setMouseData(mouseUpper, arguments[0])
-            onPressed: page.setMouseData(mouseUpper, arguments[0])
-            onReleased: page.setMouseData(mouseUpper, arguments[0])
-            onPositionChanged: page.setMouseData(mouseUpper, arguments[0])
-            onPressAndHold: page.setMouseData(mouseUpper, arguments[0])
+            onClicked: page.setMouseData(mouseUpper, mouse)
+            onDoubleClicked: page.setMouseData(mouseUpper, mouse)
+            onPressed: page.setMouseData(mouseUpper, mouse)
+            onReleased: page.setMouseData(mouseUpper, mouse)
+            onPositionChanged: page.setMouseData(mouseUpper, mouse)
+            onPressAndHold: page.setMouseData(mouseUpper, mouse)
         }
         MouseArea {
             id: mouseLower
@@ -128,13 +127,12 @@ Item {
             property bool lastIsClick: false
             property bool lastAccepted: false;
 
-            // The following signal handlers use arguments[0] instead of mouse due to QTBUG-36560
-            onClicked: page.setMouseData(mouseLower, arguments[0])
-            onDoubleClicked: page.setMouseData(mouseLower, arguments[0])
-            onPressed: page.setMouseData(mouseLower, arguments[0])
-            onReleased: page.setMouseData(mouseLower, arguments[0])
-            onPositionChanged: page.setMouseData(mouseLower, arguments[0])
-            onPressAndHold: page.setMouseData(mouseLower, arguments[0])
+            onClicked: page.setMouseData(mouseLower, mouse)
+            onDoubleClicked: page.setMouseData(mouseLower, mouse)
+            onPressed: page.setMouseData(mouseLower, mouse)
+            onReleased: page.setMouseData(mouseLower, mouse)
+            onPositionChanged: page.setMouseData(mouseLower, mouse)
+            onPressAndHold: page.setMouseData(mouseLower, mouse)
         }
         MouseArea {
             id: mouseOverlapper
@@ -149,13 +147,12 @@ Item {
             property bool lastIsClick: false
             property bool lastAccepted: false;
 
-            // The following signal handlers use arguments[0] instead of mouse due to QTBUG-36560
-            onClicked: page.setMouseData(mouseOverlapper, arguments[0])
-            onDoubleClicked: page.setMouseData(mouseOverlapper, arguments[0])
-            onPressed: page.setMouseData(mouseOverlapper, arguments[0])
-            onReleased: page.setMouseData(mouseOverlapper, arguments[0])
-            onPositionChanged: page.setMouseData(mouseOverlapper, arguments[0])
-            onPressAndHold: page.setMouseData(mouseOverlapper, arguments[0])
+            onClicked: page.setMouseData(mouseOverlapper, mouse)
+            onDoubleClicked: page.setMouseData(mouseOverlapper, mouse)
+            onPressed: page.setMouseData(mouseOverlapper, mouse)
+            onReleased: page.setMouseData(mouseOverlapper, mouse)
+            onPositionChanged: page.setMouseData(mouseOverlapper, mouse)
+            onPressAndHold: page.setMouseData(mouseOverlapper, mouse)
         }
     }
 
@@ -522,20 +519,21 @@ Item {
             compare(mouseUpperReleasedSpy.count, 2)
             compare(mouseLowerPressedSpy.count, 1)
             compare(mouseLowerReleasedSpy.count, 1)
-
-
             compare(mouseOverlapperPressedSpy.count, 0)
+
             mousePress(map, 55, 75)
             compare(mouseUpperPressedSpy.count, 2)
             compare(mouseLowerPressedSpy.count, 1)
             compare(mouseOverlapperPressedSpy.count, 1)
             compare(mouseOverlapperReleasedSpy.count, 0)
+
+            mouseMove(map, 55, 25)
             mouseRelease(map, 55, 25)
             compare(mouseUpperPressedSpy.count, 2)
             compare(mouseUpperReleasedSpy.count, 2)
             compare(mouseLowerPressedSpy.count, 1)
             compare(mouseLowerReleasedSpy.count, 1)
-            //this should follow the same logic as Flickable
+            //this should follow the same logic as Flickable, after the gesture is detected, the map should steal events.
             compare(mouseOverlapperReleasedSpy.count, 0)
         }
 
@@ -670,6 +668,16 @@ Item {
             tryCompare(mouseUpperDoubleClickedSpy, "count", 3)
             compare(mouseLowerDoubleClickedSpy.count, 3)
             compare(mouseOverlapperDoubleClickedSpy.count, 4)
+        }
+
+        function test_release_does_not_block_clicked() { // QTBUG-66534
+            clear_data()
+            mousePress(map, 55, 75)
+            compare(mouseOverlapperPressedSpy.count, 1)
+            mouseRelease(map, 55, 25)
+            compare(mouseOverlapperReleasedSpy.count, 1)
+            mouseClick(map, 25, 25)
+            compare(mouseUpperClickedSpy.count, 1)
         }
 
         function test_zzz_basic_press_and_hold() { // _zzz_ to ensure execution last (takes time)

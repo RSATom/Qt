@@ -1,8 +1,0 @@
-include_rules = [
-    "-modules",
-    "+modules/EventModules.h",
-    "+modules/EventTargetModules.h",
-    "+modules/IndexedDBNames.h",
-    "+modules/ModulesExport.h",
-    "+modules/indexeddb",
-]

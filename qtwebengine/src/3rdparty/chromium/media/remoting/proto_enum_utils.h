@@ -12,12 +12,13 @@
 #include "media/base/cdm_promise.h"
 #include "media/base/channel_layout.h"
 #include "media/base/content_decryption_module.h"
+#include "media/base/decrypt_config.h"
 #include "media/base/demuxer_stream.h"
 #include "media/base/encryption_scheme.h"
 #include "media/base/sample_format.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_types.h"
-#include "media/remoting/rpc.pb.h"
+#include "media/remoting/media_remoting_rpc.pb.h"
 
 namespace media {
 namespace remoting {
@@ -66,11 +67,6 @@ base::Optional<VideoPixelFormat> ToMediaVideoPixelFormat(
 base::Optional<pb::VideoDecoderConfig::Format> ToProtoVideoDecoderConfigFormat(
     VideoPixelFormat value);
 
-base::Optional<ColorSpace> ToMediaColorSpace(
-    pb::VideoDecoderConfig::ColorSpace value);
-base::Optional<pb::VideoDecoderConfig::ColorSpace>
-ToProtoVideoDecoderConfigColorSpace(ColorSpace value);
-
 base::Optional<BufferingState> ToMediaBufferingState(
     pb::RendererClientOnBufferingStateChange::State value);
 base::Optional<pb::RendererClientOnBufferingStateChange::State>
@@ -101,6 +97,9 @@ base::Optional<DemuxerStream::Status> ToDemuxerStreamStatus(
     pb::DemuxerStreamReadUntilCallback::Status value);
 base::Optional<pb::DemuxerStreamReadUntilCallback::Status>
 ToProtoDemuxerStreamStatus(DemuxerStream::Status value);
+
+base::Optional<EncryptionMode> ToMediaEncryptionMode(pb::EncryptionMode value);
+base::Optional<pb::EncryptionMode> ToProtoEncryptionMode(EncryptionMode value);
 
 }  // namespace remoting
 }  // namespace media

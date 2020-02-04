@@ -8,22 +8,23 @@
 // be found in the AUTHORS file in the root of the source tree.
 //
 
-#ifndef WEBRTC_SYSTEM_WRAPPERS_INCLUDE_FIELD_TRIAL_H_
-#define WEBRTC_SYSTEM_WRAPPERS_INCLUDE_FIELD_TRIAL_H_
+#ifndef SYSTEM_WRAPPERS_INCLUDE_FIELD_TRIAL_H_
+#define SYSTEM_WRAPPERS_INCLUDE_FIELD_TRIAL_H_
 
 #include <string>
 
 // Field trials allow webrtc clients (such as Chrome) to turn on feature code
 // in binaries out in the field and gather information with that.
 //
-// WebRTC clients MUST provide an implementation of:
+// By default WebRTC provides an implementaion of field trials that can be
+// found in system_wrappers/source/field_trial.cc. If clients want to provide
+// a custom version, they will have to:
 //
-//   std::string webrtc::field_trial::FindFullName(const std::string& trial).
-//
-// Or link with a default one provided in:
-//
-//   system_wrappers/system_wrappers.gyp:field_trial_default
-//
+// 1. Compile WebRTC defining the preprocessor macro
+//    WEBRTC_EXCLUDE_FIELD_TRIAL_DEFAULT (if GN is used this can be achieved
+//    by setting the GN arg rtc_exclude_field_trial_default to true).
+// 2. Provide an implementation of:
+//    std::string webrtc::field_trial::FindFullName(const std::string& trial).
 //
 // They are designed to wire up directly to chrome field trials and to speed up
 // developers by reducing the need to wire APIs to control whether a feature is
@@ -69,7 +70,21 @@ inline bool IsEnabled(const char* name) {
   return FindFullName(name).find("Enabled") == 0;
 }
 
+// Convenience method, returns true iff FindFullName(name) return a string that
+// starts with "Disabled".
+inline bool IsDisabled(const char* name) {
+  return FindFullName(name).find("Disabled") == 0;
+}
+
+// Optionally initialize field trial from a string.
+// This method can be called at most once before any other call into webrtc.
+// E.g. before the peer connection factory is constructed.
+// Note: trials_string must never be destroyed.
+void InitFieldTrialsFromString(const char* trials_string);
+
+const char* GetFieldTrialString();
+
 }  // namespace field_trial
 }  // namespace webrtc
 
-#endif  // WEBRTC_SYSTEM_WRAPPERS_INCLUDE_FIELD_TRIAL_H_
+#endif  // SYSTEM_WRAPPERS_INCLUDE_FIELD_TRIAL_H_

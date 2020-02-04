@@ -37,7 +37,6 @@ group("sandbox") {
   public_deps = [
     ":sandbox_services",
   ]
-
   if (compile_suid_client || is_nacl_nonsfi) {
     public_deps += [ ":suid_sandbox_client" ]
   }
@@ -100,6 +99,7 @@ source_set("sandbox_linux_unittests_sources") {
     "services/yama_unittests.cc",
     "syscall_broker/broker_file_permission_unittest.cc",
     "syscall_broker/broker_process_unittest.cc",
+    "syscall_broker/broker_simple_message_unittest.cc",
     "tests/main.cc",
     "tests/scoped_temporary_file.cc",
     "tests/scoped_temporary_file.h",
@@ -112,6 +112,7 @@ source_set("sandbox_linux_unittests_sources") {
     ":sandbox",
     ":sandbox_linux_test_utils",
     "//base",
+    "//base/third_party/dynamic_annotations",
     "//testing/gtest",
   ]
 
@@ -149,6 +150,10 @@ source_set("sandbox_linux_unittests_sources") {
       "seccomp-bpf/trap_unittest.cc",
     ]
     deps += [ ":bpf_dsl_golden" ]
+
+    if (is_android) {
+      sources += [ "seccomp-bpf-helpers/baseline_policy_android_unittest.cc" ]
+    }
   }
   if (compile_credentials) {
     sources += [
@@ -196,7 +201,6 @@ action("bpf_dsl_golden") {
 test("sandbox_linux_unittests") {
   deps = [
     ":sandbox_linux_unittests_sources",
-    "//build/config:exe_and_shlib_deps",
   ]
   if (is_android) {
     use_raw_android_executable = true
@@ -250,6 +254,7 @@ component("seccomp_bpf") {
   deps = [
     ":sandbox_services",
     "//base",
+    "//base/third_party/dynamic_annotations",
   ]
 
   if (is_nacl_nonsfi) {
@@ -284,7 +289,7 @@ if (is_android) {
 
     deps = [
       "//base",
-      "//sandbox:sandbox_features",
+      "//sandbox:sandbox_buildflags",
     ]
 
     if (use_seccomp_bpf) {
@@ -314,25 +319,6 @@ if (is_linux) {
       # TODO fix this and re-enable this warning.
       "-Wno-sign-compare",
     ]
-
-    import("//build/config/compiler/compiler.gni")
-    import("//build/config/sanitizers/sanitizers.gni")
-    if (is_component_build || using_sanitizer) {
-      # WARNING! We remove this config so that we don't accidentally
-      # pick up the //build/config:rpath_for_built_shared_libraries
-      # sub-config. However, this means that we need to duplicate any
-      # other flags that executable_config might have.
-      configs -= [ "//build/config:executable_config" ]
-      if (!use_gold) {
-        ldflags = [ "-Wl,--disable-new-dtags" ]
-      }
-    }
-
-    # We also do not want to pick up any of the other sanitizer
-    # flags (i.e. we do not want to build w/ the sanitizers at all).
-    # This is safe to delete unconditionally, because it is part of the
-    # default configs and empty when not using the sanitizers.
-    configs -= [ "//build/config/sanitizers:default_sanitizer_flags" ]
   }
 }
 
@@ -356,15 +342,18 @@ component("sandbox_services") {
     "syscall_broker/broker_channel.h",
     "syscall_broker/broker_client.cc",
     "syscall_broker/broker_client.h",
-    "syscall_broker/broker_common.h",
+    "syscall_broker/broker_command.cc",
+    "syscall_broker/broker_command.h",
     "syscall_broker/broker_file_permission.cc",
     "syscall_broker/broker_file_permission.h",
     "syscall_broker/broker_host.cc",
     "syscall_broker/broker_host.h",
-    "syscall_broker/broker_policy.cc",
-    "syscall_broker/broker_policy.h",
+    "syscall_broker/broker_permission_list.cc",
+    "syscall_broker/broker_permission_list.h",
     "syscall_broker/broker_process.cc",
     "syscall_broker/broker_process.h",
+    "syscall_broker/broker_simple_message.cc",
+    "syscall_broker/broker_simple_message.h",
   ]
 
   defines = [ "SANDBOX_IMPLEMENTATION" ]
@@ -374,6 +363,7 @@ component("sandbox_services") {
   ]
   deps = [
     "//base",
+    "//base/third_party/dynamic_annotations",
   ]
 
   if (compile_credentials || is_nacl_nonsfi) {
@@ -403,15 +393,23 @@ component("sandbox_services") {
       "syscall_broker/broker_channel.h",
       "syscall_broker/broker_client.cc",
       "syscall_broker/broker_client.h",
-      "syscall_broker/broker_common.h",
+      "syscall_broker/broker_command.cc",
+      "syscall_broker/broker_command.h",
       "syscall_broker/broker_file_permission.cc",
       "syscall_broker/broker_file_permission.h",
       "syscall_broker/broker_host.cc",
       "syscall_broker/broker_host.h",
-      "syscall_broker/broker_policy.cc",
-      "syscall_broker/broker_policy.h",
+      "syscall_broker/broker_permission_list.cc",
+      "syscall_broker/broker_permission_list.h",
       "syscall_broker/broker_process.cc",
       "syscall_broker/broker_process.h",
+      "syscall_broker/broker_simple_message.cc",
+      "syscall_broker/broker_simple_message.h",
+    ]
+  } else if (!is_android) {
+    sources += [
+      "services/libc_interceptor.cc",
+      "services/libc_interceptor.h",
     ]
   }
 }
@@ -419,7 +417,6 @@ component("sandbox_services") {
 source_set("sandbox_services_headers") {
   sources = [
     "system_headers/arm64_linux_syscalls.h",
-    "system_headers/arm64_linux_ucontext.h",
     "system_headers/arm_linux_syscalls.h",
     "system_headers/arm_linux_ucontext.h",
     "system_headers/i386_linux_ucontext.h",
@@ -432,10 +429,8 @@ source_set("sandbox_services_headers") {
     "system_headers/linux_ucontext.h",
     "system_headers/mips64_linux_syscalls.h",
     "system_headers/mips_linux_syscalls.h",
-    "system_headers/mips_linux_ucontext.h",
     "system_headers/x86_32_linux_syscalls.h",
     "system_headers/x86_64_linux_syscalls.h",
-    "system_headers/x86_64_linux_ucontext.h",
   ]
 }
 
@@ -456,6 +451,7 @@ if (compile_suid_client || is_nacl_nonsfi) {
     deps = [
       ":sandbox_services",
       "//base",
+      "//base/third_party/dynamic_annotations",
     ]
 
     if (is_nacl_nonsfi) {

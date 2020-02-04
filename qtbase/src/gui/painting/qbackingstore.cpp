@@ -62,7 +62,7 @@ public:
     }
 
     QWindow *window;
-    QPlatformBackingStore *platformBackingStore;
+    QPlatformBackingStore *platformBackingStore = nullptr;
     QScopedPointer<QImage> highDpiBackingstore;
     QRegion staticContents;
     QSize size;
@@ -95,8 +95,11 @@ public:
 QBackingStore::QBackingStore(QWindow *window)
     : d_ptr(new QBackingStorePrivate(window))
 {
-    d_ptr->platformBackingStore = QGuiApplicationPrivate::platformIntegration()->createPlatformBackingStore(window);
-    d_ptr->platformBackingStore->setBackingStore(this);
+    if (window->handle()) {
+        // Create platform backingstore up front if we have a platform window,
+        // otherwise delay the creation until absolutely necessary.
+        handle();
+    }
 }
 
 /*!
@@ -131,7 +134,8 @@ void QBackingStore::beginPaint(const QRegion &region)
         d_ptr->highDpiBackingstore->devicePixelRatio() != d_ptr->window->devicePixelRatio())
         resize(size());
 
-    d_ptr->platformBackingStore->beginPaint(QHighDpi::toNativeLocalRegion(region, d_ptr->window));
+    QPlatformBackingStore *platformBackingStore = handle();
+    platformBackingStore->beginPaint(QHighDpi::toNativeLocalRegion(region, d_ptr->window));
 
     // When QtGui is applying a high-dpi scale factor the backing store
     // creates a "large" backing store image. This image needs to be
@@ -139,7 +143,7 @@ void QBackingStore::beginPaint(const QRegion &region)
     // devicePixelRatio. Do this on a separate image instance that shares
     // the image data to avoid having the new devicePixelRatio be propagated
     // back to the platform plugin.
-    QPaintDevice *device = d_ptr->platformBackingStore->paintDevice();
+    QPaintDevice *device = platformBackingStore->paintDevice();
     if (QHighDpiScaling::isActive() && device->devType() == QInternal::Image) {
         QImage *source = static_cast<QImage *>(device);
         const bool needsNewImage = d_ptr->highDpiBackingstore.isNull()
@@ -168,7 +172,7 @@ void QBackingStore::beginPaint(const QRegion &region)
 */
 QPaintDevice *QBackingStore::paintDevice()
 {
-    QPaintDevice *device = d_ptr->platformBackingStore->paintDevice();
+    QPaintDevice *device = handle()->paintDevice();
 
     if (QHighDpiScaling::isActive() && device->devType() == QInternal::Image)
         return d_ptr->highDpiBackingstore.data();
@@ -187,9 +191,20 @@ QPaintDevice *QBackingStore::paintDevice()
 void QBackingStore::endPaint()
 {
     if (paintDevice()->paintingActive())
-        qWarning() << "QBackingStore::endPaint() called with active painter on backingstore paint device";
+        qWarning("QBackingStore::endPaint() called with active painter; did you forget to destroy it or call QPainter::end() on it?");
 
-    d_ptr->platformBackingStore->endPaint();
+    handle()->endPaint();
+}
+
+static bool isRasterSurface(QWindow *window)
+{
+    switch (window->surfaceType()) {
+    case QSurface::RasterSurface:
+    case QSurface::RasterGLSurface:
+        return true;
+    default:
+        return false;
+    };
 }
 
 /*!
@@ -198,7 +213,7 @@ void QBackingStore::endPaint()
 
     The \a window must either be the top level window represented by
     this backingstore, or a non-transient child of that window. Passing
-    \c nullptr falls back to using the backingstore's top level window.
+    \nullptr falls back to using the backingstore's top level window.
 
     If the \a window is a child window, the \a region should be in child window
     coordinates, and the \a offset should be the child window's offset in relation
@@ -220,6 +235,13 @@ void QBackingStore::flush(const QRegion &region, QWindow *window, const QPoint &
         return;
     }
 
+    if (!isRasterSurface(window)) {
+        qWarning() << "Attempted flush to non-raster surface" << window << "of type" << window->surfaceType()
+            << (window->inherits("QWidgetWindow") ? "(consider using Qt::WA_PaintOnScreen to exclude "
+                                                   "from backingstore sync)" : "");
+        return;
+    }
+
 #ifdef QBACKINGSTORE_DEBUG
     if (window && window->isTopLevel() && !qt_window_private(window)->receivedExpose) {
         qWarning().nospace() << "QBackingStore::flush() called with non-exposed window "
@@ -229,7 +251,7 @@ void QBackingStore::flush(const QRegion &region, QWindow *window, const QPoint &
 
     Q_ASSERT(window == topLevelWindow || topLevelWindow->isAncestorOf(window, QWindow::ExcludeTransients));
 
-    d_ptr->platformBackingStore->flush(window, QHighDpi::toNativeLocalRegion(region, window),
+    handle()->flush(window, QHighDpi::toNativeLocalRegion(region, window),
                                             QHighDpi::toNativeLocalPosition(offset, window));
 }
 
@@ -241,7 +263,7 @@ void QBackingStore::flush(const QRegion &region, QWindow *window, const QPoint &
 void QBackingStore::resize(const QSize &size)
 {
     d_ptr->size = size;
-    d_ptr->platformBackingStore->resize(QHighDpi::toNativePixels(size, d_ptr->window), d_ptr->staticContents);
+    handle()->resize(QHighDpi::toNativePixels(size, d_ptr->window), d_ptr->staticContents);
 }
 
 /*!
@@ -268,7 +290,7 @@ bool QBackingStore::scroll(const QRegion &area, int dx, int dy)
     if (qFloor(nativeDx) != nativeDx || qFloor(nativeDy) != nativeDy)
         return false;
 
-    return d_ptr->platformBackingStore->scroll(QHighDpi::toNativeLocalRegion(area, d_ptr->window),
+    return handle()->scroll(QHighDpi::toNativeLocalRegion(area, d_ptr->window),
                                                nativeDx, nativeDy);
 }
 
@@ -349,6 +371,10 @@ void Q_GUI_EXPORT qt_scrollRectInImage(QImage &img, const QRect &rect, const QPo
 */
 QPlatformBackingStore *QBackingStore::handle() const
 {
+    if (!d_ptr->platformBackingStore) {
+        d_ptr->platformBackingStore = QGuiApplicationPrivate::platformIntegration()->createPlatformBackingStore(d_ptr->window);
+        d_ptr->platformBackingStore->setBackingStore(const_cast<QBackingStore*>(this));
+    }
     return d_ptr->platformBackingStore;
 }
 

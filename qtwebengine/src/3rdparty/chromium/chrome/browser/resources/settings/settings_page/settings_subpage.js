@@ -12,9 +12,9 @@ Polymer({
   is: 'settings-subpage',
 
   behaviors: [
-    // TODO(michaelpg): phase out NeonAnimatableBehavior.
-    Polymer.NeonAnimatableBehavior,
+    FindShortcutBehavior,
     Polymer.IronResizableBehavior,
+    settings.RouteObserverBehavior,
   ],
 
   properties: {
@@ -47,6 +47,83 @@ Polymer({
       type: Object,
       value: null,
     },
+
+    /** @private */
+    active_: {
+      type: Boolean,
+      value: false,
+      observer: 'onActiveChanged_',
+    },
+  },
+
+  /** @private {boolean} */
+  lastActiveValue_: false,
+
+  // Override FindShortcutBehavior property.
+  findShortcutListenOnAttach: false,
+
+  /** @override */
+  attached: function() {
+    if (!!this.searchLabel) {
+      // |searchLabel| should not change dynamically.
+      this.listen(this, 'clear-subpage-search', 'onClearSubpageSearch_');
+    }
+  },
+
+  /** @override */
+  detached: function() {
+    if (!!this.searchLabel) {
+      // |searchLabel| should not change dynamically.
+      this.unlisten(this, 'clear-subpage-search', 'onClearSubpageSearch_');
+    }
+  },
+
+  /** Focuses the back button when page is loaded. */
+  initialFocus: function() {
+    Polymer.RenderStatus.afterNextRender(
+        this, () => cr.ui.focusWithoutInk(this.$.closeButton));
+  },
+
+  /** @protected */
+  currentRouteChanged: function(route) {
+    this.active_ = this.getAttribute('route-path') == route.path;
+  },
+
+  /** @private */
+  onActiveChanged_: function() {
+    if (this.lastActiveValue_ == this.active_) {
+      return;
+    }
+    this.lastActiveValue_ = this.active_;
+
+    if (this.active_ && this.pageTitle) {
+      document.title =
+          loadTimeData.getStringF('settingsAltPageTitle', this.pageTitle);
+    }
+
+    if (!this.searchLabel) {
+      return;
+    }
+
+    const searchField = this.$$('cr-search-field');
+    if (searchField) {
+      searchField.setValue('');
+    }
+
+    if (this.active_) {
+      this.becomeActiveFindShortcutListener();
+    } else {
+      this.removeSelfAsFindShortcutListener();
+    }
+  },
+
+  /**
+   * Clear the value of the search field.
+   * @param {!Event} e
+   */
+  onClearSubpageSearch_: function(e) {
+    e.stopPropagation();
+    this.$$('cr-search-field').setValue('');
   },
 
   /** @private */
@@ -57,5 +134,20 @@ Polymer({
   /** @private */
   onSearchChanged_: function(e) {
     this.searchTerm = e.detail;
+  },
+
+  // Override FindShortcutBehavior methods.
+  handleFindShortcut: function(modalContextOpen) {
+    if (modalContextOpen) {
+      return false;
+    }
+    this.$$('cr-search-field').getSearchInput().focus();
+    return true;
+  },
+
+  // Override FindShortcutBehavior methods.
+  searchInputHasFocus: function() {
+    const field = this.$$('cr-search-field');
+    return field.getSearchInput() == field.shadowRoot.activeElement;
   },
 });

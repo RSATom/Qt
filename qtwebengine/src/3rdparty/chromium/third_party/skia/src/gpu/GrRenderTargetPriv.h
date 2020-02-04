@@ -21,23 +21,18 @@ public:
     /**
      * GrStencilAttachment is not part of the public API.
      */
-    GrStencilAttachment* getStencilAttachment() const { return fRenderTarget->fStencilAttachment; }
+    GrStencilAttachment* getStencilAttachment() const {
+        return fRenderTarget->fStencilAttachment.get();
+    }
 
     /**
      * Attaches the GrStencilAttachment onto the render target. If stencil is a nullptr then the
      * currently attached GrStencilAttachment will be removed if one was previously attached. This
      * function returns false if there were any failure in attaching the GrStencilAttachment.
      */
-    bool attachStencilAttachment(GrStencilAttachment* stencil);
+    void attachStencilAttachment(sk_sp<GrStencilAttachment> stencil);
 
     int numStencilBits() const;
-
-    // Finds a render target's multisample specs. The pipeline is only needed in case the info isn't
-    // cached and we need to flush the draw state in order to query it. The pipeline is not expected
-    // to affect the multisample information itself.
-    const GrGpu::MultisampleSpecs& getMultisampleSpecs(const GrPipeline&) const;
-
-    GrRenderTargetFlags flags() const { return fRenderTarget->fFlags; }
 
 private:
     explicit GrRenderTargetPriv(GrRenderTarget* renderTarget) : fRenderTarget(renderTarget) {}

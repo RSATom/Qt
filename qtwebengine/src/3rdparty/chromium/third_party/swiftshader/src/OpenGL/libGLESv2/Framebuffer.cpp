@@ -22,6 +22,8 @@
 #include "Texture.h"
 #include "utilities.h"
 
+#include <algorithm>
+
 namespace es2
 {
 
@@ -32,19 +34,23 @@ bool Framebuffer::IsRenderbuffer(GLenum type)
 
 Framebuffer::Framebuffer()
 {
-	for(int i = 0; i < MAX_COLOR_ATTACHMENTS; i++)
-	{
-		mColorbufferType[i] = GL_NONE;
-	}
-	mDepthbufferType = GL_NONE;
-	mStencilbufferType = GL_NONE;
-
-	readBuffer = GL_BACK;
-	drawBuffer[0] = GL_BACK;
-	for(int i = 1; i < MAX_COLOR_ATTACHMENTS; ++i)
+	readBuffer = GL_COLOR_ATTACHMENT0;
+	drawBuffer[0] = GL_COLOR_ATTACHMENT0;
+	for(int i = 1; i < MAX_COLOR_ATTACHMENTS; i++)
 	{
 		drawBuffer[i] = GL_NONE;
 	}
+
+	for(int i = 0; i < MAX_COLOR_ATTACHMENTS; i++)
+	{
+		mColorbufferType[i] = GL_NONE;
+		mColorbufferLayer[i] = 0;
+	}
+
+	mDepthbufferType = GL_NONE;
+	mDepthbufferLayer = 0;
+	mStencilbufferType = GL_NONE;
+	mStencilbufferLayer = 0;
 }
 
 Framebuffer::~Framebuffer()
@@ -57,9 +63,9 @@ Framebuffer::~Framebuffer()
 	mStencilbufferPointer = nullptr;
 }
 
-Renderbuffer *Framebuffer::lookupRenderbuffer(GLenum type, GLuint handle, GLint level, GLint layer) const
+Renderbuffer *Framebuffer::lookupRenderbuffer(GLenum type, GLuint handle, GLint level) const
 {
-	Context *context = getContext();
+	Context *context = getContextLocked();
 	Renderbuffer *buffer = nullptr;
 
 	if(type == GL_NONE)
@@ -72,7 +78,7 @@ Renderbuffer *Framebuffer::lookupRenderbuffer(GLenum type, GLuint handle, GLint 
 	}
 	else if(IsTextureTarget(type))
 	{
-		buffer = context->getTexture(handle)->getRenderbuffer(type, level, layer);
+		buffer = context->getTexture(handle)->getRenderbuffer(type, level);
 	}
 	else UNREACHABLE(type);
 
@@ -82,19 +88,22 @@ Renderbuffer *Framebuffer::lookupRenderbuffer(GLenum type, GLuint handle, GLint 
 void Framebuffer::setColorbuffer(GLenum type, GLuint colorbuffer, GLuint index, GLint level, GLint layer)
 {
 	mColorbufferType[index] = (colorbuffer != 0) ? type : GL_NONE;
-	mColorbufferPointer[index] = lookupRenderbuffer(type, colorbuffer, level, layer);
+	mColorbufferPointer[index] = lookupRenderbuffer(type, colorbuffer, level);
+	mColorbufferLayer[index] = layer;
 }
 
 void Framebuffer::setDepthbuffer(GLenum type, GLuint depthbuffer, GLint level, GLint layer)
 {
 	mDepthbufferType = (depthbuffer != 0) ? type : GL_NONE;
-	mDepthbufferPointer = lookupRenderbuffer(type, depthbuffer, level, layer);
+	mDepthbufferPointer = lookupRenderbuffer(type, depthbuffer, level);
+	mDepthbufferLayer = layer;
 }
 
 void Framebuffer::setStencilbuffer(GLenum type, GLuint stencilbuffer, GLint level, GLint layer)
 {
 	mStencilbufferType = (stencilbuffer != 0) ? type : GL_NONE;
-	mStencilbufferPointer = lookupRenderbuffer(type, stencilbuffer, level, layer);
+	mStencilbufferPointer = lookupRenderbuffer(type, stencilbuffer, level);
+	mStencilbufferLayer = layer;
 }
 
 void Framebuffer::setReadBuffer(GLenum buf)
@@ -169,11 +178,14 @@ void Framebuffer::detachRenderbuffer(GLuint renderbuffer)
 // caller must Release() the returned surface
 egl::Image *Framebuffer::getRenderTarget(GLuint index)
 {
-	Renderbuffer *colorbuffer = mColorbufferPointer[index];
-
-	if(colorbuffer)
+	if(index < MAX_COLOR_ATTACHMENTS)
 	{
-		return colorbuffer->getRenderTarget();
+		Renderbuffer *colorbuffer = mColorbufferPointer[index];
+
+		if(colorbuffer)
+		{
+			return colorbuffer->getRenderTarget();
+		}
 	}
 
 	return nullptr;
@@ -181,8 +193,7 @@ egl::Image *Framebuffer::getRenderTarget(GLuint index)
 
 egl::Image *Framebuffer::getReadRenderTarget()
 {
-	Context *context = getContext();
-	return getRenderTarget(context->getReadFramebufferColorIndex());
+	return getRenderTarget(getReadBufferIndex());
 }
 
 // Increments refcount on surface.
@@ -220,8 +231,7 @@ Renderbuffer *Framebuffer::getColorbuffer(GLuint index) const
 
 Renderbuffer *Framebuffer::getReadColorbuffer() const
 {
-	Context *context = getContext();
-	return getColorbuffer(context->getReadFramebufferColorIndex());
+	return getColorbuffer(getReadBufferIndex());
 }
 
 Renderbuffer *Framebuffer::getDepthbuffer() const
@@ -232,6 +242,16 @@ Renderbuffer *Framebuffer::getDepthbuffer() const
 Renderbuffer *Framebuffer::getStencilbuffer() const
 {
 	return mStencilbufferPointer;
+}
+
+GLenum Framebuffer::getReadBufferType()
+{
+	if(readBuffer == GL_NONE)
+	{
+		return GL_NONE;
+	}
+
+	return mColorbufferType[getReadBufferIndex()];
 }
 
 GLenum Framebuffer::getColorbufferType(GLuint index)
@@ -266,18 +286,17 @@ GLuint Framebuffer::getStencilbufferName()
 
 GLint Framebuffer::getColorbufferLayer(GLuint index)
 {
-	Renderbuffer *colorbuffer = mColorbufferPointer[index];
-	return colorbuffer ? colorbuffer->getLayer() : 0;
+	return mColorbufferLayer[index];
 }
 
 GLint Framebuffer::getDepthbufferLayer()
 {
-	return mDepthbufferPointer ? mDepthbufferPointer->getLayer() : 0;
+	return mDepthbufferLayer;
 }
 
 GLint Framebuffer::getStencilbufferLayer()
 {
-	return mStencilbufferPointer ? mStencilbufferPointer->getLayer() : 0;
+	return mStencilbufferLayer;
 }
 
 bool Framebuffer::hasStencil()
@@ -321,23 +340,23 @@ GLenum Framebuffer::completeness(int &width, int &height, int &samples)
 				return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
 			}
 
-			if(colorbuffer->getWidth() == 0 || colorbuffer->getHeight() == 0 || (colorbuffer->getDepth() <= colorbuffer->getLayer()))
+			if(colorbuffer->getWidth() == 0 || colorbuffer->getHeight() == 0 || (colorbuffer->getDepth() <= mColorbufferLayer[i]))
 			{
 				return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
 			}
 
 			if(IsRenderbuffer(mColorbufferType[i]))
 			{
-				if(!IsColorRenderable(colorbuffer->getFormat(), egl::getClientVersion(), false))
+				if(!IsColorRenderable(colorbuffer->getFormat()))
 				{
 					return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
 				}
 			}
 			else if(IsTextureTarget(mColorbufferType[i]))
 			{
-				GLenum format = colorbuffer->getFormat();
+				GLint format = colorbuffer->getFormat();
 
-				if(!IsColorRenderable(format, egl::getClientVersion(), true))
+				if(!IsColorRenderable(format))
 				{
 					return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
 				}
@@ -353,16 +372,21 @@ GLenum Framebuffer::completeness(int &width, int &height, int &samples)
 				return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
 			}
 
-			width = colorbuffer->getWidth();
-			height = colorbuffer->getHeight();
-
-			if(samples == -1)
+			if(width == -1 || height == -1)
 			{
+				width = colorbuffer->getWidth();
+				height = colorbuffer->getHeight();
 				samples = colorbuffer->getSamples();
 			}
-			else if(samples != colorbuffer->getSamples())
+			else
 			{
-				return GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE_ANGLE;
+				if(samples != colorbuffer->getSamples())
+				{
+					return GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE;
+				}
+
+				width = std::min(width, colorbuffer->getWidth());
+				height = std::min(height, colorbuffer->getHeight());
 			}
 		}
 	}
@@ -379,14 +403,14 @@ GLenum Framebuffer::completeness(int &width, int &height, int &samples)
 			return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
 		}
 
-		if(depthbuffer->getWidth() == 0 || depthbuffer->getHeight() == 0)
+		if(depthbuffer->getWidth() == 0 || depthbuffer->getHeight() == 0 || (depthbuffer->getDepth() <= mDepthbufferLayer))
 		{
 			return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
 		}
 
 		if(IsRenderbuffer(mDepthbufferType))
 		{
-			if(!es2::IsDepthRenderable(depthbuffer->getFormat(), egl::getClientVersion()))
+			if(!es2::IsDepthRenderable(depthbuffer->getFormat()))
 			{
 				return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
 			}
@@ -410,13 +434,15 @@ GLenum Framebuffer::completeness(int &width, int &height, int &samples)
 			height = depthbuffer->getHeight();
 			samples = depthbuffer->getSamples();
 		}
-		else if(width != depthbuffer->getWidth() || height != depthbuffer->getHeight())
+		else
 		{
-			return GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS;
-		}
-		else if(samples != depthbuffer->getSamples())
-		{
-			return GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE_ANGLE;
+			if(samples != depthbuffer->getSamples())
+			{
+				return GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE;
+			}
+
+			width = std::min(width, depthbuffer->getWidth());
+			height = std::min(height, depthbuffer->getHeight());
 		}
 	}
 
@@ -429,14 +455,14 @@ GLenum Framebuffer::completeness(int &width, int &height, int &samples)
 			return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
 		}
 
-		if(stencilbuffer->getWidth() == 0 || stencilbuffer->getHeight() == 0)
+		if(stencilbuffer->getWidth() == 0 || stencilbuffer->getHeight() == 0 || (stencilbuffer->getDepth() <= mStencilbufferLayer))
 		{
 			return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
 		}
 
 		if(IsRenderbuffer(mStencilbufferType))
 		{
-			if(!es2::IsStencilRenderable(stencilbuffer->getFormat(), egl::getClientVersion()))
+			if(!es2::IsStencilRenderable(stencilbuffer->getFormat()))
 			{
 				return GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
 			}
@@ -462,17 +488,19 @@ GLenum Framebuffer::completeness(int &width, int &height, int &samples)
 			height = stencilbuffer->getHeight();
 			samples = stencilbuffer->getSamples();
 		}
-		else if(width != stencilbuffer->getWidth() || height != stencilbuffer->getHeight())
+		else
 		{
-			return GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS;
-		}
-		else if(samples != stencilbuffer->getSamples())
-		{
-			return GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE_ANGLE;
+			if(samples != stencilbuffer->getSamples())
+			{
+				return GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE;
+			}
+
+			width = std::min(width, stencilbuffer->getWidth());
+			height = std::min(height, stencilbuffer->getHeight());
 		}
 	}
 
-	if((egl::getClientVersion() >= 3) && depthbuffer && stencilbuffer && (depthbuffer != stencilbuffer))
+	if(depthbuffer && stencilbuffer && (depthbuffer != stencilbuffer))
 	{
 		// In the GLES 3.0 spec, section 4.4.4, Framebuffer Completeness:
 		// "The framebuffer object target is said to be framebuffer complete if all the following conditions are true:
@@ -497,57 +525,55 @@ GLenum Framebuffer::getImplementationColorReadFormat() const
 
 	if(colorbuffer)
 	{
-		switch(colorbuffer->getInternalFormat())
+		switch(colorbuffer->getFormat())
 		{
-		case sw::FORMAT_A8B8G8R8I:       return GL_RGBA_INTEGER;
-		case sw::FORMAT_A8B8G8R8UI:      return GL_RGBA_INTEGER;
-		case sw::FORMAT_A16B16G16R16I:   return GL_RGBA_INTEGER;
-		case sw::FORMAT_A16B16G16R16UI:  return GL_RGBA_INTEGER;
-		case sw::FORMAT_A32B32G32R32I:   return GL_RGBA_INTEGER;
-		case sw::FORMAT_A32B32G32R32UI:  return GL_RGBA_INTEGER;
-		case sw::FORMAT_A2B10G10R10:     return GL_RGB10_A2;
-		case sw::FORMAT_A8B8G8R8I_SNORM: return GL_RGBA;
-		case sw::FORMAT_A8B8G8R8:        return GL_RGBA;
-		case sw::FORMAT_SRGB8_A8:        return GL_RGBA;
-		case sw::FORMAT_A8R8G8B8:        return GL_BGRA_EXT;
-		case sw::FORMAT_A1R5G5B5:        return GL_BGRA_EXT;
-		case sw::FORMAT_X8B8G8R8I:       return GL_RGBA_INTEGER;
-		case sw::FORMAT_X8B8G8R8UI:      return GL_RGBA_INTEGER;
-		case sw::FORMAT_X16B16G16R16I:   return GL_RGBA_INTEGER;
-		case sw::FORMAT_X16B16G16R16UI:  return GL_RGBA_INTEGER;
-		case sw::FORMAT_X32B32G32R32I:   return GL_RGBA_INTEGER;
-		case sw::FORMAT_X32B32G32R32UI:  return GL_RGBA_INTEGER;
-		case sw::FORMAT_X8B8G8R8I_SNORM: return GL_RGBA;
-		case sw::FORMAT_SRGB8_X8:        return GL_RGBA;
-		case sw::FORMAT_X8B8G8R8:        return GL_RGBA;
-		case sw::FORMAT_X8R8G8B8:        return GL_BGRA_EXT;
-		case sw::FORMAT_R5G6B5:          return GL_RGB;
-		case sw::FORMAT_G8R8I:           return GL_RG_INTEGER;
-		case sw::FORMAT_G8R8UI:          return GL_RG_INTEGER;
-		case sw::FORMAT_G16R16I:         return GL_RG_INTEGER;
-		case sw::FORMAT_G16R16UI:        return GL_RG_INTEGER;
-		case sw::FORMAT_G32R32I:         return GL_RG_INTEGER;
-		case sw::FORMAT_G32R32UI:        return GL_RG_INTEGER;
-		case sw::FORMAT_R8I:             return GL_RED_INTEGER;
-		case sw::FORMAT_R8UI:            return GL_RED_INTEGER;
-		case sw::FORMAT_R16I:            return GL_RED_INTEGER;
-		case sw::FORMAT_R16UI:           return GL_RED_INTEGER;
-		case sw::FORMAT_R32I:            return GL_RED_INTEGER;
-		case sw::FORMAT_R32UI:           return GL_RED_INTEGER;
-		case sw::FORMAT_R8:              return GL_RED;
-		case sw::FORMAT_R8I_SNORM:       return GL_RED;
-		case sw::FORMAT_R16F:            return GL_RED;
-		case sw::FORMAT_R32F:            return GL_RED;
-		case sw::FORMAT_G8R8:            return GL_RG;
-		case sw::FORMAT_G8R8I_SNORM:     return GL_RG;
-		case sw::FORMAT_G16R16F:         return GL_RG;
-		case sw::FORMAT_G32R32F:         return GL_RG;
-		case sw::FORMAT_B16G16R16F:      return GL_RGB;
-		case sw::FORMAT_X32B32G32R32F:   return GL_RGBA;
-		case sw::FORMAT_A16B16G16R16F:   return GL_RGBA;
-		case sw::FORMAT_A32B32G32R32F:   return GL_RGBA;
+		case GL_BGRA8_EXT:      return GL_BGRA_EXT;
+		case GL_RGBA4:          return GL_RGBA;
+		case GL_RGB5_A1:        return GL_RGBA;
+		case GL_RGBA8:          return GL_RGBA;
+		case GL_RGB565:         return GL_RGBA;
+		case GL_RGB8:           return GL_RGB;
+		case GL_R8:             return GL_RED;
+		case GL_RG8:            return GL_RG;
+		case GL_R8I:            return GL_RED_INTEGER;
+		case GL_RG8I:           return GL_RG_INTEGER;
+		case GL_RGB8I:          return GL_RGB_INTEGER;
+		case GL_RGBA8I:         return GL_RGBA_INTEGER;
+		case GL_R8UI:           return GL_RED_INTEGER;
+		case GL_RG8UI:          return GL_RG_INTEGER;
+		case GL_RGB8UI:         return GL_RGB_INTEGER;
+		case GL_RGBA8UI:        return GL_RGBA_INTEGER;
+		case GL_R16I:           return GL_RED_INTEGER;
+		case GL_RG16I:          return GL_RG_INTEGER;
+		case GL_RGB16I:         return GL_RGB_INTEGER;
+		case GL_RGBA16I:        return GL_RGBA_INTEGER;
+		case GL_R16UI:          return GL_RED_INTEGER;
+		case GL_RG16UI:         return GL_RG_INTEGER;
+		case GL_RGB16UI:        return GL_RGB_INTEGER;
+		case GL_RGB10_A2UI:     return GL_RGBA_INTEGER;
+		case GL_RGBA16UI:       return GL_RGBA_INTEGER;
+		case GL_R32I:           return GL_RED_INTEGER;
+		case GL_RG32I:          return GL_RG_INTEGER;
+		case GL_RGB32I:         return GL_RGB_INTEGER;
+		case GL_RGBA32I:        return GL_RGBA_INTEGER;
+		case GL_R32UI:          return GL_RED_INTEGER;
+		case GL_RG32UI:         return GL_RG_INTEGER;
+		case GL_RGB32UI:        return GL_RGB_INTEGER;
+		case GL_RGBA32UI:       return GL_RGBA_INTEGER;
+		case GL_R16F:           return GL_RED;
+		case GL_RG16F:          return GL_RG;
+		case GL_R11F_G11F_B10F: return GL_RGB;
+		case GL_RGB16F:         return GL_RGB;
+		case GL_RGBA16F:        return GL_RGBA;
+		case GL_R32F:           return GL_RED;
+		case GL_RG32F:          return GL_RG;
+		case GL_RGB32F:         return GL_RGB;
+		case GL_RGBA32F:        return GL_RGBA;
+		case GL_RGB10_A2:       return GL_RGBA;
+		case GL_SRGB8:          return GL_RGB;
+		case GL_SRGB8_ALPHA8:   return GL_RGBA;
 		default:
-			UNREACHABLE(colorbuffer->getInternalFormat());
+			UNREACHABLE(colorbuffer->getFormat());
 		}
 	}
 
@@ -560,58 +586,55 @@ GLenum Framebuffer::getImplementationColorReadType() const
 
 	if(colorbuffer)
 	{
-		switch(colorbuffer->getInternalFormat())
+		switch(colorbuffer->getFormat())
 		{
-		case sw::FORMAT_R16F:            return GL_FLOAT;
-		case sw::FORMAT_G16R16F:         return GL_FLOAT;
-		case sw::FORMAT_B16G16R16F:      return GL_FLOAT;
-		case sw::FORMAT_A16B16G16R16F:   return GL_FLOAT;
-		case sw::FORMAT_R32F:            return GL_FLOAT;
-		case sw::FORMAT_G32R32F:         return GL_FLOAT;
-		case sw::FORMAT_B32G32R32F:      return GL_FLOAT;
-		case sw::FORMAT_X32B32G32R32F:   return GL_FLOAT;
-		case sw::FORMAT_A32B32G32R32F:   return GL_FLOAT;
-		case sw::FORMAT_R8I_SNORM:       return GL_BYTE;
-		case sw::FORMAT_G8R8I_SNORM:     return GL_BYTE;
-		case sw::FORMAT_X8B8G8R8I_SNORM: return GL_BYTE;
-		case sw::FORMAT_A8B8G8R8I_SNORM: return GL_BYTE;
-		case sw::FORMAT_R8:              return GL_UNSIGNED_BYTE;
-		case sw::FORMAT_G8R8:            return GL_UNSIGNED_BYTE;
-		case sw::FORMAT_SRGB8_X8:        return GL_UNSIGNED_BYTE;
-		case sw::FORMAT_SRGB8_A8:        return GL_UNSIGNED_BYTE;
-		case sw::FORMAT_A8R8G8B8:        return GL_UNSIGNED_BYTE;
-		case sw::FORMAT_A8B8G8R8:        return GL_UNSIGNED_BYTE;
-		case sw::FORMAT_X8R8G8B8:        return GL_UNSIGNED_BYTE;
-		case sw::FORMAT_X8B8G8R8:        return GL_UNSIGNED_BYTE;
-		case sw::FORMAT_R8I:             return GL_INT;
-		case sw::FORMAT_G8R8I:           return GL_INT;
-		case sw::FORMAT_X8B8G8R8I:       return GL_INT;
-		case sw::FORMAT_A8B8G8R8I:       return GL_INT;
-		case sw::FORMAT_R16I:            return GL_INT;
-		case sw::FORMAT_G16R16I:         return GL_INT;
-		case sw::FORMAT_X16B16G16R16I:   return GL_INT;
-		case sw::FORMAT_A16B16G16R16I:   return GL_INT;
-		case sw::FORMAT_R32I:            return GL_INT;
-		case sw::FORMAT_G32R32I:         return GL_INT;
-		case sw::FORMAT_X32B32G32R32I:   return GL_INT;
-		case sw::FORMAT_A32B32G32R32I:   return GL_INT;
-		case sw::FORMAT_R8UI:            return GL_UNSIGNED_INT;
-		case sw::FORMAT_G8R8UI:          return GL_UNSIGNED_INT;
-		case sw::FORMAT_X8B8G8R8UI:      return GL_UNSIGNED_INT;
-		case sw::FORMAT_A8B8G8R8UI:      return GL_UNSIGNED_INT;
-		case sw::FORMAT_R16UI:           return GL_UNSIGNED_INT;
-		case sw::FORMAT_G16R16UI:        return GL_UNSIGNED_INT;
-		case sw::FORMAT_X16B16G16R16UI:  return GL_UNSIGNED_INT;
-		case sw::FORMAT_A16B16G16R16UI:  return GL_UNSIGNED_INT;
-		case sw::FORMAT_R32UI:           return GL_UNSIGNED_INT;
-		case sw::FORMAT_G32R32UI:        return GL_UNSIGNED_INT;
-		case sw::FORMAT_X32B32G32R32UI:  return GL_UNSIGNED_INT;
-		case sw::FORMAT_A32B32G32R32UI:  return GL_UNSIGNED_INT;
-		case sw::FORMAT_A2B10G10R10:     return GL_UNSIGNED_INT_10_10_10_2_OES;
-		case sw::FORMAT_A1R5G5B5:        return GL_UNSIGNED_SHORT_1_5_5_5_REV_EXT;
-		case sw::FORMAT_R5G6B5:          return GL_UNSIGNED_SHORT_5_6_5;
+		case GL_BGRA8_EXT:      return GL_UNSIGNED_BYTE;
+		case GL_RGBA4:          return GL_UNSIGNED_SHORT_4_4_4_4;
+		case GL_RGB5_A1:        return GL_UNSIGNED_SHORT_5_5_5_1;
+		case GL_RGBA8:          return GL_UNSIGNED_BYTE;
+		case GL_RGB565:         return GL_UNSIGNED_SHORT_5_6_5;
+		case GL_RGB8:           return GL_UNSIGNED_BYTE;
+		case GL_R8:             return GL_UNSIGNED_BYTE;
+		case GL_RG8:            return GL_UNSIGNED_BYTE;
+		case GL_R8I:            return GL_INT;
+		case GL_RG8I:           return GL_INT;
+		case GL_RGB8I:          return GL_INT;
+		case GL_RGBA8I:         return GL_INT;
+		case GL_R8UI:           return GL_UNSIGNED_BYTE;
+		case GL_RG8UI:          return GL_UNSIGNED_BYTE;
+		case GL_RGB8UI:         return GL_UNSIGNED_BYTE;
+		case GL_RGBA8UI:        return GL_UNSIGNED_BYTE;
+		case GL_R16I:           return GL_INT;
+		case GL_RG16I:          return GL_INT;
+		case GL_RGB16I:         return GL_INT;
+		case GL_RGBA16I:        return GL_INT;
+		case GL_R16UI:          return GL_UNSIGNED_INT;
+		case GL_RG16UI:         return GL_UNSIGNED_INT;
+		case GL_RGB16UI:        return GL_UNSIGNED_INT;
+		case GL_RGB10_A2UI:     return GL_UNSIGNED_INT_2_10_10_10_REV;
+		case GL_RGBA16UI:       return GL_UNSIGNED_INT;
+		case GL_R32I:           return GL_INT;
+		case GL_RG32I:          return GL_INT;
+		case GL_RGB32I:         return GL_INT;
+		case GL_RGBA32I:        return GL_INT;
+		case GL_R32UI:          return GL_UNSIGNED_INT;
+		case GL_RG32UI:         return GL_UNSIGNED_INT;
+		case GL_RGB32UI:        return GL_UNSIGNED_INT;
+		case GL_RGBA32UI:       return GL_UNSIGNED_INT;
+		case GL_R16F:           return GL_HALF_FLOAT;
+		case GL_RG16F:          return GL_HALF_FLOAT;
+		case GL_R11F_G11F_B10F: return GL_HALF_FLOAT;
+		case GL_RGB16F:         return GL_HALF_FLOAT;
+		case GL_RGBA16F:        return GL_HALF_FLOAT;
+		case GL_R32F:           return GL_FLOAT;
+		case GL_RG32F:          return GL_FLOAT;
+		case GL_RGB32F:         return GL_FLOAT;
+		case GL_RGBA32F:        return GL_FLOAT;
+		case GL_RGB10_A2:       return GL_UNSIGNED_INT_2_10_10_10_REV;
+		case GL_SRGB8:          return GL_UNSIGNED_BYTE;
+		case GL_SRGB8_ALPHA8:   return GL_UNSIGNED_BYTE;
 		default:
-			UNREACHABLE(colorbuffer->getInternalFormat());
+			UNREACHABLE(colorbuffer->getFormat());
 		}
 	}
 
@@ -638,18 +661,16 @@ GLenum Framebuffer::getDepthReadType() const
 
 	if(depthbuffer)
 	{
-		switch(depthbuffer->getInternalFormat())
+		switch(depthbuffer->getFormat())
 		{
-		case sw::FORMAT_D16:                return GL_UNSIGNED_SHORT;
-		case sw::FORMAT_D24S8:              return GL_UNSIGNED_INT_24_8_OES;
-		case sw::FORMAT_D32:                return GL_UNSIGNED_INT;
-		case sw::FORMAT_D32F:
-		case sw::FORMAT_D32F_COMPLEMENTARY:
-		case sw::FORMAT_D32F_LOCKABLE:
-		case sw::FORMAT_D32FS8_TEXTURE:
-		case sw::FORMAT_D32FS8_SHADOW:      return GL_FLOAT;
+		case GL_DEPTH_COMPONENT16:     return GL_UNSIGNED_SHORT;
+		case GL_DEPTH_COMPONENT24:     return GL_UNSIGNED_INT;
+		case GL_DEPTH_COMPONENT32_OES: return GL_UNSIGNED_INT;
+		case GL_DEPTH_COMPONENT32F:    return GL_FLOAT;
+		case GL_DEPTH24_STENCIL8:      return GL_UNSIGNED_INT_24_8_OES;
+		case GL_DEPTH32F_STENCIL8:     return GL_FLOAT_32_UNSIGNED_INT_24_8_REV;
 		default:
-			UNREACHABLE(depthbuffer->getInternalFormat());
+			UNREACHABLE(depthbuffer->getFormat());
 		}
 	}
 
@@ -657,12 +678,33 @@ GLenum Framebuffer::getDepthReadType() const
 	return GL_NONE;
 }
 
+GLuint Framebuffer::getReadBufferIndex() const
+{
+	switch(readBuffer)
+	{
+	case GL_BACK:
+		return 0;
+	case GL_NONE:
+		return GL_INVALID_INDEX;
+	default:
+		return readBuffer - GL_COLOR_ATTACHMENT0;
+	}
+}
+
+DefaultFramebuffer::DefaultFramebuffer()
+{
+	readBuffer = GL_BACK;
+	drawBuffer[0] = GL_BACK;
+}
+
 DefaultFramebuffer::DefaultFramebuffer(Colorbuffer *colorbuffer, DepthStencilbuffer *depthStencil)
 {
-	GLenum defaultRenderbufferType = egl::getClientVersion() < 3 ? GL_RENDERBUFFER : GL_FRAMEBUFFER_DEFAULT;
+	GLenum defaultRenderbufferType = GL_FRAMEBUFFER_DEFAULT;
 	mColorbufferPointer[0] = new Renderbuffer(0, colorbuffer);
 	mColorbufferType[0] = defaultRenderbufferType;
 
+	readBuffer = GL_BACK;
+	drawBuffer[0] = GL_BACK;
 	for(int i = 1; i < MAX_COLOR_ATTACHMENTS; i++)
 	{
 		mColorbufferPointer[i] = nullptr;
@@ -673,8 +715,8 @@ DefaultFramebuffer::DefaultFramebuffer(Colorbuffer *colorbuffer, DepthStencilbuf
 	mDepthbufferPointer = depthStencilRenderbuffer;
 	mStencilbufferPointer = depthStencilRenderbuffer;
 
-	mDepthbufferType = (depthStencilRenderbuffer->getDepthSize() != 0) ? defaultRenderbufferType : GL_NONE;
-	mStencilbufferType = (depthStencilRenderbuffer->getStencilSize() != 0) ? defaultRenderbufferType : GL_NONE;
+	mDepthbufferType = (depthStencilRenderbuffer->getDepthSize() != 0) ? GL_FRAMEBUFFER_DEFAULT : GL_NONE;
+	mStencilbufferType = (depthStencilRenderbuffer->getStencilSize() != 0) ? GL_FRAMEBUFFER_DEFAULT : GL_NONE;
 }
 
 }

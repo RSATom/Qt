@@ -53,8 +53,6 @@
 
 #include "qfilesystemwatcher_p.h"
 
-#ifndef QT_NO_FILESYSTEMWATCHER
-
 #include <QtCore/qdatetime.h>
 #include <QtCore/qthread.h>
 #include <QtCore/qfile.h>
@@ -79,8 +77,8 @@ public:
     explicit QWindowsFileSystemWatcherEngine(QObject *parent);
     ~QWindowsFileSystemWatcherEngine();
 
-    QStringList addPaths(const QStringList &paths, QStringList *files, QStringList *directories);
-    QStringList removePaths(const QStringList &paths, QStringList *files, QStringList *directories);
+    QStringList addPaths(const QStringList &paths, QStringList *files, QStringList *directories) override;
+    QStringList removePaths(const QStringList &paths, QStringList *files, QStringList *directories) override;
 
     class Handle
     {
@@ -156,7 +154,7 @@ public:
 
     QWindowsFileSystemWatcherEngineThread();
     ~QWindowsFileSystemWatcherEngineThread();
-    void run();
+    void run() override;
     void stop();
     void wakeup();
 
@@ -174,7 +172,5 @@ Q_SIGNALS:
 };
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_FILESYSTEMWATCHER
 
 #endif // QFILESYSTEMWATCHER_WIN_P_H

@@ -44,7 +44,9 @@
 #if QT_CONFIG(itemviews)
 #include "qabstractitemview.h"
 #endif
+#if QT_CONFIG(draganddrop)
 #include "qdrag.h"
+#endif
 #include "qwidgetaction.h"
 #include "qclipboard.h"
 #ifndef QT_NO_ACCESSIBILITY
@@ -55,7 +57,10 @@
 #include "qlist.h"
 #endif
 #include <qpainter.h>
+#if QT_CONFIG(animation)
 #include <qpropertyanimation.h>
+#endif
+#include <qstylehints.h>
 #include <qvalidator.h>
 
 QT_BEGIN_NAMESPACE
@@ -213,6 +218,7 @@ void QLineEditPrivate::init(const QString& txt)
 
     QObject::connect(control, SIGNAL(updateNeeded(QRect)),
             q, SLOT(_q_updateNeeded(QRect)));
+    QObject::connect(control, SIGNAL(inputRejected()), q, SIGNAL(inputRejected()));
 
     QStyleOptionFrame opt;
     q->initStyleOption(&opt);
@@ -232,6 +238,13 @@ void QLineEditPrivate::init(const QString& txt)
     q->setAcceptDrops(true);
 
     q->setAttribute(Qt::WA_MacShowFocusRect);
+
+    initMouseYThreshold();
+}
+
+void QLineEditPrivate::initMouseYThreshold()
+{
+    mouseYThreshold = QGuiApplication::styleHints()->mouseQuickSelectionThreshold();
 }
 
 QRect QLineEditPrivate::adjustedContentsRect() const
@@ -302,7 +315,7 @@ bool QLineEditPrivate::sendMouseEventToInputContext( QMouseEvent *e )
     return false;
 }
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 void QLineEditPrivate::drag()
 {
     Q_Q(QLineEdit);
@@ -311,12 +324,11 @@ void QLineEditPrivate::drag()
     data->setText(control->selectedText());
     QDrag *drag = new QDrag(q);
     drag->setMimeData(data);
-    Qt::DropAction action = drag->start();
+    Qt::DropAction action = drag->exec(Qt::CopyAction);
     if (action == Qt::MoveAction && !control->isReadOnly() && drag->target() != q)
         control->removeSelection();
 }
-
-#endif // QT_NO_DRAGANDDROP
+#endif // QT_CONFIG(draganddrop)
 
 
 #if QT_CONFIG(toolbutton)
@@ -330,20 +342,18 @@ QLineEditIconButton::QLineEditIconButton(QWidget *parent)
 QLineEditPrivate *QLineEditIconButton::lineEditPrivate() const
 {
     QLineEdit *le = qobject_cast<QLineEdit *>(parentWidget());
-    return le ? static_cast<QLineEditPrivate *>(qt_widget_private(le)) : Q_NULLPTR;
+    return le ? static_cast<QLineEditPrivate *>(qt_widget_private(le)) : nullptr;
 }
 
 void QLineEditIconButton::paintEvent(QPaintEvent *)
 {
     QPainter painter(this);
-    QWindow *window = Q_NULLPTR;
+    QWindow *window = nullptr;
     if (const QWidget *nativeParent = nativeParentWidget())
         window = nativeParent->windowHandle();
-    // Note isDown should really use the active state but in most styles
-    // this has no proper feedback
     QIcon::Mode state = QIcon::Disabled;
     if (isEnabled())
-        state = isDown() ? QIcon::Selected : QIcon::Normal;
+        state = isDown() ? QIcon::Active : QIcon::Normal;
     const QLineEditPrivate *lep = lineEditPrivate();
     const int iconWidth = lep ? lep->sideWidgetParameters().iconSize : 16;
     const QSize iconSize(iconWidth, iconWidth);
@@ -381,10 +391,48 @@ void QLineEditIconButton::setOpacity(qreal value)
     }
 }
 
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
+bool QLineEditIconButton::shouldHideWithText() const
+{
+    return m_hideWithText;
+}
+
+void QLineEditIconButton::setHideWithText(bool hide)
+{
+    m_hideWithText = hide;
+}
+
+void QLineEditIconButton::onAnimationFinished()
+{
+    if (shouldHideWithText() && isVisible() && !m_wasHidden) {
+        hide();
+
+        // Invalidate previous geometry to take into account new size of side widgets
+        if (auto le = lineEditPrivate())
+            le->updateGeometry_helper(true);
+    }
+}
+
+void QLineEditIconButton::animateShow(bool visible)
+{
+    m_wasHidden = visible;
+
+    if (shouldHideWithText() && !isVisible()) {
+        show();
+
+        // Invalidate previous geometry to take into account new size of side widgets
+        if (auto le = lineEditPrivate())
+            le->updateGeometry_helper(true);
+    }
+
+    startOpacityAnimation(visible ? 1.0 : 0.0);
+}
+
 void QLineEditIconButton::startOpacityAnimation(qreal endValue)
 {
     QPropertyAnimation *animation = new QPropertyAnimation(this, QByteArrayLiteral("opacity"));
+    connect(animation, &QPropertyAnimation::finished, this, &QLineEditIconButton::onAnimationFinished);
+
     animation->setDuration(160);
     animation->setEndValue(endValue);
     animation->start(QAbstractAnimation::DeleteWhenStopped);
@@ -399,6 +447,16 @@ void QLineEditIconButton::updateCursor()
 }
 #endif // QT_CONFIG(toolbutton)
 
+#if QT_CONFIG(animation) && QT_CONFIG(toolbutton)
+static void displayWidgets(const QLineEditPrivate::SideWidgetEntryList &widgets, bool display)
+{
+    for (const auto &e : widgets) {
+        if (e.flags & QLineEditPrivate::SideWidgetFadeInWithText)
+            static_cast<QLineEditIconButton *>(e.widget)->animateShow(display);
+    }
+}
+#endif
+
 void QLineEditPrivate::_q_textChanged(const QString &text)
 {
     if (hasSideWidgets()) {
@@ -406,15 +464,9 @@ void QLineEditPrivate::_q_textChanged(const QString &text)
         if (!newTextSize || !lastTextSize) {
             lastTextSize = newTextSize;
 #if QT_CONFIG(animation) && QT_CONFIG(toolbutton)
-            const bool fadeIn = newTextSize > 0;
-            for (const SideWidgetEntry &e : leadingSideWidgets) {
-                if (e.flags & SideWidgetFadeInWithText)
-                   static_cast<QLineEditIconButton *>(e.widget)->animateShow(fadeIn);
-            }
-            for (const SideWidgetEntry &e : trailingSideWidgets) {
-                if (e.flags & SideWidgetFadeInWithText)
-                   static_cast<QLineEditIconButton *>(e.widget)->animateShow(fadeIn);
-            }
+            const bool display = newTextSize > 0;
+            displayWidgets(leadingSideWidgets, display);
+            displayWidgets(trailingSideWidgets, display);
 #endif
         }
     }
@@ -433,7 +485,7 @@ QLineEditPrivate::SideWidgetParameters QLineEditPrivate::sideWidgetParameters() 
 {
     Q_Q(const QLineEdit);
     SideWidgetParameters result;
-    result.iconSize = q->height() < 34 ? 16 : 32;
+    result.iconSize = q->style()->pixelMetric(QStyle::PM_SmallIconSize, 0, q);
     result.margin = result.iconSize / 4;
     result.widgetWidth = result.iconSize + 6;
     result.widgetHeight = result.iconSize + 2;
@@ -457,6 +509,8 @@ void QLineEditPrivate::setClearButtonEnabled(bool enabled)
             break;
         }
     }
+#else
+    Q_UNUSED(enabled);
 #endif
 }
 
@@ -474,6 +528,8 @@ void QLineEditPrivate::positionSideWidgets()
 #if QT_CONFIG(action)
             if (e.action->isVisible())
                 widgetGeometry.moveLeft(widgetGeometry.left() + delta);
+#else
+            Q_UNUSED(delta);
 #endif
         }
         widgetGeometry.moveLeft(contentRect.width() - p.widgetWidth - p.margin);
@@ -527,8 +583,15 @@ QWidget *QLineEditPrivate::addAction(QAction *newAction, QAction *before, QLineE
         QLineEditIconButton *toolButton = new QLineEditIconButton(q);
         toolButton->setIcon(newAction->icon());
         toolButton->setOpacity(lastTextSize > 0 || !(flags & SideWidgetFadeInWithText) ? 1 : 0);
-        if (flags & SideWidgetClearButton)
+        if (flags & SideWidgetClearButton) {
             QObject::connect(toolButton, SIGNAL(clicked()), q, SLOT(_q_clearButtonClicked()));
+
+#if QT_CONFIG(animation)
+            // The clear button is handled only by this widget. The button should be really
+            // shown/hidden in order to calculate size hints correctly.
+            toolButton->setHideWithText(true);
+#endif
+        }
         toolButton->setDefaultAction(newAction);
         w = toolButton;
 #else
@@ -587,36 +650,31 @@ void QLineEditPrivate::removeAction(QAction *action)
      if (!hasSideWidgets()) // Last widget, remove connection
          QObject::disconnect(q, SIGNAL(textChanged(QString)), q, SLOT(_q_textChanged(QString)));
      q->update();
+#else
+    Q_UNUSED(action);
 #endif // QT_CONFIG(action)
 }
 
-static bool isSideWidgetVisible(const QLineEditPrivate::SideWidgetEntry &e)
+static int effectiveTextMargin(int defaultMargin, const QLineEditPrivate::SideWidgetEntryList &widgets,
+                               const QLineEditPrivate::SideWidgetParameters &parameters)
 {
-   return e.widget->isVisible();
+    if (widgets.empty())
+        return defaultMargin;
+
+    return defaultMargin + (parameters.margin + parameters.widgetWidth) *
+           int(std::count_if(widgets.begin(), widgets.end(),
+                             [](const QLineEditPrivate::SideWidgetEntry &e) {
+                                 return e.widget->isVisibleTo(e.widget->parentWidget()); }));
 }
 
 int QLineEditPrivate::effectiveLeftTextMargin() const
 {
-    int result = leftTextMargin;
-    if (!leftSideWidgetList().empty()) {
-        const SideWidgetParameters p = sideWidgetParameters();
-        result += (p.margin + p.widgetWidth)
-            * int(std::count_if(leftSideWidgetList().begin(), leftSideWidgetList().end(),
-                                isSideWidgetVisible));
-    }
-    return result;
+    return effectiveTextMargin(leftTextMargin, leftSideWidgetList(), sideWidgetParameters());
 }
 
 int QLineEditPrivate::effectiveRightTextMargin() const
 {
-    int result = rightTextMargin;
-    if (!rightSideWidgetList().empty()) {
-        const SideWidgetParameters p = sideWidgetParameters();
-        result += (p.margin + p.widgetWidth)
-            * int(std::count_if(rightSideWidgetList().begin(), rightSideWidgetList().end(),
-                                isSideWidgetVisible));
-    }
-    return result;
+    return effectiveTextMargin(rightTextMargin, rightSideWidgetList(), sideWidgetParameters());
 }
 
 

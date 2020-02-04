@@ -6,7 +6,6 @@
 
 #include "base/bind.h"
 #include "base/logging.h"
-#include "net/base/completion_callback.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/base/upload_bytes_element_reader.h"
@@ -23,8 +22,7 @@ ElementsUploadDataStream::ElementsUploadDataStream(
       read_error_(OK),
       weak_ptr_factory_(this) {}
 
-ElementsUploadDataStream::~ElementsUploadDataStream() {
-}
+ElementsUploadDataStream::~ElementsUploadDataStream() = default;
 
 std::unique_ptr<UploadDataStream> ElementsUploadDataStream::CreateWithReader(
     std::unique_ptr<UploadElementReader> reader,
@@ -43,7 +41,7 @@ int ElementsUploadDataStream::ReadInternal(
     IOBuffer* buf,
     int buf_len) {
   DCHECK_GT(buf_len, 0);
-  return ReadElements(new DrainableIOBuffer(buf, buf_len));
+  return ReadElements(base::MakeRefCounted<DrainableIOBuffer>(buf, buf_len));
 }
 
 bool ElementsUploadDataStream::IsInMemory() const {
@@ -72,9 +70,8 @@ int ElementsUploadDataStream::InitElements(size_t start_index) {
     // When new_result is ERR_IO_PENDING, InitInternal() will be called
     // with start_index == i + 1 when reader->Init() finishes.
     int result = reader->Init(
-        base::Bind(&ElementsUploadDataStream::OnInitElementCompleted,
-                   weak_ptr_factory_.GetWeakPtr(),
-                   i));
+        base::BindOnce(&ElementsUploadDataStream::OnInitElementCompleted,
+                       weak_ptr_factory_.GetWeakPtr(), i));
     DCHECK(result != ERR_IO_PENDING || !reader->IsInMemory());
     DCHECK_LE(result, OK);
     if (result != OK)
@@ -115,11 +112,9 @@ int ElementsUploadDataStream::ReadElements(
       break;
 
     int result = reader->Read(
-        buf.get(),
-        buf->BytesRemaining(),
-        base::Bind(&ElementsUploadDataStream::OnReadElementCompleted,
-                   weak_ptr_factory_.GetWeakPtr(),
-                   buf));
+        buf.get(), buf->BytesRemaining(),
+        base::BindOnce(&ElementsUploadDataStream::OnReadElementCompleted,
+                       weak_ptr_factory_.GetWeakPtr(), buf));
     if (result == ERR_IO_PENDING)
       return ERR_IO_PENDING;
     ProcessReadResult(buf, result);

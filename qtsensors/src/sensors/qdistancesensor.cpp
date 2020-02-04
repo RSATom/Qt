@@ -158,5 +158,6 @@ QDistanceReading *QDistanceSensor::reading() const
     return static_cast<QDistanceReading*>(QSensor::reading());
 }
 
-#include "moc_qdistancesensor.cpp"
 QT_END_NAMESPACE
+
+#include "moc_qdistancesensor.cpp"

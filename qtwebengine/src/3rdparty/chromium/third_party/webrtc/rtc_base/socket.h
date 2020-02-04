@@ -8,26 +8,25 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_SOCKET_H_
-#define WEBRTC_RTC_BASE_SOCKET_H_
+#ifndef RTC_BASE_SOCKET_H_
+#define RTC_BASE_SOCKET_H_
 
 #include <errno.h>
 
 #if defined(WEBRTC_POSIX)
-#include <sys/types.h>
-#include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 #define SOCKET_EACCES EACCES
 #endif
 
 #if defined(WEBRTC_WIN)
-#include "webrtc/rtc_base/win32.h"
+#include "rtc_base/win32.h"
 #endif
 
-#include "webrtc/rtc_base/basictypes.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/socketaddress.h"
+#include "rtc_base/constructor_magic.h"
+#include "rtc_base/socket_address.h"
 
 // Rather than converting errors into a private namespace,
 // Reuse the POSIX socket api errors. Note this depends on
@@ -108,7 +107,6 @@
 #define ESTALE WSAESTALE
 #undef EREMOTE
 #define EREMOTE WSAEREMOTE
-#undef EACCES
 #define SOCKET_EACCES WSAEACCES
 #endif  // WEBRTC_WIN
 
@@ -123,15 +121,6 @@ namespace rtc {
 inline bool IsBlockingError(int e) {
   return (e == EWOULDBLOCK) || (e == EAGAIN) || (e == EINPROGRESS);
 }
-
-struct SentPacket {
-  SentPacket() : packet_id(-1), send_time_ms(-1) {}
-  SentPacket(int packet_id, int64_t send_time_ms)
-      : packet_id(packet_id), send_time_ms(send_time_ms) {}
-
-  int packet_id;
-  int64_t send_time_ms;
-};
 
 // General interface for the socket implementations of various networks.  The
 // methods match those of normal UNIX sockets very closely.
@@ -149,8 +138,8 @@ class Socket {
 
   virtual int Bind(const SocketAddress& addr) = 0;
   virtual int Connect(const SocketAddress& addr) = 0;
-  virtual int Send(const void *pv, size_t cb) = 0;
-  virtual int SendTo(const void *pv, size_t cb, const SocketAddress& addr) = 0;
+  virtual int Send(const void* pv, size_t cb) = 0;
+  virtual int SendTo(const void* pv, size_t cb, const SocketAddress& addr) = 0;
   // |timestamp| is in units of microseconds.
   virtual int Recv(void* pv, size_t cb, int64_t* timestamp) = 0;
   virtual int RecvFrom(void* pv,
@@ -158,26 +147,22 @@ class Socket {
                        SocketAddress* paddr,
                        int64_t* timestamp) = 0;
   virtual int Listen(int backlog) = 0;
-  virtual Socket *Accept(SocketAddress *paddr) = 0;
+  virtual Socket* Accept(SocketAddress* paddr) = 0;
   virtual int Close() = 0;
   virtual int GetError() const = 0;
   virtual void SetError(int error) = 0;
   inline bool IsBlocking() const { return IsBlockingError(GetError()); }
 
-  enum ConnState {
-    CS_CLOSED,
-    CS_CONNECTING,
-    CS_CONNECTED
-  };
+  enum ConnState { CS_CLOSED, CS_CONNECTING, CS_CONNECTED };
   virtual ConnState GetState() const = 0;
 
   enum Option {
     OPT_DONTFRAGMENT,
-    OPT_RCVBUF,      // receive buffer size
-    OPT_SNDBUF,      // send buffer size
-    OPT_NODELAY,     // whether Nagle algorithm is enabled
-    OPT_IPV6_V6ONLY, // Whether the socket is IPv6 only.
-    OPT_DSCP,        // DSCP code
+    OPT_RCVBUF,                // receive buffer size
+    OPT_SNDBUF,                // send buffer size
+    OPT_NODELAY,               // whether Nagle algorithm is enabled
+    OPT_IPV6_V6ONLY,           // Whether the socket is IPv6 only.
+    OPT_DSCP,                  // DSCP code
     OPT_RTP_SENDTIME_EXTN_ID,  // This is a non-traditional socket option param.
                                // This is specific to libjingle and will be used
                                // if SendTime option is needed at socket level.
@@ -194,4 +179,4 @@ class Socket {
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_SOCKET_H_
+#endif  // RTC_BASE_SOCKET_H_

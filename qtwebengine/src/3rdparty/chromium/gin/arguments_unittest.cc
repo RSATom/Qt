@@ -31,8 +31,9 @@ TEST_F(ArgumentsTest, TestArgumentsHolderCreationContext) {
   // |creation_context|.
   v8::Local<v8::ObjectTemplate> object_template =
       ObjectTemplateBuilder(isolate)
-          .SetMethod("checkCreationContext",
-                     base::Bind(check_creation_context, creation_context))
+          .SetMethod(
+              "checkCreationContext",
+              base::BindRepeating(check_creation_context, creation_context))
           .Build();
 
   v8::Local<v8::Object> object =
@@ -47,9 +48,11 @@ TEST_F(ArgumentsTest, TestArgumentsHolderCreationContext) {
         v8::Script::Compile(context, StringToV8(isolate, kCallFunction))
             .ToLocalChecked();
     v8::Local<v8::Function> function;
-    ASSERT_TRUE(ConvertFromV8(isolate, script->Run(), &function));
+    ASSERT_TRUE(ConvertFromV8(isolate, script->Run(context).ToLocalChecked(),
+                              &function));
     v8::Local<v8::Value> args[] = {object};
-    function->Call(v8::Undefined(isolate), arraysize(args), args);
+    function->Call(context, v8::Undefined(isolate), base::size(args), args)
+        .ToLocalChecked();
   };
 
   // Test calling in the creation context.
@@ -73,8 +76,7 @@ TEST_F(ArgumentsTest, TestGetAll) {
 
   V8List list1 = {
       gin::ConvertToV8(isolate, 1), gin::StringToV8(isolate, "some string"),
-      gin::ConvertToV8(context, std::vector<double>({2.0, 3.0}))
-          .ToLocalChecked(),
+      gin::ConvertToV8(isolate, std::vector<double>({2.0, 3.0})),
   };
   bool called1 = false;
 
@@ -100,9 +102,12 @@ TEST_F(ArgumentsTest, TestGetAll) {
   // |creation_context|.
   v8::Local<v8::ObjectTemplate> object_template =
       ObjectTemplateBuilder(isolate)
-          .SetMethod("check1", base::Bind(check_arguments, &list1, &called1))
-          .SetMethod("check2", base::Bind(check_arguments, &list2, &called2))
-          .SetMethod("check3", base::Bind(check_arguments, &list3, &called3))
+          .SetMethod("check1",
+                     base::BindRepeating(check_arguments, &list1, &called1))
+          .SetMethod("check2",
+                     base::BindRepeating(check_arguments, &list2, &called2))
+          .SetMethod("check3",
+                     base::BindRepeating(check_arguments, &list3, &called3))
           .Build();
 
   v8::Local<v8::Object> object =

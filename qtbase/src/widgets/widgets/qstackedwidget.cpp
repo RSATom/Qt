@@ -101,7 +101,7 @@ public:
     widget is removed from the stacked widget, the currentChanged()
     and widgetRemoved() signals are emitted respectively.
 
-    \sa QStackedLayout, QTabWidget, {Config Dialog Example}
+    \sa QStackedLayout, QTabWidget
 */
 
 /*!
@@ -220,7 +220,7 @@ int QStackedWidget::currentIndex() const
 }
 
 /*!
-    Returns the current widget, or 0 if there are no child widgets.
+    Returns the current widget, or \nullptr if there are no child widgets.
 
     \sa currentIndex(), setCurrentWidget()
 */
@@ -260,8 +260,8 @@ int QStackedWidget::indexOf(QWidget *widget) const
 }
 
 /*!
-    Returns the widget at the given \a index, or 0 if there is no such
-    widget.
+    Returns the widget at the given \a index, or \nullptr if there is
+    no such widget.
 
     \sa currentWidget(), indexOf()
 */

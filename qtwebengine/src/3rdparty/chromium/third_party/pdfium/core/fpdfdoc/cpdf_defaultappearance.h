@@ -7,46 +7,34 @@
 #ifndef CORE_FPDFDOC_CPDF_DEFAULTAPPEARANCE_H_
 #define CORE_FPDFDOC_CPDF_DEFAULTAPPEARANCE_H_
 
-#include "core/fpdfdoc/cpdf_defaultappearance.h"
-#include "core/fxcrt/fx_coordinates.h"
+#include <utility>
+
+#include "core/fpdfapi/parser/cpdf_simple_parser.h"
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
+#include "core/fxge/cfx_color.h"
 #include "core/fxge/fx_dib.h"
 
 enum class BorderStyle { SOLID, DASH, BEVELED, INSET, UNDERLINE };
-enum class PaintOperation { STROKE, FILL };
 
 class CPDF_DefaultAppearance {
  public:
   CPDF_DefaultAppearance() {}
-  explicit CPDF_DefaultAppearance(const CFX_ByteString& csDA) : m_csDA(csDA) {}
+  explicit CPDF_DefaultAppearance(const ByteString& csDA) : m_csDA(csDA) {}
+  CPDF_DefaultAppearance(const CPDF_DefaultAppearance& cDA)
+      : m_csDA(cDA.m_csDA) {}
 
-  CPDF_DefaultAppearance(const CPDF_DefaultAppearance& cDA) {
-    m_csDA = cDA.GetStr();
-  }
+  Optional<ByteString> GetFont(float* fFontSize);
 
-  CFX_ByteString GetStr() const { return m_csDA; }
+  Optional<CFX_Color::Type> GetColor(float fc[4]);
+  std::pair<Optional<CFX_Color::Type>, FX_ARGB> GetColor();
 
-  bool HasFont();
-  CFX_ByteString GetFontString();
-  CFX_ByteString GetFont(float* fFontSize);
-
-  bool HasColor(PaintOperation nOperation = PaintOperation::FILL);
-  CFX_ByteString GetColorString(
-      PaintOperation nOperation = PaintOperation::FILL);
-  void GetColor(int& iColorType,
-                float fc[4],
-                PaintOperation nOperation = PaintOperation::FILL);
-  void GetColor(FX_ARGB& color,
-                int& iColorType,
-                PaintOperation nOperation = PaintOperation::FILL);
-
-  bool HasTextMatrix();
-  CFX_ByteString GetTextMatrixString();
-  CFX_Matrix GetTextMatrix();
+  bool FindTagParamFromStartForTesting(CPDF_SimpleParser* parser,
+                                       ByteStringView token,
+                                       int nParams);
 
  private:
-  CFX_ByteString m_csDA;
+  ByteString m_csDA;
 };
 
 #endif  // CORE_FPDFDOC_CPDF_DEFAULTAPPEARANCE_H_

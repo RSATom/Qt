@@ -16,6 +16,7 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/install_warning.h"
+#include "extensions/common/scoped_testing_manifest_handler_registry.h"
 #include "extensions/common/value_builder.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -28,20 +29,6 @@ std::vector<std::string> SingleKey(const std::string& key) {
 }
 
 }  // namespace
-
-class ScopedTestingManifestHandlerRegistry {
- public:
-  ScopedTestingManifestHandlerRegistry() {
-    old_registry_ = ManifestHandlerRegistry::SetForTesting(&registry_);
-  }
-
-  ~ScopedTestingManifestHandlerRegistry() {
-    ManifestHandlerRegistry::SetForTesting(old_registry_);
-  }
-
-  ManifestHandlerRegistry registry_;
-  ManifestHandlerRegistry* old_registry_;
-};
 
 class ManifestHandlerTest : public testing::Test {
  public:
@@ -84,6 +71,9 @@ class ManifestHandlerTest : public testing::Test {
                         const std::vector<std::string>& prereqs,
                         ParsingWatcher* watcher)
         : name_(name), keys_(keys), prereqs_(prereqs), watcher_(watcher) {
+      keys_ptrs_.resize(keys_.size());
+      std::transform(keys_.begin(), keys_.end(), keys_ptrs_.begin(),
+                     [](const std::string& s) { return s.c_str(); });
     }
 
     bool Parse(Extension* extension, base::string16* error) override {
@@ -98,10 +88,11 @@ class ManifestHandlerTest : public testing::Test {
    protected:
     std::string name_;
     std::vector<std::string> keys_;
+    std::vector<const char*> keys_ptrs_;
     std::vector<std::string> prereqs_;
     ParsingWatcher* watcher_;
 
-    const std::vector<std::string> Keys() const override { return keys_; }
+    base::span<const char* const> Keys() const override { return keys_ptrs_; }
   };
 
   class FailingTestManifestHandler : public TestManifestHandler {
@@ -138,6 +129,9 @@ class ManifestHandlerTest : public testing::Test {
         : return_value_(return_value),
           always_validate_(always_validate),
           keys_(keys) {
+      keys_ptrs_.resize(keys_.size());
+      std::transform(keys_.begin(), keys_.end(), keys_ptrs_.begin(),
+                     [](const std::string& s) { return s.c_str(); });
     }
 
     bool Parse(Extension* extension, base::string16* error) override {
@@ -155,37 +149,43 @@ class ManifestHandlerTest : public testing::Test {
     }
 
    private:
-    const std::vector<std::string> Keys() const override { return keys_; }
+    base::span<const char* const> Keys() const override { return keys_ptrs_; }
 
    protected:
     bool return_value_;
     bool always_validate_;
     std::vector<std::string> keys_;
+    std::vector<const char*> keys_ptrs_;
   };
 };
 
 TEST_F(ManifestHandlerTest, DependentHandlers) {
-  ScopedTestingManifestHandlerRegistry registry;
+  ScopedTestingManifestHandlerRegistry scoped_registry;
   ParsingWatcher watcher;
   std::vector<std::string> prereqs;
-  (new TestManifestHandler("A", SingleKey("a"), prereqs, &watcher))->Register();
-  (new TestManifestHandler("B", SingleKey("b"), prereqs, &watcher))->Register();
-  (new TestManifestHandler("J", SingleKey("j"), prereqs, &watcher))->Register();
-  (new AlwaysParseTestManifestHandler("K", SingleKey("k"), prereqs, &watcher))->
-      Register();
+  ManifestHandlerRegistry* registry = ManifestHandlerRegistry::Get();
+  registry->RegisterHandler(std::make_unique<TestManifestHandler>(
+      "A", SingleKey("a"), prereqs, &watcher));
+  registry->RegisterHandler(std::make_unique<TestManifestHandler>(
+      "B", SingleKey("b"), prereqs, &watcher));
+  registry->RegisterHandler(std::make_unique<TestManifestHandler>(
+      "J", SingleKey("j"), prereqs, &watcher));
+  registry->RegisterHandler(std::make_unique<AlwaysParseTestManifestHandler>(
+      "K", SingleKey("k"), prereqs, &watcher));
   prereqs.push_back("c.d");
   std::vector<std::string> keys;
   keys.push_back("c.e");
   keys.push_back("c.z");
-  (new TestManifestHandler("C.EZ", keys, prereqs, &watcher))->Register();
+  registry->RegisterHandler(
+      std::make_unique<TestManifestHandler>("C.EZ", keys, prereqs, &watcher));
   prereqs.clear();
   prereqs.push_back("b");
   prereqs.push_back("k");
-  (new TestManifestHandler("C.D", SingleKey("c.d"), prereqs, &watcher))->
-      Register();
+  registry->RegisterHandler(std::make_unique<TestManifestHandler>(
+      "C.D", SingleKey("c.d"), prereqs, &watcher));
   ManifestHandler::FinalizeRegistration();
 
-  scoped_refptr<Extension> extension =
+  scoped_refptr<const Extension> extension =
       ExtensionBuilder()
           .SetManifest(DictionaryBuilder()
                            .Set("name", "no name")
@@ -210,7 +210,7 @@ TEST_F(ManifestHandlerTest, DependentHandlers) {
 }
 
 TEST_F(ManifestHandlerTest, FailingHandlers) {
-  ScopedTestingManifestHandlerRegistry registry;
+  ScopedTestingManifestHandlerRegistry scoped_registry;
   // Can't use ExtensionBuilder, because this extension will fail to
   // be parsed.
   std::unique_ptr<base::DictionaryValue> manifest_a(
@@ -223,18 +223,16 @@ TEST_F(ManifestHandlerTest, FailingHandlers) {
 
   // Succeeds when "a" is not recognized.
   std::string error;
-  scoped_refptr<Extension> extension = Extension::Create(
-      base::FilePath(),
-      Manifest::INVALID_LOCATION,
-      *manifest_a,
-      Extension::NO_FLAGS,
-      &error);
+  scoped_refptr<Extension> extension =
+      Extension::Create(base::FilePath(), Manifest::INVALID_LOCATION,
+                        *manifest_a, Extension::NO_FLAGS, &error);
   EXPECT_TRUE(extension.get());
 
   // Register a handler for "a" that fails.
   ParsingWatcher watcher;
-  (new FailingTestManifestHandler(
-      "A", SingleKey("a"), std::vector<std::string>(), &watcher))->Register();
+  ManifestHandlerRegistry* registry = ManifestHandlerRegistry::Get();
+  registry->RegisterHandler(std::make_unique<FailingTestManifestHandler>(
+      "A", SingleKey("a"), std::vector<std::string>(), &watcher));
   ManifestHandler::FinalizeRegistration();
 
   extension = Extension::Create(
@@ -248,8 +246,8 @@ TEST_F(ManifestHandlerTest, FailingHandlers) {
 }
 
 TEST_F(ManifestHandlerTest, Validate) {
-  ScopedTestingManifestHandlerRegistry registry;
-  scoped_refptr<Extension> extension =
+  ScopedTestingManifestHandlerRegistry scoped_registry;
+  scoped_refptr<const Extension> extension =
       ExtensionBuilder()
           .SetManifest(DictionaryBuilder()
                            .Set("name", "no name")
@@ -261,20 +259,18 @@ TEST_F(ManifestHandlerTest, Validate) {
           .Build();
   EXPECT_TRUE(extension.get());
 
+  ManifestHandlerRegistry* registry = ManifestHandlerRegistry::Get();
   std::string error;
   std::vector<InstallWarning> warnings;
   // Always validates and fails.
-  (new TestManifestValidator(false, true, SingleKey("c")))->Register();
+  registry->RegisterHandler(
+      std::make_unique<TestManifestValidator>(false, true, SingleKey("c")));
   EXPECT_FALSE(
       ManifestHandler::ValidateExtension(extension.get(), &error, &warnings));
 
-  // This overrides the registered handler for "c".
-  (new TestManifestValidator(false, false, SingleKey("c")))->Register();
-  EXPECT_TRUE(
-      ManifestHandler::ValidateExtension(extension.get(), &error, &warnings));
-
   // Validates "a" and fails.
-  (new TestManifestValidator(false, true, SingleKey("a")))->Register();
+  registry->RegisterHandler(
+      std::make_unique<TestManifestValidator>(false, true, SingleKey("a")));
   EXPECT_FALSE(
       ManifestHandler::ValidateExtension(extension.get(), &error, &warnings));
 }

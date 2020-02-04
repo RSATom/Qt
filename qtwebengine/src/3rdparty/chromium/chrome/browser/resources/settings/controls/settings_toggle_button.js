@@ -12,32 +12,84 @@ Polymer({
   behaviors: [SettingsBooleanControlBehavior],
 
   properties: {
+    ariaLabel: {
+      type: String,
+      reflectToAttribute: false,  // Handled by #control.
+      observer: 'onAriaLabelSet_',
+      value: '',
+    },
+
     elideLabel: {
       type: Boolean,
       reflectToAttribute: true,
     },
   },
 
+  listeners: {
+    'click': 'onHostTap_',
+  },
+
+  observers: [
+    'onDisableOrPrefChange_(disabled, pref.*)',
+  ],
+
   /** @override */
   focus: function() {
     this.$.control.focus();
   },
 
-  /** @private */
-  onLabelWrapperTap_: function() {
-    if (this.controlDisabled_())
-      return;
-
-    this.checked = !this.checked;
-    this.notifyChangedByUserInteraction();
+  /**
+   * Removes the aria-label attribute if it's added by $i18n{...}.
+   * @private
+   */
+  onAriaLabelSet_: function() {
+    if (this.hasAttribute('aria-label')) {
+      const ariaLabel = this.ariaLabel;
+      this.removeAttribute('aria-label');
+      this.ariaLabel = ariaLabel;
+    }
   },
 
   /**
-   * TODO(scottchen): temporary fix until polymer gesture bug resolved. See:
-   * https://github.com/PolymerElements/paper-slider/issues/186
+   * @return {string}
    * @private
    */
-  resetTrackLock_: function() {
-    Polymer.Gestures.gestures.tap.reset();
+  getAriaLabel_: function() {
+    return this.label || this.ariaLabel;
+  },
+
+  /** @private */
+  onDisableOrPrefChange_: function() {
+    if (this.controlDisabled()) {
+      this.removeAttribute('actionable');
+    } else {
+      this.setAttribute('actionable', '');
+    }
+  },
+
+  /**
+   * Handles non cr-toggle button clicks (cr-toggle handles its own click events
+   * which don't bubble).
+   * @param {!Event} e
+   * @private
+   */
+  onHostTap_: function(e) {
+    e.stopPropagation();
+    if (this.controlDisabled()) {
+      return;
+    }
+
+    this.checked = !this.checked;
+    this.notifyChangedByUserInteraction();
+    this.fire('change');
+  },
+
+  /**
+   * @param {!CustomEvent<boolean>} e
+   * @private
+   */
+  onChange_: function(e) {
+    this.checked = e.detail;
+    this.notifyChangedByUserInteraction();
   },
 });

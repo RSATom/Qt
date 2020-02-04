@@ -54,7 +54,6 @@
 #include <QtCore/QObject>
 #include <QtCore/QScopedPointer>
 
-#include <wayland-client.h>
 #include <QtServiceSupport/private/qgenericunixservices_p.h>
 
 #include <QtWaylandClient/private/qwayland-qt-windowmanager.h>
@@ -75,7 +74,7 @@ class Q_WAYLAND_CLIENT_EXPORT QWaylandWindowManagerIntegration : public QObject,
     Q_DECLARE_PRIVATE(QWaylandWindowManagerIntegration)
 public:
     explicit QWaylandWindowManagerIntegration(QWaylandDisplay *waylandDisplay);
-    virtual ~QWaylandWindowManagerIntegration();
+    ~QWaylandWindowManagerIntegration() override;
 
     bool openUrl(const QUrl &url) override;
     bool openDocument(const QUrl &url) override;

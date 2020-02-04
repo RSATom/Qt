@@ -11,6 +11,7 @@
 #define PPAPI_PROXY_DISPATCH_REPLY_MESSAGE_H_
 
 #include <tuple>
+#include <utility>
 
 #include "base/callback.h"
 #include "base/tuple.h"
@@ -27,7 +28,7 @@ inline void DispatchResourceReplyImpl(ObjT* obj,
                                       Method method,
                                       const ResourceMessageReplyParams& params,
                                       TupleType&& args_tuple,
-                                      base::IndexSequence<indices...>) {
+                                      std::index_sequence<indices...>) {
   (obj->*method)(params,
                  std::get<indices>(std::forward<TupleType>(args_tuple))...);
 }
@@ -41,16 +42,17 @@ inline void DispatchResourceReply(ObjT* obj,
                                   Method method,
                                   const ResourceMessageReplyParams& params,
                                   TupleType&& args_tuple) {
+  constexpr size_t size = std::tuple_size<std::decay_t<TupleType>>::value;
   DispatchResourceReplyImpl(obj, method, params,
                             std::forward<TupleType>(args_tuple),
-                            base::MakeIndexSequenceForTuple<TupleType>());
+                            std::make_index_sequence<size>());
 }
 
 template <typename CallbackType, typename TupleType, size_t... indices>
 inline void DispatchResourceReplyImpl(CallbackType&& callback,
                                       const ResourceMessageReplyParams& params,
                                       TupleType&& args_tuple,
-                                      base::IndexSequence<indices...>) {
+                                      std::index_sequence<indices...>) {
   std::forward<CallbackType>(callback).Run(
       params, std::get<indices>(std::forward<TupleType>(args_tuple))...);
 }
@@ -63,9 +65,10 @@ template <typename CallbackType, typename TupleType>
 inline void DispatchResourceReply(CallbackType&& callback,
                                   const ResourceMessageReplyParams& params,
                                   TupleType&& args_tuple) {
+  constexpr size_t size = std::tuple_size<std::decay_t<TupleType>>::value;
   DispatchResourceReplyImpl(std::forward<CallbackType>(callback), params,
                             std::forward<TupleType>(args_tuple),
-                            base::MakeIndexSequenceForTuple<TupleType>());
+                            std::make_index_sequence<size>());
 }
 
 // Used to dispatch resource replies. In most cases, you should not call this

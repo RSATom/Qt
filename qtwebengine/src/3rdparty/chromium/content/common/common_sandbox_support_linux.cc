@@ -4,7 +4,6 @@
 
 #include "content/public/common/common_sandbox_support_linux.h"
 
-#include <stddef.h>
 #include <sys/stat.h>
 
 #include <limits>
@@ -13,10 +12,12 @@
 #include "base/numerics/safe_conversions.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/sys_byteorder.h"
-#include "base/trace_event/trace_event.h"
 
 namespace content {
 
+// TODO(drott): This should be removed once we don't need to support PPAPI
+// TrueType functionality anymore, and before that, it should be replaced with
+// using FreeType for the purpose instead of reimplementing table parsing.
 bool GetFontTable(int fd,
                   uint32_t table_tag,
                   off_t offset,

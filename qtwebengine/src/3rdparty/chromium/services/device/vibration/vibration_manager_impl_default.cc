@@ -7,7 +7,6 @@
 #include <stdint.h>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 
 namespace device {
@@ -37,7 +36,7 @@ class VibrationManagerEmptyImpl : public mojom::VibrationManager {
 
 // static
 void VibrationManagerImpl::Create(mojom::VibrationManagerRequest request) {
-  mojo::MakeStrongBinding(base::MakeUnique<VibrationManagerEmptyImpl>(),
+  mojo::MakeStrongBinding(std::make_unique<VibrationManagerEmptyImpl>(),
                           std::move(request));
 }
 

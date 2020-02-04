@@ -72,13 +72,19 @@ private Q_SLOTS:
     void handleSetMaximized();
     void handleUnsetMaximized();
     void handleMaximizedChanged();
+    void handleSetFullscreen();
+    void handleUnsetFullscreen();
+    void handleFullscreenChanged();
     void handleActivatedChanged();
     void handleSurfaceSizeChanged();
+    void handleToplevelDestroyed();
+    void handleMaximizedSizeChanged();
+    void handleFullscreenSizeChanged();
 
 private:
-    QWaylandQuickShellSurfaceItem *m_item;
-    QWaylandXdgSurfaceV6 *m_xdgSurface;
-    QWaylandXdgToplevelV6 *m_toplevel;
+    QWaylandQuickShellSurfaceItem *m_item = nullptr;
+    QWaylandXdgSurfaceV6 *m_xdgSurface = nullptr;
+    QWaylandXdgToplevelV6 *m_toplevel = nullptr;
 
     enum class GrabberState {
         Default,
@@ -88,25 +94,32 @@ private:
     GrabberState grabberState;
 
     struct {
-        QWaylandSeat *seat;
+        QWaylandSeat *seat = nullptr;
         QPointF initialOffset;
-        bool initialized;
+        bool initialized = false;
     } moveState;
 
     struct {
-        QWaylandSeat *seat;
+        QWaylandSeat *seat = nullptr;
         Qt::Edges resizeEdges;
         QSizeF initialWindowSize;
         QPointF initialMousePos;
         QPointF initialPosition;
         QSize initialSurfaceSize;
-        bool initialized;
+        bool initialized = false;
     } resizeState;
 
     struct {
         QSize initialWindowSize;
         QPointF initialPosition;
-    } maximizeState;
+    } windowedGeometry;
+
+    struct {
+        QWaylandOutput *output = nullptr;
+        QMetaObject::Connection sizeChangedConnection; // Depending on whether maximized or fullscreen,
+                                                       // will be hooked to geometry-changed or available-
+                                                       // geometry-changed.
+    } nonwindowedState;
 };
 
 class XdgPopupV6Integration : public QWaylandQuickShellIntegration
@@ -119,9 +132,9 @@ private Q_SLOTS:
     void handleGeometryChanged();
 
 private:
-    QWaylandQuickShellSurfaceItem *m_item;
-    QWaylandXdgSurfaceV6 *m_xdgSurface;
-    QWaylandXdgPopupV6 *m_popup;
+    QWaylandQuickShellSurfaceItem *m_item = nullptr;
+    QWaylandXdgSurfaceV6 *m_xdgSurface = nullptr;
+    QWaylandXdgPopupV6 *m_popup = nullptr;
 };
 
 }

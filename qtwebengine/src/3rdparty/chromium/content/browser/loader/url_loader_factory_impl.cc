@@ -4,114 +4,49 @@
 
 #include "content/browser/loader/url_loader_factory_impl.h"
 
-#include "base/memory/ptr_util.h"
 #include "content/browser/loader/resource_dispatcher_host_impl.h"
 #include "content/browser/loader/resource_requester_info.h"
-#include "content/public/common/resource_request.h"
-#include "content/public/common/url_loader.mojom.h"
+#include "content/public/browser/browser_thread.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "services/network/public/cpp/resource_request.h"
+#include "services/network/public/mojom/url_loader.mojom.h"
 
 namespace content {
 
-namespace {
-
-void DispatchSyncLoadResult(URLLoaderFactoryImpl::SyncLoadCallback callback,
-                            const SyncLoadResult* result) {
-  // |result| can be null when a loading task is aborted unexpectedly. Reply
-  // with a failure result on that case.
-  // TODO(tzik): Test null-result case.
-  if (!result) {
-    SyncLoadResult failure;
-    failure.error_code = net::ERR_FAILED;
-    std::move(callback).Run(failure);
-    return;
-  }
-
-  std::move(callback).Run(*result);
-}
-
-} // namespace
-
 URLLoaderFactoryImpl::URLLoaderFactoryImpl(
-    scoped_refptr<ResourceRequesterInfo> requester_info,
-    const scoped_refptr<base::SingleThreadTaskRunner>& io_thread_runner)
-    : requester_info_(std::move(requester_info)),
-      io_thread_task_runner_(io_thread_runner) {
+    scoped_refptr<ResourceRequesterInfo> requester_info)
+    : requester_info_(std::move(requester_info)) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK((requester_info_->IsRenderer() && requester_info_->filter()) ||
-         requester_info_->IsNavigationPreload());
-  DCHECK(io_thread_task_runner_->BelongsToCurrentThread());
+         requester_info_->IsNavigationPreload() ||
+         requester_info_->IsCertificateFetcherForSignedExchange());
 }
 
 URLLoaderFactoryImpl::~URLLoaderFactoryImpl() {
-  DCHECK(io_thread_task_runner_->BelongsToCurrentThread());
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
 }
 
 void URLLoaderFactoryImpl::CreateLoaderAndStart(
-    mojom::URLLoaderAssociatedRequest request,
+    network::mojom::URLLoaderRequest request,
     int32_t routing_id,
     int32_t request_id,
     uint32_t options,
-    const ResourceRequest& url_request,
-    mojom::URLLoaderClientPtr client,
+    const network::ResourceRequest& url_request,
+    network::mojom::URLLoaderClientPtr client,
     const net::MutableNetworkTrafficAnnotationTag& traffic_annotation) {
-  DCHECK_EQ(options, mojom::kURLLoadOptionNone);
-  CreateLoaderAndStart(
-      requester_info_.get(), std::move(request), routing_id, request_id,
-      url_request, std::move(client),
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  ResourceDispatcherHostImpl* rdh = ResourceDispatcherHostImpl::Get();
+  rdh->OnRequestResourceWithMojo(
+      requester_info_.get(), routing_id, request_id, options, url_request,
+      std::move(request), std::move(client),
       static_cast<net::NetworkTrafficAnnotationTag>(traffic_annotation));
 }
 
-void URLLoaderFactoryImpl::SyncLoad(int32_t routing_id,
-                                    int32_t request_id,
-                                    const ResourceRequest& url_request,
-                                    SyncLoadCallback callback) {
-  SyncLoad(requester_info_.get(), routing_id, request_id, url_request,
-           std::move(callback));
-}
-
-// static
-void URLLoaderFactoryImpl::CreateLoaderAndStart(
-    ResourceRequesterInfo* requester_info,
-    mojom::URLLoaderAssociatedRequest request,
-    int32_t routing_id,
-    int32_t request_id,
-    const ResourceRequest& url_request,
-    mojom::URLLoaderClientPtr client,
-    const net::NetworkTrafficAnnotationTag& traffic_annotation) {
-  DCHECK(ResourceDispatcherHostImpl::Get()
-             ->io_thread_task_runner()
-             ->BelongsToCurrentThread());
-
-  ResourceDispatcherHostImpl* rdh = ResourceDispatcherHostImpl::Get();
-  rdh->OnRequestResourceWithMojo(requester_info, routing_id, request_id,
-                                 url_request, std::move(request),
-                                 std::move(client), traffic_annotation);
-}
-
-// static
-void URLLoaderFactoryImpl::SyncLoad(ResourceRequesterInfo* requester_info,
-                                    int32_t routing_id,
-                                    int32_t request_id,
-                                    const ResourceRequest& url_request,
-                                    SyncLoadCallback callback) {
-  DCHECK(ResourceDispatcherHostImpl::Get()
-             ->io_thread_task_runner()
-             ->BelongsToCurrentThread());
-
-  ResourceDispatcherHostImpl* rdh = ResourceDispatcherHostImpl::Get();
-  rdh->OnSyncLoadWithMojo(
-      requester_info, routing_id, request_id, url_request,
-      base::Bind(&DispatchSyncLoadResult, base::Passed(&callback)));
-}
-
-void URLLoaderFactoryImpl::Create(
-    scoped_refptr<ResourceRequesterInfo> requester_info,
-    mojo::InterfaceRequest<mojom::URLLoaderFactory> request,
-    const scoped_refptr<base::SingleThreadTaskRunner>& io_thread_runner) {
-  mojo::MakeStrongBinding(base::WrapUnique(new URLLoaderFactoryImpl(
-                              std::move(requester_info), io_thread_runner)),
-                          std::move(request));
+void URLLoaderFactoryImpl::Clone(
+    network::mojom::URLLoaderFactoryRequest request) {
+  // The cloned factories stop working when this factory is destructed.
+  bindings_.AddBinding(this, std::move(request));
 }
 
 }  // namespace content

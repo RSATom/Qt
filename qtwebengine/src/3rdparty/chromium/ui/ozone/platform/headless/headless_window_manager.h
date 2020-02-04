@@ -9,8 +9,8 @@
 
 #include <memory>
 
+#include "base/containers/id_map.h"
 #include "base/files/file_path.h"
-#include "base/id_map.h"
 #include "base/macros.h"
 #include "base/threading/thread_checker.h"
 #include "ui/gfx/native_widget_types.h"
@@ -22,11 +22,8 @@ class HeadlessWindow;
 
 class HeadlessWindowManager {
  public:
-  explicit HeadlessWindowManager(const base::FilePath& dump_location);
+  HeadlessWindowManager();
   ~HeadlessWindowManager();
-
-  // Initialize (mainly check that we have a place to write output to).
-  void Initialize();
 
   // Register a new window. Returns the window id.
   int32_t AddWindow(HeadlessWindow* window);
@@ -37,13 +34,8 @@ class HeadlessWindowManager {
   // Find a window object by id;
   HeadlessWindow* GetWindow(int32_t window_id);
 
-  // User-supplied path for images.
-  base::FilePath base_path() const;
-
  private:
-  base::FilePath location_;
-
-  IDMap<HeadlessWindow*> windows_;
+  base::IDMap<HeadlessWindow*> windows_;
   base::ThreadChecker thread_checker_;
 
   DISALLOW_COPY_AND_ASSIGN(HeadlessWindowManager);

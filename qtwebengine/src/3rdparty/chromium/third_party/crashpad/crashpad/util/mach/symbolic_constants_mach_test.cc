@@ -18,21 +18,22 @@
 #include <string.h>
 #include <sys/types.h>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/stringprintf.h"
 #include "gtest/gtest.h"
 #include "util/mach/mach_extensions.h"
 #include "util/misc/implicit_cast.h"
 
-#define NUL_TEST_DATA(string) { string, arraysize(string) - 1 }
+#define NUL_TEST_DATA(string) \
+  { string, base::size(string) - 1 }
 
 namespace crashpad {
 namespace test {
 namespace {
 
 // Options to use for normal tests, those that don’t require kAllowOr.
-const StringToSymbolicConstantOptions kNormalOptions[] = {
+constexpr StringToSymbolicConstantOptions kNormalOptions[] = {
     0,
     kAllowFullName,
     kAllowShortName,
@@ -118,7 +119,7 @@ void TestStringToSomething(const base::StringPiece& string,
   }
 }
 
-const struct {
+constexpr struct {
   exception_type_t exception;
   const char* full_name;
   const char* short_name;
@@ -147,9 +148,9 @@ struct ConvertExceptionTraits {
                                 ValueType* value) {
     return StringToException(string, options, value);
   }
-  static const char kValueName[];
+  static constexpr char kValueName[] = "exception";
 };
-const char ConvertExceptionTraits::kValueName[] = "exception";
+constexpr char ConvertExceptionTraits::kValueName[];
 
 void TestExceptionToString(exception_type_t value,
                            const char* expect_full,
@@ -159,7 +160,7 @@ void TestExceptionToString(exception_type_t value,
 }
 
 TEST(SymbolicConstantsMach, ExceptionToString) {
-  for (size_t index = 0; index < arraysize(kExceptionTestData); ++index) {
+  for (size_t index = 0; index < base::size(kExceptionTestData); ++index) {
     SCOPED_TRACE(base::StringPrintf("index %zu", index));
     TestExceptionToString(kExceptionTestData[index].exception,
                           kExceptionTestData[index].full_name,
@@ -187,12 +188,11 @@ void TestStringToException(const base::StringPiece& string,
 }
 
 TEST(SymbolicConstantsMach, StringToException) {
-  for (size_t option_index = 0;
-       option_index < arraysize(kNormalOptions);
+  for (size_t option_index = 0; option_index < base::size(kNormalOptions);
        ++option_index) {
     SCOPED_TRACE(base::StringPrintf("option_index %zu", option_index));
     StringToSymbolicConstantOptions options = kNormalOptions[option_index];
-    for (size_t index = 0; index < arraysize(kExceptionTestData); ++index) {
+    for (size_t index = 0; index < base::size(kExceptionTestData); ++index) {
       SCOPED_TRACE(base::StringPrintf("index %zu", index));
       exception_type_t exception = kExceptionTestData[index].exception;
       {
@@ -217,7 +217,7 @@ TEST(SymbolicConstantsMach, StringToException) {
       }
     }
 
-    const char* const kNegativeTestData[] = {
+    static constexpr const char* kNegativeTestData[] = {
         "EXC_CRASH ",
         " EXC_BAD_INSTRUCTION",
         "CRASH ",
@@ -230,12 +230,12 @@ TEST(SymbolicConstantsMach, StringToException) {
         "",
     };
 
-    for (size_t index = 0; index < arraysize(kNegativeTestData); ++index) {
+    for (size_t index = 0; index < base::size(kNegativeTestData); ++index) {
       SCOPED_TRACE(base::StringPrintf("index %zu", index));
       TestStringToException(kNegativeTestData[index], options, false, 0);
     }
 
-    const struct {
+    static constexpr struct {
       const char* string;
       size_t length;
     } kNULTestData[] = {
@@ -251,7 +251,7 @@ TEST(SymbolicConstantsMach, StringToException) {
         NUL_TEST_DATA("1\0002"),
     };
 
-    for (size_t index = 0; index < arraysize(kNULTestData); ++index) {
+    for (size_t index = 0; index < base::size(kNULTestData); ++index) {
       SCOPED_TRACE(base::StringPrintf("index %zu", index));
       base::StringPiece string(kNULTestData[index].string,
                                kNULTestData[index].length);
@@ -276,7 +276,7 @@ TEST(SymbolicConstantsMach, StringToException) {
   }
 }
 
-const struct {
+constexpr struct {
   exception_mask_t exception_mask;
   const char* full_name;
   const char* short_name;
@@ -322,9 +322,9 @@ struct ConvertExceptionMaskTraits {
                                 ValueType* value) {
     return StringToExceptionMask(string, options, value);
   }
-  static const char kValueName[];
+  static constexpr char kValueName[] = "exception_mask";
 };
-const char ConvertExceptionMaskTraits::kValueName[] = "exception_mask";
+constexpr char ConvertExceptionMaskTraits::kValueName[];
 
 void TestExceptionMaskToString(exception_mask_t value,
                                const char* expect_full,
@@ -334,7 +334,7 @@ void TestExceptionMaskToString(exception_mask_t value,
 }
 
 TEST(SymbolicConstantsMach, ExceptionMaskToString) {
-  for (size_t index = 0; index < arraysize(kExceptionMaskTestData); ++index) {
+  for (size_t index = 0; index < base::size(kExceptionMaskTestData); ++index) {
     SCOPED_TRACE(base::StringPrintf("index %zu", index));
     TestExceptionMaskToString(kExceptionMaskTestData[index].exception_mask,
                               kExceptionMaskTestData[index].full_name,
@@ -370,7 +370,7 @@ void TestStringToExceptionMask(const base::StringPiece& string,
 
 TEST(SymbolicConstantsMach, StringToExceptionMask) {
   // Don’t use kNormalOptions, because kAllowOr needs to be tested.
-  const StringToSymbolicConstantOptions kOptions[] = {
+  static constexpr StringToSymbolicConstantOptions kOptions[] = {
       0,
       kAllowFullName,
       kAllowShortName,
@@ -389,12 +389,12 @@ TEST(SymbolicConstantsMach, StringToExceptionMask) {
       kAllowFullName | kAllowShortName | kAllowNumber | kAllowOr,
   };
 
-  for (size_t option_index = 0;
-       option_index < arraysize(kOptions);
+  for (size_t option_index = 0; option_index < base::size(kOptions);
        ++option_index) {
     SCOPED_TRACE(base::StringPrintf("option_index %zu", option_index));
     StringToSymbolicConstantOptions options = kOptions[option_index];
-    for (size_t index = 0; index < arraysize(kExceptionMaskTestData); ++index) {
+    for (size_t index = 0; index < base::size(kExceptionMaskTestData);
+         ++index) {
       SCOPED_TRACE(base::StringPrintf("index %zu", index));
       exception_mask_t exception_mask =
           kExceptionMaskTestData[index].exception_mask;
@@ -430,7 +430,7 @@ TEST(SymbolicConstantsMach, StringToExceptionMask) {
       }
     }
 
-    const char* const kNegativeTestData[] = {
+    static constexpr const char* kNegativeTestData[] = {
         "EXC_MASK_CRASH ",
         " EXC_MASK_BAD_INSTRUCTION",
         "EXC_MASK_EXC_MASK_BAD_ACCESS",
@@ -445,12 +445,12 @@ TEST(SymbolicConstantsMach, StringToExceptionMask) {
         "",
     };
 
-    for (size_t index = 0; index < arraysize(kNegativeTestData); ++index) {
+    for (size_t index = 0; index < base::size(kNegativeTestData); ++index) {
       SCOPED_TRACE(base::StringPrintf("index %zu", index));
       TestStringToExceptionMask(kNegativeTestData[index], options, false, 0);
     }
 
-    const struct {
+    static constexpr struct {
       const char* string;
       size_t length;
     } kNULTestData[] = {
@@ -471,7 +471,7 @@ TEST(SymbolicConstantsMach, StringToExceptionMask) {
         NUL_TEST_DATA("ARITHMETIC|\0EMULATION"),
     };
 
-    for (size_t index = 0; index < arraysize(kNULTestData); ++index) {
+    for (size_t index = 0; index < base::size(kNULTestData); ++index) {
       SCOPED_TRACE(base::StringPrintf("index %zu", index));
       base::StringPiece string(kNULTestData[index].string,
                                kNULTestData[index].length);
@@ -479,7 +479,7 @@ TEST(SymbolicConstantsMach, StringToExceptionMask) {
     }
   }
 
-  const struct {
+  static const struct {
     const char* string;
     StringToSymbolicConstantOptions options;
     exception_mask_t mask;
@@ -506,7 +506,7 @@ TEST(SymbolicConstantsMach, StringToExceptionMask) {
        EXC_MASK_SYSCALL | 0x100},
     };
 
-  for (size_t index = 0; index < arraysize(kNonCanonicalTestData); ++index) {
+  for (size_t index = 0; index < base::size(kNonCanonicalTestData); ++index) {
     SCOPED_TRACE(base::StringPrintf("index %zu", index));
     TestStringToExceptionMask(kNonCanonicalTestData[index].string,
                               kNonCanonicalTestData[index].options,
@@ -531,7 +531,7 @@ TEST(SymbolicConstantsMach, StringToExceptionMask) {
   }
 }
 
-const struct {
+constexpr struct {
   exception_behavior_t behavior;
   const char* full_name;
   const char* short_name;
@@ -565,9 +565,9 @@ struct ConvertExceptionBehaviorTraits {
                                 ValueType* value) {
     return StringToExceptionBehavior(string, options, value);
   }
-  static const char kValueName[];
+  static constexpr char kValueName[] = "behavior";
 };
-const char ConvertExceptionBehaviorTraits::kValueName[] = "behavior";
+constexpr char ConvertExceptionBehaviorTraits::kValueName[];
 
 void TestExceptionBehaviorToString(exception_behavior_t value,
                                    const char* expect_full,
@@ -577,8 +577,7 @@ void TestExceptionBehaviorToString(exception_behavior_t value,
 }
 
 TEST(SymbolicConstantsMach, ExceptionBehaviorToString) {
-  for (size_t index = 0;
-       index < arraysize(kExceptionBehaviorTestData);
+  for (size_t index = 0; index < base::size(kExceptionBehaviorTestData);
        ++index) {
     SCOPED_TRACE(base::StringPrintf("index %zu", index));
     TestExceptionBehaviorToString(kExceptionBehaviorTestData[index].behavior,
@@ -608,13 +607,11 @@ void TestStringToExceptionBehavior(const base::StringPiece& string,
 }
 
 TEST(SymbolicConstantsMach, StringToExceptionBehavior) {
-  for (size_t option_index = 0;
-       option_index < arraysize(kNormalOptions);
+  for (size_t option_index = 0; option_index < base::size(kNormalOptions);
        ++option_index) {
     SCOPED_TRACE(base::StringPrintf("option_index %zu", option_index));
     StringToSymbolicConstantOptions options = kNormalOptions[option_index];
-    for (size_t index = 0;
-         index < arraysize(kExceptionBehaviorTestData);
+    for (size_t index = 0; index < base::size(kExceptionBehaviorTestData);
          ++index) {
       SCOPED_TRACE(base::StringPrintf("index %zu", index));
       exception_behavior_t behavior =
@@ -643,7 +640,7 @@ TEST(SymbolicConstantsMach, StringToExceptionBehavior) {
       }
     }
 
-    const char* const kNegativeTestData[] = {
+    static constexpr const char* kNegativeTestData[] = {
         "EXCEPTION_DEFAULT ",
         " EXCEPTION_STATE",
         "EXCEPTION_EXCEPTION_STATE_IDENTITY",
@@ -660,13 +657,13 @@ TEST(SymbolicConstantsMach, StringToExceptionBehavior) {
         "",
     };
 
-    for (size_t index = 0; index < arraysize(kNegativeTestData); ++index) {
+    for (size_t index = 0; index < base::size(kNegativeTestData); ++index) {
       SCOPED_TRACE(base::StringPrintf("index %zu", index));
       TestStringToExceptionBehavior(
           kNegativeTestData[index], options, false, 0);
     }
 
-    const struct {
+    static constexpr struct {
       const char* string;
       size_t length;
     } kNULTestData[] = {
@@ -686,7 +683,7 @@ TEST(SymbolicConstantsMach, StringToExceptionBehavior) {
         NUL_TEST_DATA("STATE_IDENTITY|\0MACH"),
     };
 
-    for (size_t index = 0; index < arraysize(kNULTestData); ++index) {
+    for (size_t index = 0; index < base::size(kNULTestData); ++index) {
       SCOPED_TRACE(base::StringPrintf("index %zu", index));
       base::StringPiece string(kNULTestData[index].string,
                                kNULTestData[index].length);
@@ -694,7 +691,7 @@ TEST(SymbolicConstantsMach, StringToExceptionBehavior) {
     }
   }
 
-  const struct {
+  static constexpr struct {
     const char* string;
     StringToSymbolicConstantOptions options;
     exception_behavior_t behavior;
@@ -723,7 +720,7 @@ TEST(SymbolicConstantsMach, StringToExceptionBehavior) {
        implicit_cast<exception_behavior_t>(MACH_EXCEPTION_CODES | 0x2)},
   };
 
-  for (size_t index = 0; index < arraysize(kNonCanonicalTestData); ++index) {
+  for (size_t index = 0; index < base::size(kNonCanonicalTestData); ++index) {
     SCOPED_TRACE(base::StringPrintf("index %zu", index));
     TestStringToExceptionBehavior(kNonCanonicalTestData[index].string,
                                   kNonCanonicalTestData[index].options,
@@ -763,7 +760,7 @@ TEST(SymbolicConstantsMach, StringToExceptionBehavior) {
   }
 }
 
-const struct {
+constexpr struct {
   thread_state_flavor_t flavor;
   const char* full_name;
   const char* short_name;
@@ -801,7 +798,7 @@ const struct {
     {PPC_VECTOR_STATE, "PPC_VECTOR_STATE", "VECTOR"},
     {PPC_THREAD_STATE64, "PPC_THREAD_STATE64", "THREAD64"},
     {PPC_EXCEPTION_STATE64, "PPC_EXCEPTION_STATE64", "EXCEPTION64"},
-#elif defined(__arm__) || defined(__arm64__)
+#elif defined(__arm__) || defined(__aarch64__)
     {ARM_THREAD_STATE, "ARM_THREAD_STATE", "THREAD"},
     {ARM_VFP_STATE, "ARM_VFP_STATE", "VFP"},
     {ARM_EXCEPTION_STATE, "ARM_EXCEPTION_STATE", "EXCEPTION"},
@@ -828,9 +825,9 @@ struct ConvertThreadStateFlavorTraits {
                                 ValueType* value) {
     return StringToThreadStateFlavor(string, options, value);
   }
-  static const char kValueName[];
+  static constexpr char kValueName[] = "flavor";
 };
-const char ConvertThreadStateFlavorTraits::kValueName[] = "flavor";
+constexpr char ConvertThreadStateFlavorTraits::kValueName[];
 
 void TestThreadStateFlavorToString(exception_type_t value,
                                    const char* expect_full,
@@ -840,8 +837,7 @@ void TestThreadStateFlavorToString(exception_type_t value,
 }
 
 TEST(SymbolicConstantsMach, ThreadStateFlavorToString) {
-  for (size_t index = 0;
-       index < arraysize(kThreadStateFlavorTestData);
+  for (size_t index = 0; index < base::size(kThreadStateFlavorTestData);
        ++index) {
     SCOPED_TRACE(base::StringPrintf("index %zu", index));
     TestThreadStateFlavorToString(kThreadStateFlavorTestData[index].flavor,
@@ -860,7 +856,7 @@ TEST(SymbolicConstantsMach, ThreadStateFlavorToString) {
         flavor <= x86_AVX_STATE
 #elif defined(__ppc__) || defined(__ppc64__)
         flavor <= THREAD_STATE_NONE
-#elif defined(__arm__) || defined(__arm64__)
+#elif defined(__arm__) || defined(__aarch64__)
         (flavor <= ARM_EXCEPTION_STATE64 || flavor == ARM_THREAD_STATE32 ||
          (flavor >= ARM_DEBUG_STATE32 && flavor <= ARM_NEON_STATE64))
 #endif
@@ -883,13 +879,11 @@ void TestStringToThreadStateFlavor(const base::StringPiece& string,
 }
 
 TEST(SymbolicConstantsMach, StringToThreadStateFlavor) {
-  for (size_t option_index = 0;
-       option_index < arraysize(kNormalOptions);
+  for (size_t option_index = 0; option_index < base::size(kNormalOptions);
        ++option_index) {
     SCOPED_TRACE(base::StringPrintf("option_index %zu", option_index));
     StringToSymbolicConstantOptions options = kNormalOptions[option_index];
-    for (size_t index = 0;
-         index < arraysize(kThreadStateFlavorTestData);
+    for (size_t index = 0; index < base::size(kThreadStateFlavorTestData);
          ++index) {
       SCOPED_TRACE(base::StringPrintf("index %zu", index));
       thread_state_flavor_t flavor = kThreadStateFlavorTestData[index].flavor;
@@ -917,7 +911,7 @@ TEST(SymbolicConstantsMach, StringToThreadStateFlavor) {
       }
     }
 
-    const char* const kNegativeTestData[] = {
+    static constexpr const char* kNegativeTestData[] = {
       "THREAD_STATE_NONE ",
       " THREAD_STATE_NONE",
       "NONE ",
@@ -948,7 +942,7 @@ TEST(SymbolicConstantsMach, StringToThreadStateFlavor) {
       "PPC_JUNK_STATE32",
       "x86_THREAD_STATE",
       "ARM_THREAD_STATE",
-#elif defined(__arm__) || defined(__arm64__)
+#elif defined(__arm__) || defined(__aarch64__)
       " ARM_THREAD_STATE64",
       "ARM_THREAD_STATE64 ",
       "ARM_THREAD_STATE642",
@@ -959,13 +953,13 @@ TEST(SymbolicConstantsMach, StringToThreadStateFlavor) {
 #endif
     };
 
-    for (size_t index = 0; index < arraysize(kNegativeTestData); ++index) {
+    for (size_t index = 0; index < base::size(kNegativeTestData); ++index) {
       SCOPED_TRACE(base::StringPrintf("index %zu", index));
       TestStringToThreadStateFlavor(
           kNegativeTestData[index], options, false, 0);
     }
 
-    const struct {
+    static constexpr struct {
       const char* string;
       size_t length;
     } kNULTestData[] = {
@@ -1013,7 +1007,7 @@ TEST(SymbolicConstantsMach, StringToThreadStateFlavor) {
         NUL_TEST_DATA("PPC_THREAD_\0STATE64"),
         NUL_TEST_DATA("PPC_THREAD_STA\0TE64"),
         NUL_TEST_DATA("PPC_THREAD_STATE\00064"),
-#elif defined(__arm__) || defined(__arm64__)
+#elif defined(__arm__) || defined(__aarch64__)
         NUL_TEST_DATA("\0ARM_THREAD_STATE64"),
         NUL_TEST_DATA("ARM\0_THREAD_STATE64"),
         NUL_TEST_DATA("ARM_\0THREAD_STATE64"),
@@ -1025,7 +1019,7 @@ TEST(SymbolicConstantsMach, StringToThreadStateFlavor) {
 #endif
     };
 
-    for (size_t index = 0; index < arraysize(kNULTestData); ++index) {
+    for (size_t index = 0; index < base::size(kNULTestData); ++index) {
       SCOPED_TRACE(base::StringPrintf("index %zu", index));
       base::StringPiece string(kNULTestData[index].string,
                                kNULTestData[index].length);

@@ -46,7 +46,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 class QValueAxis;
 
-class QT_CHARTS_PRIVATE_EXPORT ChartValueAxisY : public VerticalAxis
+class Q_CHARTS_PRIVATE_EXPORT ChartValueAxisY : public VerticalAxis
 {
     Q_OBJECT
 public:
@@ -61,6 +61,9 @@ private Q_SLOTS:
     void handleTickCountChanged(int tick);
     void handleMinorTickCountChanged(int tick);
     void handleLabelFormatChanged(const QString &format);
+    void handleTickIntervalChanged(qreal interval);
+    void handleTickAnchorChanged(qreal anchor);
+    void handleTickTypeChanged(QValueAxis::TickType type);
 
 private:
     QValueAxis *m_axis;

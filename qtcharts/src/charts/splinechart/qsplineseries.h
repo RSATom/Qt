@@ -40,12 +40,12 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 class QSplineSeriesPrivate;
 
-class QT_CHARTS_EXPORT QSplineSeries : public QLineSeries
+class Q_CHARTS_EXPORT QSplineSeries : public QLineSeries
 {
     Q_OBJECT
 
 public:
-    explicit QSplineSeries(QObject *parent = Q_NULLPTR);
+    explicit QSplineSeries(QObject *parent = nullptr);
     ~QSplineSeries();
     QAbstractSeries::SeriesType type() const;
 

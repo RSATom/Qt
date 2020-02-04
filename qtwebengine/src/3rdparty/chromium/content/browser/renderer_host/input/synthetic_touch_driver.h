@@ -31,15 +31,19 @@ class CONTENT_EXPORT SyntheticTouchDriver : public SyntheticPointerDriver {
   void Release(int index,
                SyntheticPointerActionParams::Button button =
                    SyntheticPointerActionParams::Button::LEFT) override;
+  void Leave(int index) override;
 
   bool UserInputCheck(
       const SyntheticPointerActionParams& params) const override;
 
  private:
-  using IndexMap = std::array<int, blink::WebTouchEvent::kTouchesLengthCap>;
+  using PointerIdIndexMap = std::map<int, int>;
+
+  void ResetPointerIdIndexMap();
+  int GetIndexFromMap(int value) const;
 
   SyntheticWebTouchEvent touch_event_;
-  IndexMap index_map_;
+  PointerIdIndexMap pointer_id_map_;
 
   DISALLOW_COPY_AND_ASSIGN(SyntheticTouchDriver);
 };

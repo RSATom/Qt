@@ -44,7 +44,7 @@
 #include <QtCore/qhash.h>
 #include <QtCore/qdebug.h>
 
-QT_QML_BEGIN_NAMESPACE
+QT_BEGIN_NAMESPACE
 
 namespace QQmlJS {
 
@@ -112,15 +112,8 @@ double integerFromString(const char *buf, int size, int radix)
     return result;
 }
 
-double integerFromString(const QString &str, int radix)
-{
-    QByteArray ba = QStringRef(&str).trimmed().toLatin1();
-    return integerFromString(ba.constData(), ba.size(), radix);
-}
-
-
 Engine::Engine()
-    : _lexer(0), _directives(0)
+    : _lexer(nullptr), _directives(nullptr)
 { }
 
 Engine::~Engine()
@@ -162,4 +155,4 @@ QStringRef Engine::newStringRef(const QChar *chars, int size)
 
 } // end of namespace QQmlJS
 
-QT_QML_END_NAMESPACE
+QT_END_NAMESPACE

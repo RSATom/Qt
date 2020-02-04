@@ -14,7 +14,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/sequence_checker.h"
 #include "base/sequenced_task_runner.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/media_export.h"
 
@@ -30,14 +30,14 @@ class MEDIA_EXPORT AudioDebugFileWriter {
   // Number of channels and sample rate are used from |params|, the other
   // parameters are ignored. The number of channels in the data passed to
   // Write() must match |params|.
-  AudioDebugFileWriter(const AudioParameters& params);
+  explicit AudioDebugFileWriter(const AudioParameters& params);
 
   virtual ~AudioDebugFileWriter();
 
   // Must be called before calling Write() for the first time after creation or
   // Stop() call. Can be called on any sequence; Write() and Stop() must be
   // called on the same sequence as Start().
-  virtual void Start(const base::FilePath& file);
+  virtual void Start(base::File file);
 
   // Must be called to finish recording. Each call to Start() requires a call to
   // Stop(). Will be automatically called on destruction.
@@ -52,45 +52,27 @@ class MEDIA_EXPORT AudioDebugFileWriter {
   // called from any sequence.
   virtual bool WillWrite();
 
-  // Gets the extension for the file type the as a string, for example "wav".
-  // Can be called before calling Start() to add the appropriate extension to
-  // the filename.
-  virtual const base::FilePath::CharType* GetFileNameExtension();
-
  protected:
   const AudioParameters params_;
 
  private:
   class AudioFileWriter;
 
-  // Deleter for AudioFileWriter.
-  struct OnSequenceDeleter {
-   public:
-    OnSequenceDeleter();
-    OnSequenceDeleter(OnSequenceDeleter&& other);
-    OnSequenceDeleter& operator=(OnSequenceDeleter&&);
-    OnSequenceDeleter(scoped_refptr<base::SequencedTaskRunner> task_runner);
-    ~OnSequenceDeleter();
-    void operator()(AudioFileWriter* ptr) const;
-
-   private:
-    scoped_refptr<base::SequencedTaskRunner> task_runner_;
-  };
-
   using AudioFileWriterUniquePtr =
-      std::unique_ptr<AudioFileWriter, OnSequenceDeleter>;
-
-  AudioFileWriterUniquePtr file_writer_;
-  base::SequenceChecker client_sequence_checker_;
+      std::unique_ptr<AudioFileWriter, base::OnTaskRunnerDeleter>;
 
   // The task runner to do file output operations on.
   const scoped_refptr<base::SequencedTaskRunner> file_task_runner_ =
       base::CreateSequencedTaskRunnerWithTraits(
-          {base::MayBlock(), base::TaskPriority::BACKGROUND});
+          {base::MayBlock(), base::TaskPriority::BEST_EFFORT,
+           base::TaskShutdownBehavior::BLOCK_SHUTDOWN});
+
+  AudioFileWriterUniquePtr file_writer_;
+  SEQUENCE_CHECKER(client_sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(AudioDebugFileWriter);
 };
 
-}  // namspace media
+}  // namespace media
 
 #endif  // MEDIA_AUDIO_AUDIO_DEBUG_FILE_WRITER_H_

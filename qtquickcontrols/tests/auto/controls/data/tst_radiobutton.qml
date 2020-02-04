@@ -112,20 +112,20 @@ Item {
             signalSpy.signalName = "clicked"
             signalSpy.target = radioButton;
             compare(signalSpy.count, 0);
-            mouseClick(radioButton, radioButton.x, radioButton.y, Qt.LeftButton);
+            mouseClick(radioButton);
             compare(signalSpy.count, 1);
             compare(radioButton.checked, true);
 
             // Clicking outside should do nothing.
-            mouseClick(radioButton, radioButton.x - 1, radioButton.y, Qt.LeftButton);
+            mouseClick(radioButton, -1, 0, Qt.LeftButton);
             compare(signalSpy.count, 1);
             compare(radioButton.checked, true);
 
-            mouseClick(radioButton, radioButton.x, radioButton.y - 1, Qt.LeftButton);
+            mouseClick(radioButton, 0, -1, Qt.LeftButton);
             compare(signalSpy.count, 1);
             compare(radioButton.checked, true);
 
-            mouseClick(radioButton, radioButton.x - 1, radioButton.y - 1, Qt.LeftButton);
+            mouseClick(radioButton, -1, -1, Qt.LeftButton);
             compare(signalSpy.count, 1);
             compare(radioButton.checked, true);
         }
@@ -170,7 +170,7 @@ Item {
             signalSpy.signalName = "clicked";
             compare(signalSpy.count, 0);
 
-            mouseClick(root.radioButton2, root.radioButton2.x, root.radioButton2.y, Qt.LeftButton);
+            mouseClick(root.radioButton2);
             compare(signalSpy.count, 1);
             compare(root.radioButton1.checked, false);
             compare(root.radioButton2.checked, true);
@@ -180,7 +180,7 @@ Item {
             signalSpy.signalName = "clicked";
             compare(signalSpy.count, 0);
 
-            mouseClick(root.radioButton1, root.radioButton1.x, root.radioButton1.y, Qt.LeftButton);
+            mouseClick(root.radioButton1);
             compare(signalSpy.count, 1);
             compare(root.radioButton1.checked, true);
             compare(root.radioButton2.checked, false);

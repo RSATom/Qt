@@ -5,13 +5,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <deque>
 #include <string>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/callback_helpers.h"
-#include "base/message_loop/message_loop.h"
+#include "base/containers/circular_deque.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "media/base/fake_single_thread_task_runner.h"
 #include "media/base/test_random.h"
@@ -115,7 +114,7 @@ class FakeMultiBufferDataProvider : public MultiBuffer::DataProvider {
   }
 
  private:
-  std::deque<scoped_refptr<DataBuffer>> fifo_;
+  base::circular_deque<scoped_refptr<DataBuffer>> fifo_;
   MultiBufferBlockId pos_;
   int32_t blocks_until_deferred_;
   int32_t max_blocks_after_defer_;
@@ -144,7 +143,7 @@ class TestMultiBuffer : public MultiBuffer {
 
   void CheckPresentState() {
     IntervalMap<MultiBufferBlockId, int32_t> tmp;
-    for (DataMap::iterator i = data_.begin(); i != data_.end(); ++i) {
+    for (auto i = data_.begin(); i != data_.end(); ++i) {
       CHECK(i->second);  // Null poineters are not allowed in data_
       CHECK_NE(!!pinned_[i->first], lru_->Contains(this, i->first))
           << " i->first = " << i->first;
@@ -167,7 +166,7 @@ class TestMultiBuffer : public MultiBuffer {
   }
 
   void CheckLRUState() {
-    for (DataMap::iterator i = data_.begin(); i != data_.end(); ++i) {
+    for (auto i = data_.begin(); i != data_.end(); ++i) {
       CHECK(i->second);  // Null poineters are not allowed in data_
       CHECK_NE(!!pinned_[i->first], lru_->Contains(this, i->first))
           << " i->first = " << i->first;
@@ -190,8 +189,8 @@ class TestMultiBuffer : public MultiBuffer {
   void SetRangeSupported(bool supported) { range_supported_ = supported; }
 
  protected:
-  std::unique_ptr<DataProvider> CreateWriter(
-      const MultiBufferBlockId& pos) override {
+  std::unique_ptr<DataProvider> CreateWriter(const MultiBufferBlockId& pos,
+                                             bool) override {
     DCHECK(create_ok_);
     writers_created_++;
     CHECK_LT(writers.size(), max_writers_);
@@ -254,9 +253,6 @@ class MultiBufferTest : public testing::Test {
   scoped_refptr<FakeSingleThreadTaskRunner> task_runner_;
   scoped_refptr<MultiBuffer::GlobalLRU> lru_;
   TestMultiBuffer multibuffer_;
-
-  // TODO(hubbe): Make MultiBufferReader take a task_runner_
-  base::MessageLoop message_loop_;
 };
 
 TEST_F(MultiBufferTest, ReadAll) {
@@ -402,6 +398,36 @@ TEST_F(MultiBufferTest, LRUTest) {
   EXPECT_EQ(current_size, lru_->Size());
   lru_->Prune(1000);
   EXPECT_EQ(0, lru_->Size());
+}
+
+TEST_F(MultiBufferTest, LRUTest2) {
+  int64_t max_size = 17;
+  int64_t current_size = 0;
+  lru_->IncrementMaxSize(max_size);
+
+  multibuffer_.SetMaxWriters(1);
+  size_t pos = 0;
+  size_t end = 10000;
+  multibuffer_.SetFileSize(10000);
+  MultiBufferReader reader(&multibuffer_, pos, end,
+                           base::Callback<void(int64_t, int64_t)>());
+  reader.SetPreload(10000, 10000);
+  // Note, no pinning, all data should end up in LRU.
+  EXPECT_EQ(current_size, lru_->Size());
+  current_size += max_size;
+  while (AdvanceAll()) {
+  }
+  EXPECT_EQ(current_size, lru_->Size());
+  // Pruning shouldn't do anything here, because LRU is small enough already.
+  lru_->Prune(3);
+  EXPECT_EQ(current_size, lru_->Size());
+  // However TryFree should still work
+  lru_->TryFree(3);
+  current_size -= 3;
+  EXPECT_EQ(current_size, lru_->Size());
+  lru_->TryFreeAll();
+  EXPECT_EQ(0, lru_->Size());
+  lru_->IncrementMaxSize(-max_size);
 }
 
 TEST_F(MultiBufferTest, LRUTestExpirationTest) {

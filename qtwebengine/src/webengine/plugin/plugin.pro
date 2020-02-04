@@ -1,13 +1,12 @@
 CXX_MODULE = qml
 TARGET = qtwebengineplugin
 TARGETPATH = QtWebEngine
-IMPORT_VERSION = 1.6
+IMPORT_VERSION = 1.9
 
-QT += webengine qml quick
-QT_PRIVATE += webengine-private
-
-INCLUDEPATH += $$QTWEBENGINE_ROOT/src/core $$QTWEBENGINE_ROOT/src/core/api $$QTWEBENGINE_ROOT/src/webengine $$QTWEBENGINE_ROOT/src/webengine/api $$QTWEBENGINE_ROOT/include/QtWebEngine
+QT += qml quick
+QT_PRIVATE += core-private webenginecore-private webengine-private
 
 SOURCES = plugin.cpp
 
+QMAKE_QMLPLUGINDUMP_FLAGS = -defaultplatform
 load(qml_plugin)

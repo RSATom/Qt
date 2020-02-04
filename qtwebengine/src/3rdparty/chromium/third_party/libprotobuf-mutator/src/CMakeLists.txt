@@ -18,7 +18,11 @@ project(LibProtobufMutator CXX)
 enable_language(C)
 enable_language(CXX)
 
-option(LIB_PROTO_MUTATOR_WITH_ASAN "Enable address sanitizer" ON)
+option(LIB_PROTO_MUTATOR_TESTING "Enable test building" ON)
+option(LIB_PROTO_MUTATOR_DOWNLOAD_PROTOBUF
+       "Automatically download working protobuf" OFF)
+option(LIB_PROTO_MUTATOR_WITH_ASAN "Enable address sanitizer" OFF)
+option(PKG_CONFIG_PATH "Directory to install pkgconfig file" "share/pkgconfig")
 set(LIB_PROTO_MUTATOR_FUZZER_LIBRARIES "" CACHE STRING "Fuzzing engine libs")
 
 # External dependencies
@@ -29,6 +33,7 @@ include(ProcessorCount)
 include(CheckCCompilerFlag)
 include(CheckCXXCompilerFlag)
 
+set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads)
 
 find_package(LibLZMA)
@@ -47,19 +52,25 @@ check_cxx_compiler_flag("-fsanitize=address -fsanitize-address-use-after-scope"
                         LIB_PROTO_MUTATOR_HAS_SANITIZE_SCOPE)
 unset(CMAKE_REQUIRED_FLAGS)
 
-set(CMAKE_REQUIRED_FLAGS "-fsanitize-coverage=")
-check_cxx_compiler_flag(-fsanitize-coverage= LIB_PROTO_MUTATOR_HAS_COVERAGE)
+set(CMAKE_REQUIRED_FLAGS "-fsanitize-coverage=0")
+check_cxx_compiler_flag(-fsanitize-coverage= LIB_PROTO_MUTATOR_HAS_NO_COVERAGE)
 unset(CMAKE_REQUIRED_FLAGS)
 
-set(CMAKE_REQUIRED_FLAGS "-fsanitize-coverage=trace-pc-guard")
-check_cxx_compiler_flag(-fsanitize-coverage=trace-pc-guard LIB_PROTO_MUTATOR_HAS_TRACE_PC)
+set(CMAKE_REQUIRED_FLAGS "-fsanitize=fuzzer-no-link")
+check_cxx_compiler_flag(-fsanitize=fuzzer-no-link LIB_PROTO_MUTATOR_HAS_SANITIZE_FUZZER)
 unset(CMAKE_REQUIRED_FLAGS)
 
-set(CMAKE_REQUIRED_FLAGS "-fsanitize-coverage=trace-cmp")
-check_cxx_compiler_flag(-fsanitize-coverage=trace-cmp LIB_PROTO_MUTATOR_HAS_TRACE_CMP)
+set(CMAKE_REQUIRED_FLAGS "-fno-sanitize=fuzzer")
+check_cxx_compiler_flag(-fno-sanitize=fuzzer LIB_PROTO_MUTATOR_HAS_NO_SANITIZE_FUZZER)
 unset(CMAKE_REQUIRED_FLAGS)
+
+check_cxx_compiler_flag(-Wstring-conversion LIB_PROTO_MUTATOR_HAS_WSTRING_CONVERSION)
 
 set(EXTRA_FLAGS "-fno-exceptions -Werror -Wall")
+if (LIB_PROTO_MUTATOR_HAS_WSTRING_CONVERSION)
+  set(EXTRA_FLAGS "${EXTRA_FLAGS} -Wstring-conversion")
+endif()
+
 if (LIB_PROTO_MUTATOR_WITH_ASAN)
   if (LIB_PROTO_MUTATOR_HAS_SANITIZE_ADDRESS)
     set(EXTRA_FLAGS "${EXTRA_FLAGS} -fsanitize=address")
@@ -69,20 +80,18 @@ if (LIB_PROTO_MUTATOR_WITH_ASAN)
   endif()
 endif()
 
-if (LIB_PROTO_MUTATOR_HAS_TRACE_PC)
-  list(APPEND SANITIZE_COVERAGE_OPTIONS trace-pc-guard)
+# Assume CFLAGS has coverage options if LIB_PROTO_MUTATOR_FUZZER_LIBRARIES was set
+if ("${LIB_PROTO_MUTATOR_FUZZER_LIBRARIES}" STREQUAL "")
+  if (LIB_PROTO_MUTATOR_HAS_SANITIZE_FUZZER)
+    set(FUZZING_FLAGS "-fsanitize=fuzzer-no-link")
+    set(FUZZING_FLAGS_BINARY "-fsanitize=fuzzer")
+  endif()
+  if (LIB_PROTO_MUTATOR_HAS_SANITIZE_NO_FUZZER)
+    set(NO_FUZZING_FLAGS "-fno-sanitize=fuzzer")
+  endif()
 endif()
-if (LIB_PROTO_MUTATOR_HAS_TRACE_CMP)
-  list(APPEND SANITIZE_COVERAGE_OPTIONS trace-cmp)
-endif()
-
-if (SANITIZE_COVERAGE_OPTIONS)
-  foreach(OPT ${SANITIZE_COVERAGE_OPTIONS})
-    set(FUZZING_FLAGS "${FUZZING_FLAGS},${OPT}")
-  endforeach()
-  string(SUBSTRING ${FUZZING_FLAGS} 1 -1 FUZZING_FLAGS)
-  set(NO_FUZZING_FLAGS "-fno-sanitize-coverage=${FUZZING_FLAGS}")
-  set(FUZZING_FLAGS "-fsanitize-coverage=${FUZZING_FLAGS}")
+if (LIB_PROTO_MUTATOR_HAS_NO_COVERAGE)
+  set(NO_FUZZING_FLAGS "${NO_FUZZING_FLAGS} -fsanitize-coverage=0")
 endif()
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${EXTRA_FLAGS}")
@@ -90,24 +99,42 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${EXTRA_FLAGS}")
 
 set(PROTOBUF_CFLAGS "${CMAKE_C_FLAGS} ${NO_FUZZING_FLAGS} -w")
 set(PROTOBUF_CXXFLAGS "${CMAKE_CXX_FLAGS} ${NO_FUZZING_FLAGS} -w")
-include(protobuf)
+if(CMAKE_USE_PTHREADS_INIT)
+  set(PROTOBUF_CFLAGS "${PROTOBUF_CFLAGS} -pthread")
+  set(PROTOBUF_CXXFLAGS "${PROTOBUF_CXXFLAGS} -pthread")
+endif()
 
-enable_testing()
+if (LIB_PROTO_MUTATOR_DOWNLOAD_PROTOBUF)
+  include(protobuf)
+else()
+  find_package(Protobuf REQUIRED)
+  include_directories(${PROTOBUF_INCLUDE_DIRS})
+  include_directories(${CMAKE_CURRENT_BINARY_DIR})
+endif()
 
-include(googletest)
+set(LIB_DIR "lib${LIB_SUFFIX}")
 
-ProcessorCount(CPU_COUNT)
-add_custom_target(check
-                  COMMAND ${CMAKE_CTEST_COMMAND} -j${CPU_COUNT} --output-on-failure)
+if (LIB_PROTO_MUTATOR_TESTING)
+  enable_testing()
+
+  include(googletest)
+
+  if (NOT LIB_PROTO_MUTATOR_CTEST_JOBS)
+    ProcessorCount(LIB_PROTO_MUTATOR_CTEST_JOBS)
+  endif()
+  add_custom_target(check
+                    COMMAND ${CMAKE_CTEST_COMMAND} -j${LIB_PROTO_MUTATOR_CTEST_JOBS} --output-on-failure)
+endif()
 
 add_subdirectory(src)
 
-if ("${LIB_PROTO_MUTATOR_FUZZER_LIBRARIES}" STREQUAL "" AND
+if (NOT "${LIB_PROTO_MUTATOR_FUZZER_LIBRARIES}" STREQUAL "" OR
     NOT "${FUZZING_FLAGS}" STREQUAL "")
-  include(libfuzzer)
+  add_subdirectory(examples EXCLUDE_FROM_ALL)
 endif()
 
-if (NOT "${LIB_PROTO_MUTATOR_FUZZER_LIBRARIES}" STREQUAL "")
-  add_subdirectory(examples)
-endif()
-
+configure_file("libprotobuf-mutator.pc.in" "libprotobuf-mutator.pc" @ONLY)
+install(FILES "${CMAKE_BINARY_DIR}/libprotobuf-mutator.pc"
+  DESTINATION ${PKG_CONFIG_PATH})
+install(DIRECTORY ./port ./src DESTINATION include/libprotobuf-mutator
+  FILES_MATCHING PATTERN "*.h")

@@ -7,27 +7,41 @@
 
 #include <stdint.h>
 
+#include <limits>
 #include <string>
+#include <type_traits>
 
+#include "base/callback.h"
+#include "base/containers/stack_container.h"
 #include "base/debug/alias.h"
 #include "base/logging.h"
 #include "base/memory/aligned_memory.h"
+#include "base/optional.h"
 #include "cc/base/math_util.h"
 #include "cc/paint/paint_canvas.h"
 #include "cc/paint/paint_export.h"
 #include "cc/paint/paint_flags.h"
+#include "cc/paint/skottie_wrapper.h"
+#include "cc/paint/transfer_cache_deserialize_helper.h"
+#include "cc/paint/transfer_cache_serialize_helper.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkPicture.h"
 #include "third_party/skia/include/core/SkRect.h"
 #include "third_party/skia/include/core/SkScalar.h"
 #include "third_party/skia/include/core/SkTextBlob.h"
+#include "ui/gfx/color_space.h"
+
+class SkColorSpace;
+class SkStrikeClient;
+class SkStrikeServer;
 
 // PaintOpBuffer is a reimplementation of SkLiteDL.
 // See: third_party/skia/src/core/SkLiteDL.h.
-
 namespace cc {
-
-class ImageDecodeCache;
+class ClientPaintCache;
+class ImageProvider;
+class ServicePaintCache;
+class PaintWorkletImageProvider;
 
 class CC_PAINT_EXPORT ThreadsafeMatrix : public SkMatrix {
  public:
@@ -47,11 +61,12 @@ class CC_PAINT_EXPORT ThreadsafePath : public SkPath {
 // See PaintOp::Serialize/Deserialize for comments.  Derived Serialize types
 // don't write the 4 byte type/skip header because they don't know how much
 // data they will need to write.  PaintOp::Serialize itself must update it.
-#define HAS_SERIALIZATION_FUNCTIONS()                                   \
-  static size_t Serialize(const PaintOp* op, void* memory, size_t size, \
-                          const SerializeOptions& options);             \
-  static PaintOp* Deserialize(const void* input, size_t input_size,     \
-                              void* output, size_t output_size);
+#define HAS_SERIALIZATION_FUNCTIONS()                                        \
+  static size_t Serialize(const PaintOp* op, void* memory, size_t size,      \
+                          const SerializeOptions& options);                  \
+  static PaintOp* Deserialize(const volatile void* input, size_t input_size, \
+                              void* output, size_t output_size,              \
+                              const DeserializeOptions& options);
 
 enum class PaintOpType : uint8_t {
   Annotate,
@@ -59,8 +74,7 @@ enum class PaintOpType : uint8_t {
   ClipRect,
   ClipRRect,
   Concat,
-  DrawArc,
-  DrawCircle,
+  CustomData,
   DrawColor,
   DrawDRRect,
   DrawImage,
@@ -69,11 +83,10 @@ enum class PaintOpType : uint8_t {
   DrawLine,
   DrawOval,
   DrawPath,
-  DrawPosText,
   DrawRecord,
   DrawRect,
   DrawRRect,
-  DrawText,
+  DrawSkottie,
   DrawTextBlob,
   Noop,
   Restore,
@@ -88,11 +101,39 @@ enum class PaintOpType : uint8_t {
 };
 
 CC_PAINT_EXPORT std::string PaintOpTypeToString(PaintOpType type);
+CC_PAINT_EXPORT std::ostream& operator<<(std::ostream&, PaintOpType);
+
+struct CC_PAINT_EXPORT PlaybackParams {
+  using CustomDataRasterCallback =
+      base::RepeatingCallback<void(SkCanvas* canvas, uint32_t id)>;
+  using DidDrawOpCallback = base::RepeatingCallback<void()>;
+
+  explicit PlaybackParams(
+      ImageProvider* image_provider,
+      PaintWorkletImageProvider* paint_worklet_image_provider = nullptr);
+  PlaybackParams(
+      ImageProvider* image_provider,
+      const SkMatrix& original_ctm,
+      CustomDataRasterCallback custom_callback = CustomDataRasterCallback(),
+      DidDrawOpCallback did_draw_op_callback = DidDrawOpCallback());
+  ~PlaybackParams();
+
+  PlaybackParams(const PlaybackParams& other);
+  PlaybackParams& operator=(const PlaybackParams& other);
+
+  ImageProvider* image_provider;
+  PaintWorkletImageProvider* paint_worklet_image_provider;
+  SkMatrix original_ctm;
+  CustomDataRasterCallback custom_callback;
+  DidDrawOpCallback did_draw_op_callback;
+};
 
 class CC_PAINT_EXPORT PaintOp {
  public:
   uint32_t type : 8;
   uint32_t skip : 24;
+
+  explicit PaintOp(PaintOpType type) : type(static_cast<uint8_t>(type)) {}
 
   PaintOpType GetType() const { return static_cast<PaintOpType>(type); }
 
@@ -100,11 +141,68 @@ class CC_PAINT_EXPORT PaintOp {
   // here. The Raster method should take a const PaintOp* parameter. It is
   // static with a pointer to the base type so that we can use it as a function
   // pointer.
-  void Raster(SkCanvas* canvas, const SkMatrix& original_ctm) const;
+  void Raster(SkCanvas* canvas, const PlaybackParams& params) const;
   bool IsDrawOp() const;
+  bool IsPaintOpWithFlags() const;
 
-  struct SerializeOptions {
-    ImageDecodeCache* decode_cache = nullptr;
+  bool operator==(const PaintOp& other) const;
+  bool operator!=(const PaintOp& other) const { return !(*this == other); }
+
+  struct CC_PAINT_EXPORT SerializeOptions {
+    SerializeOptions(ImageProvider* image_provider,
+                     TransferCacheSerializeHelper* transfer_cache,
+                     ClientPaintCache* paint_cache,
+                     SkCanvas* canvas,
+                     SkStrikeServer* strike_server,
+                     SkColorSpace* color_space,
+                     bool can_use_lcd_text,
+                     bool context_supports_distance_field_text,
+                     int max_texture_size,
+                     size_t max_texture_bytes,
+                     const SkMatrix& original_ctm);
+    SerializeOptions(const SerializeOptions&);
+    SerializeOptions& operator=(const SerializeOptions&);
+
+    // Required.
+    ImageProvider* image_provider = nullptr;
+    TransferCacheSerializeHelper* transfer_cache = nullptr;
+    ClientPaintCache* paint_cache = nullptr;
+    SkCanvas* canvas = nullptr;
+    SkStrikeServer* strike_server = nullptr;
+    SkColorSpace* color_space = nullptr;
+    bool can_use_lcd_text = false;
+    bool context_supports_distance_field_text = true;
+    int max_texture_size = 0;
+    size_t max_texture_bytes = 0.f;
+    SkMatrix original_ctm = SkMatrix::I();
+
+    // Optional.
+    // The flags to use when serializing this op. This can be used to override
+    // the flags serialized with the op. Valid only for PaintOpWithFlags.
+    const PaintFlags* flags_to_serialize = nullptr;
+  };
+
+  struct CC_PAINT_EXPORT DeserializeOptions {
+    DeserializeOptions(TransferCacheDeserializeHelper* transfer_cache,
+                       ServicePaintCache* paint_cache,
+                       SkStrikeClient* strike_client,
+                       std::vector<uint8_t>* scratch_buffer);
+    TransferCacheDeserializeHelper* transfer_cache = nullptr;
+    ServicePaintCache* paint_cache = nullptr;
+    SkStrikeClient* strike_client = nullptr;
+    uint32_t raster_color_space_id = gfx::ColorSpace::kInvalidId;
+    // Do a DumpWithoutCrashing when serialization fails.
+    bool crash_dump_on_failure = false;
+    // Used to memcpy Skia flattenables into to avoid TOCTOU issues.
+    std::vector<uint8_t>* scratch_buffer = nullptr;
+  };
+
+  // Indicates how PaintImages are serialized.
+  enum class SerializedImageType : uint8_t {
+    kNoImage,
+    kImageData,
+    kTransferCacheEntry,
+    kLastType = kTransferCacheEntry
   };
 
   // Subclasses should provide a static Serialize() method called from here.
@@ -120,15 +218,28 @@ class CC_PAINT_EXPORT PaintOp {
   // if valid.  nullptr is returned if the deserialization fails.
   // |output_size| must be at least LargestPaintOp + serialized->skip,
   // to fit all ops.  The caller is responsible for destroying these ops.
-  static PaintOp* Deserialize(const void* input,
+  // After reading, it returns the number of bytes read in |read_bytes|.
+  static PaintOp* Deserialize(const volatile void* input,
                               size_t input_size,
                               void* output,
-                              size_t output_size);
+                              size_t output_size,
+                              size_t* read_bytes,
+                              const DeserializeOptions& options);
 
-  // Only valid for draw ops.
-  void RasterWithAlpha(SkCanvas* canvas,
-                       const SkRect& bounds,
-                       uint8_t alpha) const;
+  // For draw ops, returns true if a conservative bounding rect can be provided
+  // for the op.
+  static bool GetBounds(const PaintOp* op, SkRect* rect);
+
+  // Returns true if the op lies outside the current clip and should be skipped.
+  // Should only be used with draw ops.
+  static bool QuickRejectDraw(const PaintOp* op, const SkCanvas* canvas);
+
+  // Returns true if executing this op will require decoding of any lazy
+  // generated images.
+  static bool OpHasDiscardableImages(const PaintOp* op);
+
+  // Returns true if the given op type has PaintFlags.
+  static bool TypeHasFlags(PaintOpType type);
 
   int CountSlowPaths() const { return 0; }
   int CountSlowPathsFromFlags() const { return 0; }
@@ -142,35 +253,78 @@ class CC_PAINT_EXPORT PaintOp {
   // and display lists.  This doesn't count other objects like paths or blobs.
   size_t AdditionalBytesUsed() const { return 0; }
 
+  // Returns the number of ops in referenced sub records and display lists.
+  size_t AdditionalOpCount() const { return 0; }
+
   // Run the destructor for the derived op type.  Ops are usually contained in
   // memory buffers and so don't have their destructors run automatically.
   void DestroyThis();
+
+  // DrawColor is more restrictive on the blend modes that can be used.
+  static bool IsValidDrawColorSkBlendMode(SkBlendMode mode) {
+    return static_cast<uint32_t>(mode) <=
+           static_cast<uint32_t>(SkBlendMode::kLastCoeffMode);
+  }
+
+  // PaintFlags can have more complex blend modes than DrawColor.
+  static bool IsValidPaintFlagsSkBlendMode(SkBlendMode mode) {
+    return static_cast<uint32_t>(mode) <=
+           static_cast<uint32_t>(SkBlendMode::kLastMode);
+  }
+
+  static bool IsValidSkClipOp(SkClipOp op) {
+    return static_cast<uint32_t>(op) <=
+           static_cast<uint32_t>(SkClipOp::kMax_EnumValue);
+  }
+
+  static bool IsValidPath(const SkPath& path) { return path.isValid(); }
+
+  static bool IsUnsetRect(const SkRect& rect) {
+    return rect.fLeft == SK_ScalarInfinity;
+  }
+
+  static bool IsValidOrUnsetRect(const SkRect& rect) {
+    return IsUnsetRect(rect) || rect.isFinite();
+  }
+
+  // PaintOp supports having nans, but some tests want to make sure
+  // that operator== is true on two objects.  These helpers compare
+  // various types in a way where nan == nan is true.
+  static bool AreEqualEvenIfNaN(float left, float right) {
+    if (std::isnan(left) && std::isnan(right))
+      return true;
+    return left == right;
+  }
+  static bool AreSkPointsEqual(const SkPoint& left, const SkPoint& right);
+  static bool AreSkPoint3sEqual(const SkPoint3& left, const SkPoint3& right);
+  static bool AreSkRectsEqual(const SkRect& left, const SkRect& right);
+  static bool AreSkRRectsEqual(const SkRRect& left, const SkRRect& right);
+  static bool AreSkMatricesEqual(const SkMatrix& left, const SkMatrix& right);
+  static bool AreSkFlattenablesEqual(SkFlattenable* left, SkFlattenable* right);
 
   static constexpr bool kIsDrawOp = false;
   static constexpr bool kHasPaintFlags = false;
   // Since skip and type fit in a uint32_t, this is the max size of skip.
   static constexpr size_t kMaxSkip = static_cast<size_t>(1 << 24);
-  static SkRect kUnsetRect;
+  static const SkRect kUnsetRect;
 };
 
 class CC_PAINT_EXPORT PaintOpWithFlags : public PaintOp {
  public:
   static constexpr bool kHasPaintFlags = true;
-  explicit PaintOpWithFlags(const PaintFlags& flags) : flags(flags) {}
+  PaintOpWithFlags(PaintOpType type, const PaintFlags& flags)
+      : PaintOp(type), flags(flags) {}
 
   int CountSlowPathsFromFlags() const { return flags.getPathEffect() ? 1 : 0; }
   bool HasNonAAPaint() const { return !flags.isAntiAlias(); }
-  bool HasDiscardableImagesFromFlags() const {
-    if (!IsDrawOp())
-      return false;
+  bool HasDiscardableImagesFromFlags() const;
 
-    SkShader* shader = flags.getSkShader();
-    SkImage* image = shader ? shader->isAImage(nullptr, nullptr) : nullptr;
-    return image && image->isLazyGenerated();
-  }
+  void RasterWithFlags(SkCanvas* canvas,
+                       const PaintFlags* flags,
+                       const PlaybackParams& params) const;
 
   // Subclasses should provide a static RasterWithFlags() method which is called
-  // from the Raster() method. The RasterWithFlags() should use the PaintFlags
+  // from the Raster() method. The RasterWithFlags() should use the SkPaint
   // passed to it, instead of the |flags| member directly, as some callers may
   // provide a modified PaintFlags. The RasterWithFlags() method is static with
   // a const PaintOpWithFlags* parameter so that it can be used as a function
@@ -178,131 +332,21 @@ class CC_PAINT_EXPORT PaintOpWithFlags : public PaintOp {
   PaintFlags flags;
 
  protected:
-  PaintOpWithFlags() = default;
-};
-
-class CC_PAINT_EXPORT PaintOpWithData : public PaintOpWithFlags {
- public:
-  // Having data is just a helper for ops that have a varying amount of data and
-  // want a way to store that inline.  This is for ops that pass in a
-  // void* and a length.  The void* data is assumed to not have any alignment
-  // requirements.
-  PaintOpWithData(const PaintFlags& flags, size_t bytes)
-      : PaintOpWithFlags(flags), bytes(bytes) {}
-
-  // Get data out by calling paint_op_data.  This can't be part of the class
-  // because it needs to know the size of the derived type.
-  size_t bytes;
-
- protected:
-  PaintOpWithData() = default;
-
-  // For some derived object T, return the internally stored data.
-  // This needs the fully derived type to know how much to offset
-  // from the start of the top to the data.
-  template <typename T>
-  const void* GetDataForThis(const T* op) const {
-    static_assert(std::is_convertible<T, PaintOpWithData>::value,
-                  "T is not a PaintOpWithData");
-    // Arbitrary data for a PaintOp is stored after the PaintOp itself
-    // in the PaintOpBuffer.  Therefore, to access this data, it's
-    // pointer math to increment past the size of T.  Accessing the
-    // next op in the buffer is ((char*)op) + op->skip, with the data
-    // fitting between.
-    return op + 1;
-  }
-
-  template <typename T>
-  void* GetDataForThis(T* op) {
-    return const_cast<void*>(
-        const_cast<const PaintOpWithData*>(this)->GetDataForThis(
-            const_cast<const T*>(op)));
-  }
-};
-
-class CC_PAINT_EXPORT PaintOpWithArrayBase : public PaintOpWithFlags {
- public:
-  explicit PaintOpWithArrayBase(const PaintFlags& flags)
-      : PaintOpWithFlags(flags) {}
-
- protected:
-  PaintOpWithArrayBase() = default;
-};
-
-template <typename M>
-class CC_PAINT_EXPORT PaintOpWithArray : public PaintOpWithArrayBase {
- public:
-  // Paint op that has a M[count] and a char[bytes].
-  // Array data is stored first so that it can be aligned with T's alignment
-  // with the arbitrary unaligned char data after it.
-  // Memory layout here is: | op | M[count] | char[bytes] | padding | next op |
-  // Next op is located at (char*)(op) + op->skip.
-  PaintOpWithArray(const PaintFlags& flags, size_t bytes, size_t count)
-      : PaintOpWithArrayBase(flags), bytes(bytes), count(count) {}
-
-  size_t bytes;
-  size_t count;
-
- protected:
-  PaintOpWithArray() = default;
-
-  template <typename T>
-  const void* GetDataForThis(const T* op) const {
-    static_assert(std::is_convertible<T, PaintOpWithArrayBase>::value,
-                  "T is not a PaintOpWithData");
-    const char* start_array =
-        reinterpret_cast<const char*>(GetArrayForThis(op));
-    return start_array + sizeof(M) * count;
-  }
-
-  template <typename T>
-  void* GetDataForThis(T* op) {
-    return const_cast<void*>(
-        const_cast<const PaintOpWithArray*>(this)->GetDataForThis(
-            const_cast<T*>(op)));
-  }
-
-  template <typename T>
-  const M* GetArrayForThis(const T* op) const {
-    static_assert(std::is_convertible<T, PaintOpWithArrayBase>::value,
-                  "T is not a PaintOpWithData");
-    // As an optimization to not have to store an additional offset,
-    // assert that T has the same or more alignment requirements than M.  Thus,
-    // if T is aligned, and M's alignment needs are a multiple of T's size, then
-    // M will also be aligned when placed immediately after T.
-    static_assert(
-        sizeof(T) % alignof(M) == 0,
-        "T must be padded such that an array of M is aligned after it");
-    static_assert(
-        alignof(T) >= alignof(M),
-        "T must have not have less alignment requirements than the array data");
-    return reinterpret_cast<const M*>(op + 1);
-  }
-
-  template <typename T>
-  M* GetArrayForThis(T* op) {
-    return const_cast<M*>(
-        const_cast<const PaintOpWithArray*>(this)->GetArrayForThis(
-            const_cast<T*>(op)));
-  }
+  explicit PaintOpWithFlags(PaintOpType type) : PaintOp(type) {}
 };
 
 class CC_PAINT_EXPORT AnnotateOp final : public PaintOp {
  public:
-  enum class AnnotationType {
-    URL,
-    LinkToDestination,
-    NamedDestination,
-  };
-
   static constexpr PaintOpType kType = PaintOpType::Annotate;
   AnnotateOp(PaintCanvas::AnnotationType annotation_type,
              const SkRect& rect,
              sk_sp<SkData> data);
   ~AnnotateOp();
-  static void Raster(const PaintOp* op,
+  static void Raster(const AnnotateOp* op,
                      SkCanvas* canvas,
-                     const SkMatrix& original_ctm);
+                     const PlaybackParams& params);
+  bool IsValid() const { return rect.isFinite(); }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 
   PaintCanvas::AnnotationType annotation_type;
@@ -317,10 +361,12 @@ class CC_PAINT_EXPORT ClipPathOp final : public PaintOp {
  public:
   static constexpr PaintOpType kType = PaintOpType::ClipPath;
   ClipPathOp(SkPath path, SkClipOp op, bool antialias)
-      : path(path), op(op), antialias(antialias) {}
-  static void Raster(const PaintOp* op,
+      : PaintOp(kType), path(path), op(op), antialias(antialias) {}
+  static void Raster(const ClipPathOp* op,
                      SkCanvas* canvas,
-                     const SkMatrix& original_ctm);
+                     const PlaybackParams& params);
+  bool IsValid() const { return IsValidSkClipOp(op) && IsValidPath(path); }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   int CountSlowPaths() const;
   bool HasNonAAPaint() const { return !antialias; }
   HAS_SERIALIZATION_FUNCTIONS();
@@ -330,140 +376,88 @@ class CC_PAINT_EXPORT ClipPathOp final : public PaintOp {
   bool antialias;
 
  private:
-  ClipPathOp() = default;
+  ClipPathOp() : PaintOp(kType) {}
 };
 
 class CC_PAINT_EXPORT ClipRectOp final : public PaintOp {
  public:
   static constexpr PaintOpType kType = PaintOpType::ClipRect;
   ClipRectOp(const SkRect& rect, SkClipOp op, bool antialias)
-      : rect(rect), op(op), antialias(antialias) {}
-  static void Raster(const PaintOp* op,
+      : PaintOp(kType), rect(rect), op(op), antialias(antialias) {}
+  static void Raster(const ClipRectOp* op,
                      SkCanvas* canvas,
-                     const SkMatrix& original_ctm);
+                     const PlaybackParams& params);
+  bool IsValid() const { return IsValidSkClipOp(op) && rect.isFinite(); }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 
   SkRect rect;
   SkClipOp op;
   bool antialias;
-
- private:
-  ClipRectOp() = default;
 };
 
 class CC_PAINT_EXPORT ClipRRectOp final : public PaintOp {
  public:
   static constexpr PaintOpType kType = PaintOpType::ClipRRect;
   ClipRRectOp(const SkRRect& rrect, SkClipOp op, bool antialias)
-      : rrect(rrect), op(op), antialias(antialias) {}
-  static void Raster(const PaintOp* op,
+      : PaintOp(kType), rrect(rrect), op(op), antialias(antialias) {}
+  static void Raster(const ClipRRectOp* op,
                      SkCanvas* canvas,
-                     const SkMatrix& original_ctm);
+                     const PlaybackParams& params);
+  bool IsValid() const { return IsValidSkClipOp(op) && rrect.isValid(); }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   bool HasNonAAPaint() const { return !antialias; }
   HAS_SERIALIZATION_FUNCTIONS();
 
   SkRRect rrect;
   SkClipOp op;
   bool antialias;
-
- private:
-  ClipRRectOp() = default;
 };
 
 class CC_PAINT_EXPORT ConcatOp final : public PaintOp {
  public:
   static constexpr PaintOpType kType = PaintOpType::Concat;
-  explicit ConcatOp(const SkMatrix& matrix) : matrix(matrix) {}
-  static void Raster(const PaintOp* op,
+  explicit ConcatOp(const SkMatrix& matrix) : PaintOp(kType), matrix(matrix) {}
+  static void Raster(const ConcatOp* op,
                      SkCanvas* canvas,
-                     const SkMatrix& original_ctm);
+                     const PlaybackParams& params);
+  bool IsValid() const { return true; }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 
   ThreadsafeMatrix matrix;
-
- private:
-  ConcatOp() = default;
 };
 
-class CC_PAINT_EXPORT DrawArcOp final : public PaintOpWithFlags {
+class CC_PAINT_EXPORT CustomDataOp final : public PaintOp {
  public:
-  static constexpr PaintOpType kType = PaintOpType::DrawArc;
-  static constexpr bool kIsDrawOp = true;
-  DrawArcOp(const SkRect& oval,
-            SkScalar start_angle,
-            SkScalar sweep_angle,
-            bool use_center,
-            const PaintFlags& flags)
-      : PaintOpWithFlags(flags),
-        oval(oval),
-        start_angle(start_angle),
-        sweep_angle(sweep_angle),
-        use_center(use_center) {}
-  static void Raster(const PaintOp* op,
+  static constexpr PaintOpType kType = PaintOpType::CustomData;
+  explicit CustomDataOp(uint32_t id) : PaintOp(kType), id(id) {}
+  static void Raster(const CustomDataOp* op,
                      SkCanvas* canvas,
-                     const SkMatrix& original_ctm) {
-    auto* flags_op = static_cast<const PaintOpWithFlags*>(op);
-    RasterWithFlags(flags_op, &flags_op->flags, canvas, original_ctm);
-  }
-  static void RasterWithFlags(const PaintOpWithFlags* op,
-                              const PaintFlags* flags,
-                              SkCanvas* canvas,
-                              const SkMatrix& original_ctm);
+                     const PlaybackParams& params);
+  bool IsValid() const { return true; }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 
-  SkRect oval;
-  SkScalar start_angle;
-  SkScalar sweep_angle;
-  bool use_center;
-
- private:
-  DrawArcOp() = default;
-};
-
-class CC_PAINT_EXPORT DrawCircleOp final : public PaintOpWithFlags {
- public:
-  static constexpr PaintOpType kType = PaintOpType::DrawCircle;
-  static constexpr bool kIsDrawOp = true;
-  DrawCircleOp(SkScalar cx,
-               SkScalar cy,
-               SkScalar radius,
-               const PaintFlags& flags)
-      : PaintOpWithFlags(flags), cx(cx), cy(cy), radius(radius) {}
-  static void Raster(const PaintOp* op,
-                     SkCanvas* canvas,
-                     const SkMatrix& original_ctm) {
-    auto* flags_op = static_cast<const PaintOpWithFlags*>(op);
-    RasterWithFlags(flags_op, &flags_op->flags, canvas, original_ctm);
-  }
-  static void RasterWithFlags(const PaintOpWithFlags* op,
-                              const PaintFlags* flags,
-                              SkCanvas* canvas,
-                              const SkMatrix& original_ctm);
-  HAS_SERIALIZATION_FUNCTIONS();
-
-  SkScalar cx;
-  SkScalar cy;
-  SkScalar radius;
-
- private:
-  DrawCircleOp() = default;
+  // Stores user defined id as a placeholder op.
+  uint32_t id;
 };
 
 class CC_PAINT_EXPORT DrawColorOp final : public PaintOp {
  public:
   static constexpr PaintOpType kType = PaintOpType::DrawColor;
   static constexpr bool kIsDrawOp = true;
-  DrawColorOp(SkColor color, SkBlendMode mode) : color(color), mode(mode) {}
-  static void Raster(const PaintOp* op,
+  DrawColorOp(SkColor color, SkBlendMode mode)
+      : PaintOp(kType), color(color), mode(mode) {}
+  static void Raster(const DrawColorOp* op,
                      SkCanvas* canvas,
-                     const SkMatrix& original_ctm);
+                     const PlaybackParams& params);
+  bool IsValid() const { return IsValidDrawColorSkBlendMode(mode); }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 
   SkColor color;
   SkBlendMode mode;
-
- private:
-  DrawColorOp() = default;
 };
 
 class CC_PAINT_EXPORT DrawDRRectOp final : public PaintOpWithFlags {
@@ -473,24 +467,22 @@ class CC_PAINT_EXPORT DrawDRRectOp final : public PaintOpWithFlags {
   DrawDRRectOp(const SkRRect& outer,
                const SkRRect& inner,
                const PaintFlags& flags)
-      : PaintOpWithFlags(flags), outer(outer), inner(inner) {}
-  static void Raster(const PaintOp* op,
-                     SkCanvas* canvas,
-                     const SkMatrix& original_ctm) {
-    auto* flags_op = static_cast<const PaintOpWithFlags*>(op);
-    RasterWithFlags(flags_op, &flags_op->flags, canvas, original_ctm);
-  }
-  static void RasterWithFlags(const PaintOpWithFlags* op,
+      : PaintOpWithFlags(kType, flags), outer(outer), inner(inner) {}
+  static void RasterWithFlags(const DrawDRRectOp* op,
                               const PaintFlags* flags,
                               SkCanvas* canvas,
-                              const SkMatrix& original_ctm);
+                              const PlaybackParams& params);
+  bool IsValid() const {
+    return flags.IsValid() && outer.isValid() && inner.isValid();
+  }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 
   SkRRect outer;
   SkRRect inner;
 
  private:
-  DrawDRRectOp() = default;
+  DrawDRRectOp() : PaintOpWithFlags(kType) {}
 };
 
 class CC_PAINT_EXPORT DrawImageOp final : public PaintOpWithFlags {
@@ -502,16 +494,15 @@ class CC_PAINT_EXPORT DrawImageOp final : public PaintOpWithFlags {
               SkScalar top,
               const PaintFlags* flags);
   ~DrawImageOp();
-  static void Raster(const PaintOp* op,
-                     SkCanvas* canvas,
-                     const SkMatrix& original_ctm) {
-    auto* flags_op = static_cast<const PaintOpWithFlags*>(op);
-    RasterWithFlags(flags_op, &flags_op->flags, canvas, original_ctm);
-  }
-  static void RasterWithFlags(const PaintOpWithFlags* op,
+  static void RasterWithFlags(const DrawImageOp* op,
                               const PaintFlags* flags,
                               SkCanvas* canvas,
-                              const SkMatrix& original_ctm);
+                              const PlaybackParams& params);
+  bool IsValid() const {
+    return flags.IsValid() && SkScalarIsFinite(scale_adjustment.width()) &&
+           SkScalarIsFinite(scale_adjustment.height());
+  }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   bool HasDiscardableImages() const;
   bool HasNonAAPaint() const { return false; }
   HAS_SERIALIZATION_FUNCTIONS();
@@ -521,7 +512,11 @@ class CC_PAINT_EXPORT DrawImageOp final : public PaintOpWithFlags {
   SkScalar top;
 
  private:
-  DrawImageOp() = default;
+  DrawImageOp();
+
+  // Scale that has already been applied to the decoded image during
+  // serialization. Used with OOP raster.
+  SkSize scale_adjustment = SkSize::Make(1.f, 1.f);
 };
 
 class CC_PAINT_EXPORT DrawImageRectOp final : public PaintOpWithFlags {
@@ -534,16 +529,16 @@ class CC_PAINT_EXPORT DrawImageRectOp final : public PaintOpWithFlags {
                   const PaintFlags* flags,
                   PaintCanvas::SrcRectConstraint constraint);
   ~DrawImageRectOp();
-  static void Raster(const PaintOp* op,
-                     SkCanvas* canvas,
-                     const SkMatrix& original_ctm) {
-    auto* flags_op = static_cast<const PaintOpWithFlags*>(op);
-    RasterWithFlags(flags_op, &flags_op->flags, canvas, original_ctm);
-  }
-  static void RasterWithFlags(const PaintOpWithFlags* op,
+  static void RasterWithFlags(const DrawImageRectOp* op,
                               const PaintFlags* flags,
                               SkCanvas* canvas,
-                              const SkMatrix& original_ctm);
+                              const PlaybackParams& params);
+  bool IsValid() const {
+    return flags.IsValid() && src.isFinite() && dst.isFinite() &&
+           SkScalarIsFinite(scale_adjustment.width()) &&
+           SkScalarIsFinite(scale_adjustment.height());
+  }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   bool HasDiscardableImages() const;
   HAS_SERIALIZATION_FUNCTIONS();
 
@@ -554,6 +549,10 @@ class CC_PAINT_EXPORT DrawImageRectOp final : public PaintOpWithFlags {
 
  private:
   DrawImageRectOp();
+
+  // Scale that has already been applied to the decoded image during
+  // serialization. Used with OOP raster.
+  SkSize scale_adjustment = SkSize::Make(1.f, 1.f);
 };
 
 class CC_PAINT_EXPORT DrawIRectOp final : public PaintOpWithFlags {
@@ -561,24 +560,20 @@ class CC_PAINT_EXPORT DrawIRectOp final : public PaintOpWithFlags {
   static constexpr PaintOpType kType = PaintOpType::DrawIRect;
   static constexpr bool kIsDrawOp = true;
   DrawIRectOp(const SkIRect& rect, const PaintFlags& flags)
-      : PaintOpWithFlags(flags), rect(rect) {}
-  static void Raster(const PaintOp* op,
-                     SkCanvas* canvas,
-                     const SkMatrix& original_ctm) {
-    auto* flags_op = static_cast<const PaintOpWithFlags*>(op);
-    RasterWithFlags(flags_op, &flags_op->flags, canvas, original_ctm);
-  }
-  static void RasterWithFlags(const PaintOpWithFlags* op,
+      : PaintOpWithFlags(kType, flags), rect(rect) {}
+  static void RasterWithFlags(const DrawIRectOp* op,
                               const PaintFlags* flags,
                               SkCanvas* canvas,
-                              const SkMatrix& original_ctm);
+                              const PlaybackParams& params);
+  bool IsValid() const { return flags.IsValid(); }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   bool HasNonAAPaint() const { return false; }
   HAS_SERIALIZATION_FUNCTIONS();
 
   SkIRect rect;
 
  private:
-  DrawIRectOp() = default;
+  DrawIRectOp() : PaintOpWithFlags(kType) {}
 };
 
 class CC_PAINT_EXPORT DrawLineOp final : public PaintOpWithFlags {
@@ -590,17 +585,13 @@ class CC_PAINT_EXPORT DrawLineOp final : public PaintOpWithFlags {
              SkScalar x1,
              SkScalar y1,
              const PaintFlags& flags)
-      : PaintOpWithFlags(flags), x0(x0), y0(y0), x1(x1), y1(y1) {}
-  static void Raster(const PaintOp* op,
-                     SkCanvas* canvas,
-                     const SkMatrix& original_ctm) {
-    auto* flags_op = static_cast<const PaintOpWithFlags*>(op);
-    RasterWithFlags(flags_op, &flags_op->flags, canvas, original_ctm);
-  }
-  static void RasterWithFlags(const PaintOpWithFlags* op,
+      : PaintOpWithFlags(kType, flags), x0(x0), y0(y0), x1(x1), y1(y1) {}
+  static void RasterWithFlags(const DrawLineOp* op,
                               const PaintFlags* flags,
                               SkCanvas* canvas,
-                              const SkMatrix& original_ctm);
+                              const PlaybackParams& params);
+  bool IsValid() const { return flags.IsValid(); }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 
   int CountSlowPaths() const;
@@ -611,7 +602,7 @@ class CC_PAINT_EXPORT DrawLineOp final : public PaintOpWithFlags {
   SkScalar y1;
 
  private:
-  DrawLineOp() = default;
+  DrawLineOp() : PaintOpWithFlags(kType) {}
 };
 
 class CC_PAINT_EXPORT DrawOvalOp final : public PaintOpWithFlags {
@@ -619,23 +610,22 @@ class CC_PAINT_EXPORT DrawOvalOp final : public PaintOpWithFlags {
   static constexpr PaintOpType kType = PaintOpType::DrawOval;
   static constexpr bool kIsDrawOp = true;
   DrawOvalOp(const SkRect& oval, const PaintFlags& flags)
-      : PaintOpWithFlags(flags), oval(oval) {}
-  static void Raster(const PaintOp* op,
-                     SkCanvas* canvas,
-                     const SkMatrix& original_ctm) {
-    auto* flags_op = static_cast<const PaintOpWithFlags*>(op);
-    RasterWithFlags(flags_op, &flags_op->flags, canvas, original_ctm);
-  }
-  static void RasterWithFlags(const PaintOpWithFlags* op,
+      : PaintOpWithFlags(kType, flags), oval(oval) {}
+  static void RasterWithFlags(const DrawOvalOp* op,
                               const PaintFlags* flags,
                               SkCanvas* canvas,
-                              const SkMatrix& original_ctm);
+                              const PlaybackParams& params);
+  bool IsValid() const {
+    // Reproduce SkRRect::isValid without converting.
+    return flags.IsValid() && oval.isFinite() && oval.isSorted();
+  }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 
   SkRect oval;
 
  private:
-  DrawOvalOp() = default;
+  DrawOvalOp() : PaintOpWithFlags(kType) {}
 };
 
 class CC_PAINT_EXPORT DrawPathOp final : public PaintOpWithFlags {
@@ -643,51 +633,20 @@ class CC_PAINT_EXPORT DrawPathOp final : public PaintOpWithFlags {
   static constexpr PaintOpType kType = PaintOpType::DrawPath;
   static constexpr bool kIsDrawOp = true;
   DrawPathOp(const SkPath& path, const PaintFlags& flags)
-      : PaintOpWithFlags(flags), path(path) {}
-  static void Raster(const PaintOp* op,
-                     SkCanvas* canvas,
-                     const SkMatrix& original_ctm) {
-    auto* flags_op = static_cast<const PaintOpWithFlags*>(op);
-    RasterWithFlags(flags_op, &flags_op->flags, canvas, original_ctm);
-  }
-  static void RasterWithFlags(const PaintOpWithFlags* op,
+      : PaintOpWithFlags(kType, flags), path(path) {}
+  static void RasterWithFlags(const DrawPathOp* op,
                               const PaintFlags* flags,
                               SkCanvas* canvas,
-                              const SkMatrix& original_ctm);
+                              const PlaybackParams& params);
+  bool IsValid() const { return flags.IsValid() && IsValidPath(path); }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   int CountSlowPaths() const;
   HAS_SERIALIZATION_FUNCTIONS();
 
   ThreadsafePath path;
 
  private:
-  DrawPathOp() = default;
-};
-
-class CC_PAINT_EXPORT DrawPosTextOp final : public PaintOpWithArray<SkPoint> {
- public:
-  static constexpr PaintOpType kType = PaintOpType::DrawPosText;
-  static constexpr bool kIsDrawOp = true;
-  DrawPosTextOp(size_t bytes, size_t count, const PaintFlags& flags);
-  ~DrawPosTextOp();
-  static void Raster(const PaintOp* op,
-                     SkCanvas* canvas,
-                     const SkMatrix& original_ctm) {
-    auto* flags_op = static_cast<const PaintOpWithFlags*>(op);
-    RasterWithFlags(flags_op, &flags_op->flags, canvas, original_ctm);
-  }
-  static void RasterWithFlags(const PaintOpWithFlags* op,
-                              const PaintFlags* flags,
-                              SkCanvas* canvas,
-                              const SkMatrix& original_ctm);
-  HAS_SERIALIZATION_FUNCTIONS();
-
-  const void* GetData() const { return GetDataForThis(this); }
-  void* GetData() { return GetDataForThis(this); }
-  const SkPoint* GetArray() const { return GetArrayForThis(this); }
-  SkPoint* GetArray() { return GetArrayForThis(this); }
-
- private:
-  DrawPosTextOp();
+  DrawPathOp() : PaintOpWithFlags(kType) {}
 };
 
 class CC_PAINT_EXPORT DrawRecordOp final : public PaintOp {
@@ -696,19 +655,19 @@ class CC_PAINT_EXPORT DrawRecordOp final : public PaintOp {
   static constexpr bool kIsDrawOp = true;
   explicit DrawRecordOp(sk_sp<const PaintRecord> record);
   ~DrawRecordOp();
-  static void Raster(const PaintOp* op,
+  static void Raster(const DrawRecordOp* op,
                      SkCanvas* canvas,
-                     const SkMatrix& original_ctm);
+                     const PlaybackParams& params);
+  bool IsValid() const { return true; }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   size_t AdditionalBytesUsed() const;
+  size_t AdditionalOpCount() const;
   bool HasDiscardableImages() const;
   int CountSlowPaths() const;
   bool HasNonAAPaint() const;
   HAS_SERIALIZATION_FUNCTIONS();
 
   sk_sp<const PaintRecord> record;
-
- private:
-  DrawRecordOp();
 };
 
 class CC_PAINT_EXPORT DrawRectOp final : public PaintOpWithFlags {
@@ -716,23 +675,19 @@ class CC_PAINT_EXPORT DrawRectOp final : public PaintOpWithFlags {
   static constexpr PaintOpType kType = PaintOpType::DrawRect;
   static constexpr bool kIsDrawOp = true;
   DrawRectOp(const SkRect& rect, const PaintFlags& flags)
-      : PaintOpWithFlags(flags), rect(rect) {}
-  static void Raster(const PaintOp* op,
-                     SkCanvas* canvas,
-                     const SkMatrix& original_ctm) {
-    auto* flags_op = static_cast<const PaintOpWithFlags*>(op);
-    RasterWithFlags(flags_op, &flags_op->flags, canvas, original_ctm);
-  }
-  static void RasterWithFlags(const PaintOpWithFlags* op,
+      : PaintOpWithFlags(kType, flags), rect(rect) {}
+  static void RasterWithFlags(const DrawRectOp* op,
                               const PaintFlags* flags,
                               SkCanvas* canvas,
-                              const SkMatrix& original_ctm);
+                              const PlaybackParams& params);
+  bool IsValid() const { return flags.IsValid() && rect.isFinite(); }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 
   SkRect rect;
 
  private:
-  DrawRectOp() = default;
+  DrawRectOp() : PaintOpWithFlags(kType) {}
 };
 
 class CC_PAINT_EXPORT DrawRRectOp final : public PaintOpWithFlags {
@@ -740,51 +695,42 @@ class CC_PAINT_EXPORT DrawRRectOp final : public PaintOpWithFlags {
   static constexpr PaintOpType kType = PaintOpType::DrawRRect;
   static constexpr bool kIsDrawOp = true;
   DrawRRectOp(const SkRRect& rrect, const PaintFlags& flags)
-      : PaintOpWithFlags(flags), rrect(rrect) {}
-  static void Raster(const PaintOp* op,
-                     SkCanvas* canvas,
-                     const SkMatrix& original_ctm) {
-    auto* flags_op = static_cast<const PaintOpWithFlags*>(op);
-    RasterWithFlags(flags_op, &flags_op->flags, canvas, original_ctm);
-  }
-  static void RasterWithFlags(const PaintOpWithFlags* op,
+      : PaintOpWithFlags(kType, flags), rrect(rrect) {}
+  static void RasterWithFlags(const DrawRRectOp* op,
                               const PaintFlags* flags,
                               SkCanvas* canvas,
-                              const SkMatrix& original_ctm);
+                              const PlaybackParams& params);
+  bool IsValid() const { return flags.IsValid() && rrect.isValid(); }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 
   SkRRect rrect;
 
  private:
-  DrawRRectOp() = default;
+  DrawRRectOp() : PaintOpWithFlags(kType) {}
 };
 
-class CC_PAINT_EXPORT DrawTextOp final : public PaintOpWithData {
+class CC_PAINT_EXPORT DrawSkottieOp final : public PaintOp {
  public:
-  static constexpr PaintOpType kType = PaintOpType::DrawText;
+  static constexpr PaintOpType kType = PaintOpType::DrawSkottie;
   static constexpr bool kIsDrawOp = true;
-  DrawTextOp(size_t bytes, SkScalar x, SkScalar y, const PaintFlags& flags)
-      : PaintOpWithData(flags, bytes), x(x), y(y) {}
-  static void Raster(const PaintOp* op,
+  DrawSkottieOp(scoped_refptr<SkottieWrapper> skottie, SkRect dst, float t);
+  ~DrawSkottieOp();
+  static void Raster(const DrawSkottieOp* op,
                      SkCanvas* canvas,
-                     const SkMatrix& original_ctm) {
-    auto* flags_op = static_cast<const PaintOpWithFlags*>(op);
-    RasterWithFlags(flags_op, &flags_op->flags, canvas, original_ctm);
+                     const PlaybackParams& params);
+  bool IsValid() const {
+    return !!skottie && !dst.isEmpty() && t >= 0 && t <= 1.f;
   }
-  static void RasterWithFlags(const PaintOpWithFlags* op,
-                              const PaintFlags* flags,
-                              SkCanvas* canvas,
-                              const SkMatrix& original_ctm);
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 
-  void* GetData() { return GetDataForThis(this); }
-  const void* GetData() const { return GetDataForThis(this); }
-
-  SkScalar x;
-  SkScalar y;
+  scoped_refptr<SkottieWrapper> skottie;
+  SkRect dst;
+  float t;
 
  private:
-  DrawTextOp() = default;
+  DrawSkottieOp();
 };
 
 class CC_PAINT_EXPORT DrawTextBlobOp final : public PaintOpWithFlags {
@@ -796,16 +742,12 @@ class CC_PAINT_EXPORT DrawTextBlobOp final : public PaintOpWithFlags {
                  SkScalar y,
                  const PaintFlags& flags);
   ~DrawTextBlobOp();
-  static void Raster(const PaintOp* op,
-                     SkCanvas* canvas,
-                     const SkMatrix& original_ctm) {
-    auto* flags_op = static_cast<const PaintOpWithFlags*>(op);
-    RasterWithFlags(flags_op, &flags_op->flags, canvas, original_ctm);
-  }
-  static void RasterWithFlags(const PaintOpWithFlags* op,
+  static void RasterWithFlags(const DrawTextBlobOp* op,
                               const PaintFlags* flags,
                               SkCanvas* canvas,
-                              const SkMatrix& original_ctm);
+                              const PlaybackParams& params);
+  bool IsValid() const { return flags.IsValid(); }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 
   sk_sp<SkTextBlob> blob;
@@ -819,42 +761,50 @@ class CC_PAINT_EXPORT DrawTextBlobOp final : public PaintOpWithFlags {
 class CC_PAINT_EXPORT NoopOp final : public PaintOp {
  public:
   static constexpr PaintOpType kType = PaintOpType::Noop;
-  static void Raster(const PaintOp* op,
+  NoopOp() : PaintOp(kType) {}
+  static void Raster(const NoopOp* op,
                      SkCanvas* canvas,
-                     const SkMatrix& original_ctm) {}
+                     const PlaybackParams& params) {}
+  bool IsValid() const { return true; }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 };
 
 class CC_PAINT_EXPORT RestoreOp final : public PaintOp {
  public:
   static constexpr PaintOpType kType = PaintOpType::Restore;
-  static void Raster(const PaintOp* op,
+  RestoreOp() : PaintOp(kType) {}
+  static void Raster(const RestoreOp* op,
                      SkCanvas* canvas,
-                     const SkMatrix& original_ctm);
+                     const PlaybackParams& params);
+  bool IsValid() const { return true; }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 };
 
 class CC_PAINT_EXPORT RotateOp final : public PaintOp {
  public:
   static constexpr PaintOpType kType = PaintOpType::Rotate;
-  explicit RotateOp(SkScalar degrees) : degrees(degrees) {}
-  static void Raster(const PaintOp* op,
+  explicit RotateOp(SkScalar degrees) : PaintOp(kType), degrees(degrees) {}
+  static void Raster(const RotateOp* op,
                      SkCanvas* canvas,
-                     const SkMatrix& original_ctm);
+                     const PlaybackParams& params);
+  bool IsValid() const { return true; }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 
   SkScalar degrees;
-
- private:
-  RotateOp() = default;
 };
 
 class CC_PAINT_EXPORT SaveOp final : public PaintOp {
  public:
   static constexpr PaintOpType kType = PaintOpType::Save;
-  static void Raster(const PaintOp* op,
+  SaveOp() : PaintOp(kType) {}
+  static void Raster(const SaveOp* op,
                      SkCanvas* canvas,
-                     const SkMatrix& original_ctm);
+                     const PlaybackParams& params);
+  bool IsValid() const { return true; }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 };
 
@@ -862,112 +812,108 @@ class CC_PAINT_EXPORT SaveLayerOp final : public PaintOpWithFlags {
  public:
   static constexpr PaintOpType kType = PaintOpType::SaveLayer;
   SaveLayerOp(const SkRect* bounds, const PaintFlags* flags)
-      : PaintOpWithFlags(flags ? *flags : PaintFlags()),
+      : PaintOpWithFlags(kType, flags ? *flags : PaintFlags()),
         bounds(bounds ? *bounds : kUnsetRect) {}
-  static void Raster(const PaintOp* op,
-                     SkCanvas* canvas,
-                     const SkMatrix& original_ctm) {
-    auto* flags_op = static_cast<const PaintOpWithFlags*>(op);
-    RasterWithFlags(flags_op, &flags_op->flags, canvas, original_ctm);
-  }
-  static void RasterWithFlags(const PaintOpWithFlags* op,
+  static void RasterWithFlags(const SaveLayerOp* op,
                               const PaintFlags* flags,
                               SkCanvas* canvas,
-                              const SkMatrix& original_ctm);
+                              const PlaybackParams& params);
+  bool IsValid() const { return flags.IsValid() && IsValidOrUnsetRect(bounds); }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   bool HasNonAAPaint() const { return false; }
   HAS_SERIALIZATION_FUNCTIONS();
 
   SkRect bounds;
 
  private:
-  SaveLayerOp() = default;
+  SaveLayerOp() : PaintOpWithFlags(kType) {}
 };
 
 class CC_PAINT_EXPORT SaveLayerAlphaOp final : public PaintOp {
  public:
   static constexpr PaintOpType kType = PaintOpType::SaveLayerAlpha;
-  SaveLayerAlphaOp(const SkRect* bounds,
-                   uint8_t alpha,
-                   bool preserve_lcd_text_requests)
-      : bounds(bounds ? *bounds : kUnsetRect),
-        alpha(alpha),
-        preserve_lcd_text_requests(preserve_lcd_text_requests) {}
-  static void Raster(const PaintOp* op,
+  SaveLayerAlphaOp(const SkRect* bounds, uint8_t alpha)
+      : PaintOp(kType), bounds(bounds ? *bounds : kUnsetRect), alpha(alpha) {}
+  static void Raster(const SaveLayerAlphaOp* op,
                      SkCanvas* canvas,
-                     const SkMatrix& original_ctm);
+                     const PlaybackParams& params);
+  bool IsValid() const { return IsValidOrUnsetRect(bounds); }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 
   SkRect bounds;
   uint8_t alpha;
-  bool preserve_lcd_text_requests;
-
- private:
-  SaveLayerAlphaOp() = default;
 };
 
 class CC_PAINT_EXPORT ScaleOp final : public PaintOp {
  public:
   static constexpr PaintOpType kType = PaintOpType::Scale;
-  ScaleOp(SkScalar sx, SkScalar sy) : sx(sx), sy(sy) {}
-  static void Raster(const PaintOp* op,
+  ScaleOp(SkScalar sx, SkScalar sy) : PaintOp(kType), sx(sx), sy(sy) {}
+  static void Raster(const ScaleOp* op,
                      SkCanvas* canvas,
-                     const SkMatrix& original_ctm);
+                     const PlaybackParams& params);
+  bool IsValid() const { return true; }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 
   SkScalar sx;
   SkScalar sy;
 
  private:
-  ScaleOp() = default;
+  ScaleOp() : PaintOp(kType) {}
 };
 
 class CC_PAINT_EXPORT SetMatrixOp final : public PaintOp {
  public:
   static constexpr PaintOpType kType = PaintOpType::SetMatrix;
-  explicit SetMatrixOp(const SkMatrix& matrix) : matrix(matrix) {}
+  explicit SetMatrixOp(const SkMatrix& matrix)
+      : PaintOp(kType), matrix(matrix) {}
   // This is the only op that needs the original ctm of the SkCanvas
   // used for raster (since SetMatrix is relative to the recording origin and
   // shouldn't clobber the SkCanvas raster origin).
   //
   // TODO(enne): Find some cleaner way to do this, possibly by making
   // all SetMatrix calls Concat??
-  static void Raster(const PaintOp* op,
+  static void Raster(const SetMatrixOp* op,
                      SkCanvas* canvas,
-                     const SkMatrix& original_ctm);
+                     const PlaybackParams& params);
+  bool IsValid() const { return true; }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 
   ThreadsafeMatrix matrix;
-
- private:
-  SetMatrixOp() = default;
 };
 
 class CC_PAINT_EXPORT TranslateOp final : public PaintOp {
  public:
   static constexpr PaintOpType kType = PaintOpType::Translate;
-  TranslateOp(SkScalar dx, SkScalar dy) : dx(dx), dy(dy) {}
-  static void Raster(const PaintOp* op,
+  TranslateOp(SkScalar dx, SkScalar dy) : PaintOp(kType), dx(dx), dy(dy) {}
+  static void Raster(const TranslateOp* op,
                      SkCanvas* canvas,
-                     const SkMatrix& original_ctm);
+                     const PlaybackParams& params);
+  bool IsValid() const { return true; }
+  static bool AreEqual(const PaintOp* left, const PaintOp* right);
   HAS_SERIALIZATION_FUNCTIONS();
 
   SkScalar dx;
   SkScalar dy;
-
- private:
-  TranslateOp() = default;
 };
 
 #undef HAS_SERIALIZATION_FUNCTIONS
 
-using LargestPaintOp = DrawDRRectOp;
+// TODO(vmpstr): Revisit this when sizes of DrawImageRectOp change.
+using LargestPaintOp =
+    typename std::conditional<(sizeof(DrawImageRectOp) > sizeof(DrawDRRectOp)),
+                              DrawImageRectOp,
+                              DrawDRRectOp>::type;
 
 class CC_PAINT_EXPORT PaintOpBuffer : public SkRefCnt {
  public:
   enum { kInitialBufferSize = 4096 };
-  // It's not necessarily the case that the op with the maximum alignment
-  // requirements is also the biggest op, but for now that's true.
-  static constexpr size_t PaintOpAlign = alignof(DrawDRRectOp);
+  static constexpr size_t PaintOpAlign = 8;
+  static inline size_t ComputeOpSkip(size_t sizeof_op) {
+    return MathUtil::UncheckedRoundUp(sizeof_op, PaintOpBuffer::PaintOpAlign);
+  }
 
   PaintOpBuffer();
   PaintOpBuffer(PaintOpBuffer&& other);
@@ -977,12 +923,14 @@ class CC_PAINT_EXPORT PaintOpBuffer : public SkRefCnt {
 
   void Reset();
 
-  // Replays the paint op buffer into the canvas. If |indices| is specified, it
-  // contains indices in an increasing order and only the indices specified in
-  // the vector will be replayed.
-  void Playback(SkCanvas* canvas,
-                SkPicture::AbortCallback* callback = nullptr,
-                const std::vector<size_t>* indices = nullptr) const;
+  // Replays the paint op buffer into the canvas.
+  void Playback(SkCanvas* canvas) const;
+  void Playback(SkCanvas* canvas, const PlaybackParams& params) const;
+
+  static sk_sp<PaintOpBuffer> MakeFromMemory(
+      const volatile void* input,
+      size_t input_size,
+      const PaintOp::DeserializeOptions& options);
 
   // Returns the size of the paint op buffer. That is, the number of ops
   // contained in it.
@@ -991,9 +939,18 @@ class CC_PAINT_EXPORT PaintOpBuffer : public SkRefCnt {
   size_t bytes_used() const {
     return sizeof(*this) + reserved_ + subrecord_bytes_used_;
   }
+  // Returns the total number of ops including sub-records.
+  size_t total_op_count() const { return op_count_ + subrecord_op_count_; }
+
+  size_t next_op_offset() const { return used_; }
   int numSlowPaths() const { return num_slow_paths_; }
   bool HasNonAAPaint() const { return has_non_aa_paint_; }
   bool HasDiscardableImages() const { return has_discardable_images_; }
+
+  bool operator==(const PaintOpBuffer& other) const;
+  bool operator!=(const PaintOpBuffer& other) const {
+    return !(*this == other);
+  }
 
   // Resize the PaintOpBuffer to exactly fit the current amount of used space.
   void ShrinkToFit();
@@ -1005,162 +962,42 @@ class CC_PAINT_EXPORT PaintOpBuffer : public SkRefCnt {
   template <typename T, typename... Args>
   void push(Args&&... args) {
     static_assert(std::is_convertible<T, PaintOp>::value, "T not a PaintOp.");
-    static_assert(!std::is_convertible<T, PaintOpWithData>::value,
-                  "Type needs to use push_with_data");
-    push_internal<T>(0, std::forward<Args>(args)...);
-  }
-
-  template <typename T, typename... Args>
-  void push_with_data(const void* data, size_t bytes, Args&&... args) {
-    static_assert(std::is_convertible<T, PaintOpWithData>::value,
-                  "T is not a PaintOpWithData");
-    static_assert(!std::is_convertible<T, PaintOpWithArrayBase>::value,
-                  "Type needs to use push_with_array");
-    T* op = push_internal<T>(bytes, bytes, std::forward<Args>(args)...);
-    memcpy(op->GetData(), data, bytes);
-
-#if DCHECK_IS_ON()
-    // Double check the data fits between op and next op and doesn't clobber.
-    char* op_start = reinterpret_cast<char*>(op);
-    char* op_end = op_start + sizeof(T);
-    char* next_op = op_start + op->skip;
-    char* data_start = reinterpret_cast<char*>(op->GetData());
-    char* data_end = data_start + bytes;
-    DCHECK_GE(data_start, op_end);
-    DCHECK_LT(data_start, next_op);
-    DCHECK_LE(data_end, next_op);
-#endif
-  }
-
-  template <typename T, typename M, typename... Args>
-  void push_with_array(const void* data,
-                       size_t bytes,
-                       const M* array,
-                       size_t count,
-                       Args&&... args) {
-    static_assert(std::is_convertible<T, PaintOpWithArray<M>>::value,
-                  "T is not a PaintOpWithArray");
-    size_t array_size = sizeof(M) * count;
-    size_t total_size = bytes + array_size;
-    T* op =
-        push_internal<T>(total_size, bytes, count, std::forward<Args>(args)...);
-    memcpy(op->GetData(), data, bytes);
-    memcpy(op->GetArray(), array, array_size);
-
-#if DCHECK_IS_ON()
-    // Double check data and array don't clobber op, next op, or each other
-    char* op_start = reinterpret_cast<char*>(op);
-    char* op_end = op_start + sizeof(T);
-    char* array_start = reinterpret_cast<char*>(op->GetArray());
-    char* array_end = array_start + array_size;
-    char* data_start = reinterpret_cast<char*>(op->GetData());
-    char* data_end = data_start + bytes;
-    char* next_op = op_start + op->skip;
-    DCHECK_GE(array_start, op_end);
-    DCHECK_LE(array_start, data_start);
-    DCHECK_GE(data_start, array_end);
-    DCHECK_LE(data_end, next_op);
-#endif
-  }
-
-  class Iterator {
-   public:
-    explicit Iterator(const PaintOpBuffer* buffer,
-                      const std::vector<size_t>* indices = nullptr)
-        : buffer_(buffer), ptr_(buffer_->data_.get()), indices_(indices) {
-      if (indices) {
-        if (indices->empty()) {
-          *this = end();
-          return;
-        }
-        target_idx_ = (*indices)[0];
-      }
-      ++(*this);
-    }
-
-    PaintOp* operator->() const { return reinterpret_cast<PaintOp*>(ptr_); }
-    PaintOp* operator*() const { return operator->(); }
-    Iterator begin() { return Iterator(buffer_, indices_); }
-    Iterator end() {
-      return Iterator(buffer_, buffer_->data_.get() + buffer_->used_,
-                      buffer_->size());
-    }
-    bool operator!=(const Iterator& other) {
-      // Not valid to compare iterators on different buffers.
-      DCHECK_EQ(other.buffer_, buffer_);
-      return other.op_idx_ != op_idx_;
-    }
-    Iterator& operator++() {
-      if (target_idx_ == std::numeric_limits<size_t>::max()) {
-        *this = end();
-        return *this;
-      }
-
-      while (*this && target_idx_ != op_idx_) {
-        PaintOp* op = **this;
-        uint32_t type = op->type;
-        uint32_t skip = op->skip;
-
-        // Sanity checks.
-        base::debug::Alias(&type);
-        base::debug::Alias(&skip);
-        CHECK_LE(type, static_cast<uint32_t>(PaintOpType::LastPaintOpType));
-        // This is here for debugging crbug.com/738182.
-        CHECK_LE(static_cast<size_t>(ptr_ - buffer_->data_.get() + skip),
-                 buffer_->used_);
-
-        ptr_ += skip;
-        op_idx_++;
-      }
-
-      if (indices_) {
-        if (++indices_index_ >= indices_->size())
-          target_idx_ = std::numeric_limits<size_t>::max();
-        else
-          target_idx_ = (*indices_)[indices_index_];
-      } else {
-        ++target_idx_;
-      }
-      return *this;
-    }
-    operator bool() const { return op_idx_ < buffer_->size(); }
-    size_t op_idx() const { return op_idx_; }
-
-   private:
-    Iterator(const PaintOpBuffer* buffer, char* ptr, size_t op_idx)
-        : buffer_(buffer), ptr_(ptr), op_idx_(op_idx) {}
-
-    const PaintOpBuffer* buffer_ = nullptr;
-    char* ptr_ = nullptr;
-    const std::vector<size_t>* indices_ = nullptr;
-    size_t op_idx_ = 0;
-    size_t target_idx_ = 0;
-    size_t indices_index_ = 0;
-  };
-
- private:
-  void ReallocBuffer(size_t new_size);
-  // Returns the allocated op and the number of bytes to skip in |data_| to get
-  // to the next op.
-  std::pair<void*, size_t> AllocatePaintOp(size_t sizeof_op, size_t bytes);
-
-  template <typename T, typename... Args>
-  T* push_internal(size_t bytes, Args&&... args) {
     static_assert(alignof(T) <= PaintOpAlign, "");
+    static_assert(sizeof(T) < std::numeric_limits<uint16_t>::max(),
+                  "Cannot fit op code in skip");
+    uint16_t skip = static_cast<uint16_t>(ComputeOpSkip(sizeof(T)));
+    T* op = reinterpret_cast<T*>(AllocatePaintOp(skip));
 
-    auto pair = AllocatePaintOp(sizeof(T), bytes);
-    T* op = reinterpret_cast<T*>(pair.first);
-    size_t skip = pair.second;
-
-    new (op) T{std::forward<Args>(args)...};
-    op->type = static_cast<uint32_t>(T::kType);
+    new (op) T(std::forward<Args>(args)...);
+    DCHECK_EQ(op->type, static_cast<uint32_t>(T::kType));
     op->skip = skip;
     AnalyzeAddedOp(op);
-    return op;
+  }
+
+  void UpdateSaveLayerBounds(size_t offset, const SkRect& bounds) {
+    CHECK_LT(offset, used_);
+    CHECK_LE(offset + sizeof(PaintOp), used_);
+
+    auto* op = reinterpret_cast<PaintOp*>(data_.get() + offset);
+    switch (op->GetType()) {
+      case SaveLayerOp::kType:
+        CHECK_LE(offset + sizeof(SaveLayerOp), used_);
+        static_cast<SaveLayerOp*>(op)->bounds = bounds;
+        break;
+      case SaveLayerAlphaOp::kType:
+        CHECK_LE(offset + sizeof(SaveLayerAlphaOp), used_);
+        static_cast<SaveLayerAlphaOp*>(op)->bounds = bounds;
+        break;
+      default:
+        NOTREACHED();
+    }
   }
 
   template <typename T>
   void AnalyzeAddedOp(const T* op) {
+    static_assert(!std::is_same<T, PaintOp>::value,
+                  "AnalyzeAddedOp needs a subtype of PaintOp");
+
     num_slow_paths_ += op->CountSlowPathsFromFlags();
     num_slow_paths_ += op->CountSlowPaths();
 
@@ -1170,7 +1007,210 @@ class CC_PAINT_EXPORT PaintOpBuffer : public SkRefCnt {
     has_discardable_images_ |= op->HasDiscardableImagesFromFlags();
 
     subrecord_bytes_used_ += op->AdditionalBytesUsed();
+    subrecord_op_count_ += op->AdditionalOpCount();
   }
+
+  template <typename T>
+  const T* GetOpAtForTesting(size_t index) const {
+    size_t i = 0;
+    for (PaintOpBuffer::Iterator it(this); it && i <= index; ++it, ++i) {
+      if (i == index && (*it)->GetType() == T::kType)
+        return static_cast<const T*>(*it);
+    }
+    return nullptr;
+  }
+
+  class CC_PAINT_EXPORT Iterator {
+   public:
+    explicit Iterator(const PaintOpBuffer* buffer)
+        : Iterator(buffer, buffer->data_.get(), 0u) {}
+
+    PaintOp* operator->() const { return reinterpret_cast<PaintOp*>(ptr_); }
+    PaintOp* operator*() const { return operator->(); }
+    Iterator begin() { return Iterator(buffer_); }
+    Iterator end() {
+      return Iterator(buffer_, buffer_->data_.get() + buffer_->used_,
+                      buffer_->used_);
+    }
+    bool operator!=(const Iterator& other) {
+      // Not valid to compare iterators on different buffers.
+      DCHECK_EQ(other.buffer_, buffer_);
+      return other.op_offset_ != op_offset_;
+    }
+    Iterator& operator++() {
+      DCHECK(*this);
+      const PaintOp* op = **this;
+      ptr_ += op->skip;
+      op_offset_ += op->skip;
+
+      CHECK_LE(op_offset_, buffer_->used_);
+      return *this;
+    }
+    operator bool() const { return op_offset_ < buffer_->used_; }
+
+   private:
+    Iterator(const PaintOpBuffer* buffer, char* ptr, size_t op_offset)
+        : buffer_(buffer), ptr_(ptr), op_offset_(op_offset) {}
+
+    const PaintOpBuffer* buffer_ = nullptr;
+    char* ptr_ = nullptr;
+    size_t op_offset_ = 0;
+  };
+
+  class CC_PAINT_EXPORT OffsetIterator {
+   public:
+    // Offsets and paint op buffer must come from the same DisplayItemList.
+    OffsetIterator(const PaintOpBuffer* buffer,
+                   const std::vector<size_t>* offsets)
+        : buffer_(buffer), ptr_(buffer_->data_.get()), offsets_(offsets) {
+      if (!offsets || offsets->empty()) {
+        *this = end();
+        return;
+      }
+      op_offset_ = (*offsets)[0];
+      ptr_ += op_offset_;
+    }
+
+    PaintOp* operator->() const { return reinterpret_cast<PaintOp*>(ptr_); }
+    PaintOp* operator*() const { return operator->(); }
+    OffsetIterator begin() { return OffsetIterator(buffer_, offsets_); }
+    OffsetIterator end() {
+      return OffsetIterator(buffer_, buffer_->data_.get() + buffer_->used_,
+                            buffer_->used_, offsets_);
+    }
+    bool operator!=(const OffsetIterator& other) {
+      // Not valid to compare iterators on different buffers.
+      DCHECK_EQ(other.buffer_, buffer_);
+      return other.op_offset_ != op_offset_;
+    }
+    OffsetIterator& operator++() {
+      if (++offsets_index_ >= offsets_->size()) {
+        *this = end();
+        return *this;
+      }
+
+      size_t target_offset = (*offsets_)[offsets_index_];
+      // Sanity checks.
+      CHECK_GE(target_offset, op_offset_);
+      // Debugging crbug.com/738182.
+      base::debug::Alias(&target_offset);
+      CHECK_LT(target_offset, buffer_->used_);
+
+      // Advance the iterator to the target offset.
+      ptr_ += (target_offset - op_offset_);
+      op_offset_ = target_offset;
+
+      DCHECK(!*this || (*this)->type <=
+                           static_cast<uint32_t>(PaintOpType::LastPaintOpType));
+      return *this;
+    }
+
+    operator bool() const { return op_offset_ < buffer_->used_; }
+
+   private:
+    OffsetIterator(const PaintOpBuffer* buffer,
+                   char* ptr,
+                   size_t op_offset,
+                   const std::vector<size_t>* offsets)
+        : buffer_(buffer),
+          ptr_(ptr),
+          offsets_(offsets),
+          op_offset_(op_offset) {}
+
+    const PaintOpBuffer* buffer_ = nullptr;
+    char* ptr_ = nullptr;
+    const std::vector<size_t>* offsets_;
+    size_t op_offset_ = 0;
+    size_t offsets_index_ = 0;
+  };
+
+  class CC_PAINT_EXPORT CompositeIterator {
+   public:
+    // Offsets and paint op buffer must come from the same DisplayItemList.
+    CompositeIterator(const PaintOpBuffer* buffer,
+                      const std::vector<size_t>* offsets);
+    CompositeIterator(const CompositeIterator& other);
+    CompositeIterator(CompositeIterator&& other);
+
+    PaintOp* operator->() const {
+      return using_offsets_ ? **offset_iter_ : **iter_;
+    }
+    PaintOp* operator*() const {
+      return using_offsets_ ? **offset_iter_ : **iter_;
+    }
+    bool operator==(const CompositeIterator& other) {
+      if (using_offsets_ != other.using_offsets_)
+        return false;
+      return using_offsets_ ? (*offset_iter_ == *other.offset_iter_)
+                            : (*iter_ == *other.iter_);
+    }
+    bool operator!=(const CompositeIterator& other) {
+      return !(*this == other);
+    }
+    CompositeIterator& operator++() {
+      if (using_offsets_)
+        ++*offset_iter_;
+      else
+        ++*iter_;
+      return *this;
+    }
+    operator bool() const {
+      return using_offsets_ ? !!*offset_iter_ : !!*iter_;
+    }
+
+   private:
+    bool using_offsets_ = false;
+    base::Optional<OffsetIterator> offset_iter_;
+    base::Optional<Iterator> iter_;
+  };
+
+  class PlaybackFoldingIterator {
+   public:
+    PlaybackFoldingIterator(const PaintOpBuffer* buffer,
+                            const std::vector<size_t>* offsets);
+    ~PlaybackFoldingIterator();
+
+    const PaintOp* operator->() const { return current_op_; }
+    const PaintOp* operator*() const { return current_op_; }
+
+    PlaybackFoldingIterator& operator++() {
+      FindNextOp();
+      return *this;
+    }
+
+    operator bool() const { return !!current_op_; }
+
+    // Guaranteed to be 255 for all ops without flags.
+    uint8_t alpha() const { return current_alpha_; }
+
+   private:
+    void FindNextOp();
+    const PaintOp* NextUnfoldedOp();
+
+    PaintOpBuffer::CompositeIterator iter_;
+
+    // FIFO queue of paint ops that have been peeked at.
+    base::StackVector<const PaintOp*, 3> stack_;
+    DrawColorOp folded_draw_color_;
+    const PaintOp* current_op_ = nullptr;
+    uint8_t current_alpha_ = 255;
+  };
+
+ private:
+  friend class DisplayItemList;
+  friend class PaintOpBufferOffsetsTest;
+  friend class SolidColorAnalyzer;
+
+  // Replays the paint op buffer into the canvas. If |indices| is specified, it
+  // contains indices in an increasing order and only the indices specified in
+  // the vector will be replayed.
+  void Playback(SkCanvas* canvas,
+                const PlaybackParams& params,
+                const std::vector<size_t>* indices) const;
+
+  void ReallocBuffer(size_t new_size);
+  // Returns the allocated op.
+  void* AllocatePaintOp(size_t skip);
 
   std::unique_ptr<char, base::AlignedFreeDeleter> data_;
   size_t used_ = 0;
@@ -1181,6 +1221,8 @@ class CC_PAINT_EXPORT PaintOpBuffer : public SkRefCnt {
   int num_slow_paths_ = 0;
   // Record additional bytes used by referenced sub-records and display lists.
   size_t subrecord_bytes_used_ = 0;
+  // Record total op count of referenced sub-record and display lists.
+  size_t subrecord_op_count_ = 0;
 
   bool has_non_aa_paint_ : 1;
   bool has_discardable_images_ : 1;

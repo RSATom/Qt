@@ -8,21 +8,20 @@ import("//testing/test.gni")
 group("all_tests") {
   testonly = true
   deps = [
-    ":ocmock_support_unittest",
+    ":ocmock_support_unittests",
   ]
 }
 
-source_set("ios_test_support") {
+source_set("embedded_test_server_support") {
   configs += [ "//build/config/compiler:enable_arc" ]
   testonly = true
 
   deps = [
-    "//base/test:test_support",
+    "//net:test_support",
   ]
-
   sources = [
-    "wait_util.h",
-    "wait_util.mm",
+    "embedded_test_server_handlers.cc",
+    "embedded_test_server_handlers.h",
   ]
 }
 
@@ -45,7 +44,7 @@ source_set("ocmock_support") {
   ]
 }
 
-test("ocmock_support_unittest") {
+test("ocmock_support_unittests") {
   configs += [ "//build/config/compiler:enable_arc" ]
   deps = [
     ":ocmock_support",
@@ -71,15 +70,26 @@ bundle_data("http_server_bundle_data") {
     "data/http_server_files/browsing_prevent_default_test_page.html",
     "data/http_server_files/chromium_logo.png",
     "data/http_server_files/chromium_logo_page.html",
+    "data/http_server_files/console.html",
+    "data/http_server_files/console_with_iframe.html",
     "data/http_server_files/destination.html",
     "data/http_server_files/fullscreen.html",
+    "data/http_server_files/generic.pkpass",
     "data/http_server_files/history.html",
     "data/http_server_files/history.js",
     "data/http_server_files/history_go.html",
     "data/http_server_files/history_go.js",
+    "data/http_server_files/iframe_form.html",
+    "data/http_server_files/iframe_host.html",
+    "data/http_server_files/links.html",
     "data/http_server_files/memory_usage.html",
     "data/http_server_files/multi_field_form.html",
+    "data/http_server_files/onload_replacestate_reload.html",
+    "data/http_server_files/onload_replacestate_reload.js",
+    "data/http_server_files/opensearch.xml",
     "data/http_server_files/pony.html",
+    "data/http_server_files/profile_form.html",
+    "data/http_server_files/redchair.usdz",
     "data/http_server_files/redirect_refresh.html",
     "data/http_server_files/single_page_wide.pdf",
     "data/http_server_files/state_operations.html",
@@ -87,6 +97,7 @@ bundle_data("http_server_bundle_data") {
     "data/http_server_files/testpage.pdf",
     "data/http_server_files/two_pages.pdf",
     "data/http_server_files/user_agent_test_page.html",
+    "data/http_server_files/username_password_field_form.html",
     "data/http_server_files/window_close.html",
     "data/http_server_files/window_location.html",
     "data/http_server_files/window_location.js",

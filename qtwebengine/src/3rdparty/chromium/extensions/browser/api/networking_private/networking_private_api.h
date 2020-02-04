@@ -17,6 +17,7 @@ namespace extensions {
 namespace networking_private {
 
 extern const char kErrorAccessToSharedConfig[];
+extern const char kErrorInvalidArguments[];
 extern const char kErrorInvalidNetworkGuid[];
 extern const char kErrorInvalidNetworkOperation[];
 extern const char kErrorNetworkUnavailable[];
@@ -24,6 +25,7 @@ extern const char kErrorNotReady[];
 extern const char kErrorNotSupported[];
 extern const char kErrorPolicyControlled[];
 extern const char kErrorSimLocked[];
+extern const char kErrorUnconfiguredNetwork[];
 
 }  // namespace networking_private
 
@@ -366,28 +368,6 @@ class NetworkingPrivateVerifyDestinationFunction
   DISALLOW_COPY_AND_ASSIGN(NetworkingPrivateVerifyDestinationFunction);
 };
 
-// Implements the chrome.networkingPrivate.verifyAndEncryptCredentials method.
-class NetworkingPrivateVerifyAndEncryptCredentialsFunction
-    : public UIThreadExtensionFunction {
- public:
-  NetworkingPrivateVerifyAndEncryptCredentialsFunction() {}
-  DECLARE_EXTENSION_FUNCTION("networkingPrivate.verifyAndEncryptCredentials",
-                             NETWORKINGPRIVATE_VERIFYANDENCRYPTCREDENTIALS);
-
- protected:
-  ~NetworkingPrivateVerifyAndEncryptCredentialsFunction() override;
-
-  // ExtensionFunction:
-  ResponseAction Run() override;
-
-  void Success(const std::string& result);
-  void Failure(const std::string& error);
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(
-      NetworkingPrivateVerifyAndEncryptCredentialsFunction);
-};
-
 // Implements the chrome.networkingPrivate.verifyAndEncryptData method.
 class NetworkingPrivateVerifyAndEncryptDataFunction
     : public UIThreadExtensionFunction {
@@ -509,6 +489,27 @@ class NetworkingPrivateSetCellularSimStateFunction
   void Failure(const std::string& error);
 
   DISALLOW_COPY_AND_ASSIGN(NetworkingPrivateSetCellularSimStateFunction);
+};
+
+class NetworkingPrivateSelectCellularMobileNetworkFunction
+    : public UIThreadExtensionFunction {
+ public:
+  NetworkingPrivateSelectCellularMobileNetworkFunction() {}
+  DECLARE_EXTENSION_FUNCTION("networkingPrivate.selectCellularMobileNetwork",
+                             NETWORKINGPRIVATE_SELECTCELLULARMOBILENETWORK);
+
+  // ExtensionFunction:
+  ResponseAction Run() override;
+
+ protected:
+  ~NetworkingPrivateSelectCellularMobileNetworkFunction() override;
+
+ private:
+  void Success();
+  void Failure(const std::string& error);
+
+  DISALLOW_COPY_AND_ASSIGN(
+      NetworkingPrivateSelectCellularMobileNetworkFunction);
 };
 
 class NetworkingPrivateGetGlobalPolicyFunction

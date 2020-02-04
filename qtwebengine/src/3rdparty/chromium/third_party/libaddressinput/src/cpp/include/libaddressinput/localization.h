@@ -17,7 +17,6 @@
 
 #include <libaddressinput/address_field.h>
 #include <libaddressinput/address_problem.h>
-#include <libaddressinput/util/basictypes.h>
 
 #include <string>
 
@@ -39,6 +38,9 @@ struct AddressData;
 //    Process(BuildComponents("CA", localization, "fr-CA", &best_language_tag));
 class Localization {
  public:
+  Localization(const Localization&) = delete;
+  Localization& operator=(const Localization&) = delete;
+
   // Initializes with English messages by default.
   Localization();
   ~Localization();
@@ -76,16 +78,14 @@ class Localization {
   // |post_service_url| is empty, then the error message will not contain a post
   // service URL. The problem should only be one of MISSING_REQUIRED_FIELD,
   // INVALID_FORMAT, or MISMATCHING_VALUE.
-  std::string GetErrorMessageForPostalCode(const AddressData& address,
-                                           AddressProblem problem,
-                                           bool uses_postal_code_as_label,
-                                           std::string postal_code_example,
-                                           std::string post_service_url) const;
+  std::string GetErrorMessageForPostalCode(
+      AddressProblem problem,
+      bool uses_postal_code_as_label,
+      const std::string& postal_code_example,
+      const std::string& post_service_url) const;
 
   // The string getter.
   std::string (*get_string_)(int);
-
-  DISALLOW_COPY_AND_ASSIGN(Localization);
 };
 
 }  // namespace addressinput

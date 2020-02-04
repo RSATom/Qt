@@ -32,12 +32,12 @@
 #include <formwindowbase_p.h>
 #include <designerpropertymanager.h>
 
-#include <QtDesigner/QDesignerFormWindowInterface>
+#include <QtDesigner/abstractformwindow.h>
 
 #include <qttreepropertybrowser.h>
 
-#include <QtWidgets/QSplitter>
-#include <QtCore/QCoreApplication>
+#include <QtWidgets/qsplitter.h>
+#include <QtCore/qcoreapplication.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -51,12 +51,12 @@ public:
         setResizeMode(Interactive);
         //: Sample string to determinate the width for the first column of the list item property browser
         const QString widthSampleString = QCoreApplication::translate("ItemPropertyBrowser", "XX Icon Selected off");
-        m_width = fontMetrics().width(widthSampleString);
+        m_width = fontMetrics().horizontalAdvance(widthSampleString);
         setSplitterPosition(m_width);
-        m_width += fontMetrics().width(QStringLiteral("/this/is/some/random/path"));
+        m_width += fontMetrics().horizontalAdvance(QStringLiteral("/this/is/some/random/path"));
     }
 
-    virtual QSize sizeHint() const
+    QSize sizeHint() const override
     {
         return QSize(m_width, 1);
     }
@@ -168,7 +168,7 @@ void AbstractItemEditor::propertyChanged(QtProperty *property)
         // Subproperty
         return;
 
-    if ((role == ItemFlagsShadowRole && prop->value().toInt() == int(QListWidgetItem().flags()))
+    if ((role == ItemFlagsShadowRole && prop->value().toInt() == defaultItemFlags())
         || (role == Qt::DecorationPropertyRole && !qvariant_cast<PropertySheetIconValue>(prop->value()).mask())
         || (role == Qt::FontRole && !qvariant_cast<QFont>(prop->value()).resolve())) {
         prop->setModified(false);
@@ -214,7 +214,7 @@ void AbstractItemEditor::resetProperty(QtProperty *property)
     QtVariantProperty *prop = m_propertyManager->variantProperty(property);
     int role = m_propertyToRole.value(prop);
     if (role == ItemFlagsShadowRole)
-        prop->setValue(QVariant::fromValue(int(QListWidgetItem().flags())));
+        prop->setValue(QVariant::fromValue(defaultItemFlags()));
     else
         prop->setValue(QVariant(prop->valueType(), nullptr));
     prop->setModified(false);
@@ -246,7 +246,7 @@ void AbstractItemEditor::updateBrowser()
         QVariant val = getItemData(role);
         if (!val.isValid()) {
             if (role == ItemFlagsShadowRole)
-                val = QVariant::fromValue(int(QListWidgetItem().flags()));
+                val = QVariant::fromValue(defaultItemFlags());
             else
                 val = QVariant(int(prop->value().userType()), nullptr);
             prop->setModified(false);
@@ -428,6 +428,12 @@ void ItemListEditor::setItemData(int role, const QVariant &v)
 QVariant ItemListEditor::getItemData(int role) const
 {
     return ui.listWidget->currentItem()->data(role);
+}
+
+int ItemListEditor::defaultItemFlags() const
+{
+    static const int flags = QListWidgetItem().flags();
+    return flags;
 }
 
 void ItemListEditor::cacheReloaded()

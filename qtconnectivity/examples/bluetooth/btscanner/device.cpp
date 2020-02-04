@@ -109,9 +109,9 @@ void DeviceDiscoveryDialog::addDevice(const QBluetoothDeviceInfo &info)
         QListWidgetItem *item = new QListWidgetItem(label);
         QBluetoothLocalDevice::Pairing pairingStatus = localDevice->pairingStatus(info.address());
         if (pairingStatus == QBluetoothLocalDevice::Paired || pairingStatus == QBluetoothLocalDevice::AuthorizedPaired )
-            item->setTextColor(QColor(Qt::green));
+            item->setForeground(QColor(Qt::green));
         else
-            item->setTextColor(QColor(Qt::black));
+            item->setForeground(QColor(Qt::black));
 
         ui->list->addItem(item);
     }
@@ -218,12 +218,12 @@ void DeviceDiscoveryDialog::pairingDone(const QBluetoothAddress &address, QBluet
     if (pairing == QBluetoothLocalDevice::Paired || pairing == QBluetoothLocalDevice::AuthorizedPaired ) {
         for (int var = 0; var < items.count(); ++var) {
             QListWidgetItem *item = items.at(var);
-            item->setTextColor(QColor(Qt::green));
+            item->setForeground(QColor(Qt::green));
         }
     } else {
         for (int var = 0; var < items.count(); ++var) {
             QListWidgetItem *item = items.at(var);
-            item->setTextColor(QColor(Qt::red));
+            item->setForeground(QColor(Qt::red));
         }
     }
 }

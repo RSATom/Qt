@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "base/logging.h"
+#include "base/optional.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
@@ -23,21 +24,23 @@
 namespace printing {
 
 // property names
-const char kIppCollate[] = "sheet-collate";  // RFC 3381
-const char kIppCopies[] = CUPS_COPIES;
-const char kIppColor[] = CUPS_PRINT_COLOR_MODE;
-const char kIppMedia[] = CUPS_MEDIA;
-const char kIppDuplex[] = CUPS_SIDES;
+constexpr char kIppCollate[] = "sheet-collate";  // RFC 3381
+constexpr char kIppCopies[] = CUPS_COPIES;
+constexpr char kIppColor[] = CUPS_PRINT_COLOR_MODE;
+constexpr char kIppMedia[] = CUPS_MEDIA;
+constexpr char kIppDuplex[] = CUPS_SIDES;
+constexpr char kIppResolution[] = "printer-resolution";  // RFC 2911
 
 // collation values
-const char kCollated[] = "collated";
-const char kUncollated[] = "uncollated";
+constexpr char kCollated[] = "collated";
+constexpr char kUncollated[] = "uncollated";
 
 namespace {
 
-const int kMicronsPerMM = 1000;
-const double kMMPerInch = 25.4;
-const double kMicronsPerInch = kMMPerInch * kMicronsPerMM;
+constexpr int kMicronsPerMM = 1000;
+constexpr double kMMPerInch = 25.4;
+constexpr double kMicronsPerInch = kMMPerInch * kMicronsPerMM;
+constexpr double kCmPerInch = kMMPerInch * 0.1;
 
 enum Unit {
   INCHES,
@@ -49,9 +52,20 @@ struct ColorMap {
   ColorModel model;
 };
 
+struct DuplexMap {
+  const char* name;
+  DuplexMode mode;
+};
+
 const ColorMap kColorList[]{
     {CUPS_PRINT_COLOR_MODE_COLOR, COLORMODE_COLOR},
     {CUPS_PRINT_COLOR_MODE_MONOCHROME, COLORMODE_MONOCHROME},
+};
+
+const DuplexMap kDuplexList[]{
+    {CUPS_SIDES_ONE_SIDED, SIMPLEX},
+    {CUPS_SIDES_TWO_SIDED_PORTRAIT, LONG_EDGE},
+    {CUPS_SIDES_TWO_SIDED_LANDSCAPE, SHORT_EDGE},
 };
 
 ColorModel ColorModelFromIppColor(base::StringPiece ippColor) {
@@ -64,29 +78,11 @@ ColorModel ColorModelFromIppColor(base::StringPiece ippColor) {
   return UNKNOWN_COLOR_MODEL;
 }
 
-bool PrinterSupportsValue(const CupsOptionProvider& printer,
-                          const char* name,
-                          const char* value) {
-  std::vector<base::StringPiece> values =
-      printer.GetSupportedOptionValueStrings(name);
-  return base::ContainsValue(values, value);
-}
-
-DuplexMode PrinterDefaultDuplex(const CupsOptionProvider& printer) {
-  ipp_attribute_t* attr = printer.GetDefaultOptionValue(kIppDuplex);
-  if (!attr)
-    return UNKNOWN_DUPLEX_MODE;
-
-  const char* value = ippGetString(attr, 0, nullptr);
-  if (base::EqualsCaseInsensitiveASCII(value, CUPS_SIDES_ONE_SIDED))
-    return SIMPLEX;
-
-  if (base::EqualsCaseInsensitiveASCII(value, CUPS_SIDES_TWO_SIDED_PORTRAIT))
-    return LONG_EDGE;
-
-  if (base::EqualsCaseInsensitiveASCII(value, CUPS_SIDES_TWO_SIDED_LANDSCAPE))
-    return SHORT_EDGE;
-
+DuplexMode DuplexModeFromIpp(base::StringPiece ipp_duplex) {
+  for (const DuplexMap& entry : kDuplexList) {
+    if (base::EqualsCaseInsensitiveASCII(ipp_duplex, entry.name))
+      return entry.mode;
+  }
   return UNKNOWN_DUPLEX_MODE;
 }
 
@@ -189,6 +185,21 @@ void ExtractColor(const CupsOptionProvider& printer,
   printer_info->color_default = DefaultColorModel(printer) == COLORMODE_COLOR;
 }
 
+void ExtractDuplexModes(const CupsOptionProvider& printer,
+                        PrinterSemanticCapsAndDefaults* printer_info) {
+  std::vector<base::StringPiece> duplex_modes =
+      printer.GetSupportedOptionValueStrings(kIppDuplex);
+  for (base::StringPiece duplex : duplex_modes) {
+    DuplexMode duplex_mode = DuplexModeFromIpp(duplex);
+    if (duplex_mode != UNKNOWN_DUPLEX_MODE)
+      printer_info->duplex_modes.push_back(duplex_mode);
+  }
+  ipp_attribute_t* attr = printer.GetDefaultOptionValue(kIppDuplex);
+  printer_info->duplex_default =
+      attr ? DuplexModeFromIpp(ippGetString(attr, 0, nullptr))
+           : UNKNOWN_DUPLEX_MODE;
+}
+
 void ExtractCopies(const CupsOptionProvider& printer,
                    PrinterSemanticCapsAndDefaults* printer_info) {
   // copies
@@ -196,6 +207,43 @@ void ExtractCopies(const CupsOptionProvider& printer,
   int upper_bound;
   CopiesRange(printer, &lower_bound, &upper_bound);
   printer_info->copies_capable = (lower_bound != -1) && (upper_bound >= 2);
+}
+
+// Reads resolution from |attr| and puts into |size| in dots per inch.
+base::Optional<gfx::Size> GetResolution(ipp_attribute_t* attr, int i) {
+  ipp_res_t units;
+  int yres;
+  int xres = ippGetResolution(attr, i, &yres, &units);
+  if (!xres)
+    return {};
+
+  switch (units) {
+    case IPP_RES_PER_INCH:
+      return gfx::Size(xres, yres);
+    case IPP_RES_PER_CM:
+      return gfx::Size(xres * kCmPerInch, yres * kCmPerInch);
+  }
+  return {};
+}
+
+// Initializes |printer_info.dpis| with available resolutions and
+// |printer_info.default_dpi| with default resolution provided by |printer|.
+void ExtractResolutions(const CupsOptionProvider& printer,
+                        PrinterSemanticCapsAndDefaults* printer_info) {
+  ipp_attribute_t* attr = printer.GetSupportedOptionValues(kIppResolution);
+  if (!attr)
+    return;
+
+  int num_options = ippGetCount(attr);
+  for (int i = 0; i < num_options; i++) {
+    base::Optional<gfx::Size> size = GetResolution(attr, i);
+    if (size)
+      printer_info->dpis.push_back(size.value());
+  }
+  ipp_attribute_t* def_attr = printer.GetDefaultOptionValue(kIppResolution);
+  base::Optional<gfx::Size> size = GetResolution(def_attr, 0);
+  if (size)
+    printer_info->default_dpi = size.value();
 }
 
 }  // namespace
@@ -234,14 +282,14 @@ PrinterSemanticCapsAndDefaults::Paper DefaultPaper(
   return ParsePaper(ippGetString(attr, 0, nullptr));
 }
 
-std::vector<PrinterSemanticCapsAndDefaults::Paper> SupportedPapers(
+PrinterSemanticCapsAndDefaults::Papers SupportedPapers(
     const CupsOptionProvider& printer) {
   std::vector<base::StringPiece> papers =
       printer.GetSupportedOptionValueStrings(kIppMedia);
-  std::vector<PrinterSemanticCapsAndDefaults::Paper> parsed_papers;
-  for (base::StringPiece paper : papers) {
+  PrinterSemanticCapsAndDefaults::Papers parsed_papers;
+  parsed_papers.reserve(papers.size());
+  for (base::StringPiece paper : papers)
     parsed_papers.push_back(ParsePaper(paper));
-  }
 
   return parsed_papers;
 }
@@ -276,11 +324,6 @@ bool CollateDefault(const CupsOptionProvider& printer) {
 
 void CapsAndDefaultsFromPrinter(const CupsOptionProvider& printer,
                                 PrinterSemanticCapsAndDefaults* printer_info) {
-  // duplex
-  printer_info->duplex_default = PrinterDefaultDuplex(printer);
-  printer_info->duplex_capable =
-      PrinterSupportsValue(printer, kIppDuplex, CUPS_SIDES_TWO_SIDED_PORTRAIT);
-
   // collate
   printer_info->collate_default = CollateDefault(printer);
   printer_info->collate_capable = CollateCapable(printer);
@@ -291,8 +334,12 @@ void CapsAndDefaultsFromPrinter(const CupsOptionProvider& printer,
 
   ExtractCopies(printer, printer_info);
   ExtractColor(printer, printer_info);
+  ExtractDuplexModes(printer, printer_info);
+  ExtractResolutions(printer, printer_info);
+}
 
-  // TODO(skau): Add dpi and default_dpi
+ScopedIppPtr WrapIpp(ipp_t* ipp) {
+  return ScopedIppPtr(ipp, &ippDelete);
 }
 
 }  //  namespace printing

@@ -8,23 +8,23 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/api/audio_codecs/ilbc/audio_decoder_ilbc.h"
+#include "api/audio_codecs/ilbc/audio_decoder_ilbc.h"
 
 #include <memory>
 #include <vector>
 
-#include "webrtc/common_types.h"
-#include "webrtc/modules/audio_coding/codecs/ilbc/audio_decoder_ilbc.h"
-#include "webrtc/rtc_base/ptr_util.h"
+#include "absl/memory/memory.h"
+#include "absl/strings/match.h"
+#include "modules/audio_coding/codecs/ilbc/audio_decoder_ilbc.h"
 
 namespace webrtc {
 
-rtc::Optional<AudioDecoderIlbc::Config> AudioDecoderIlbc::SdpToConfig(
+absl::optional<AudioDecoderIlbc::Config> AudioDecoderIlbc::SdpToConfig(
     const SdpAudioFormat& format) {
-  return STR_CASE_CMP(format.name.c_str(), "ilbc") == 0 &&
+  return absl::EqualsIgnoreCase(format.name, "ILBC") &&
                  format.clockrate_hz == 8000 && format.num_channels == 1
-             ? rtc::Optional<Config>(Config())
-             : rtc::Optional<Config>();
+             ? absl::optional<Config>(Config())
+             : absl::nullopt;
 }
 
 void AudioDecoderIlbc::AppendSupportedDecoders(
@@ -33,8 +33,9 @@ void AudioDecoderIlbc::AppendSupportedDecoders(
 }
 
 std::unique_ptr<AudioDecoder> AudioDecoderIlbc::MakeAudioDecoder(
-    Config config) {
-  return rtc::MakeUnique<AudioDecoderIlbcImpl>();
+    Config config,
+    absl::optional<AudioCodecPairId> /*codec_pair_id*/) {
+  return absl::make_unique<AudioDecoderIlbcImpl>();
 }
 
 }  // namespace webrtc

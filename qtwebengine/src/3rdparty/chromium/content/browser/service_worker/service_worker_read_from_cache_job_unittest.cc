@@ -11,6 +11,7 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
+#include "base/stl_util.h"
 #include "content/browser/service_worker/embedded_worker_test_helper.h"
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_registration.h"
@@ -26,6 +27,7 @@
 #include "net/url_request/url_request_status.h"
 #include "net/url_request/url_request_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
 
 namespace content {
 
@@ -38,20 +40,20 @@ const int64_t kImportedScriptResourceId = 11;
 const int64_t kNonExistentResourceId = 12;
 const int64_t kResourceSize = 100;
 
-void DidStoreRegistration(ServiceWorkerStatusCode* status_out,
-                          const base::Closure& quit_closure,
-                          ServiceWorkerStatusCode status) {
+void DidStoreRegistration(blink::ServiceWorkerStatusCode* status_out,
+                          base::OnceClosure quit_closure,
+                          blink::ServiceWorkerStatusCode status) {
   *status_out = status;
-  quit_closure.Run();
+  std::move(quit_closure).Run();
 }
 
 void DidFindRegistration(
-    ServiceWorkerStatusCode* status_out,
-    const base::Closure& quit_closure,
-    ServiceWorkerStatusCode status,
+    blink::ServiceWorkerStatusCode* status_out,
+    base::OnceClosure quit_closure,
+    blink::ServiceWorkerStatusCode status,
     scoped_refptr<ServiceWorkerRegistration> registration) {
   *status_out = status;
-  quit_closure.Run();
+  std::move(quit_closure).Run();
 }
 
 }  // namespace
@@ -86,14 +88,16 @@ class ServiceWorkerReadFromCacheJobTest : public testing::Test {
 
   void InitializeStorage() {
     base::RunLoop run_loop;
-    context()->storage()->LazyInitialize(run_loop.QuitClosure());
+    context()->storage()->LazyInitializeForTest(run_loop.QuitClosure());
     run_loop.Run();
 
     // Populate a registration in the storage.
-    registration_ = new ServiceWorkerRegistration(
-        ServiceWorkerRegistrationOptions(GURL("http://example.com/scope")),
-        kRegistrationId, context()->AsWeakPtr());
+    blink::mojom::ServiceWorkerRegistrationOptions options;
+    options.scope = GURL("http://example.com/scope");
+    registration_ = new ServiceWorkerRegistration(options, kRegistrationId,
+                                                  context()->AsWeakPtr());
     version_ = new ServiceWorkerVersion(registration_.get(), main_script_.url,
+                                        blink::mojom::ScriptType::kClassic,
                                         kVersionId, context()->AsWeakPtr());
     std::vector<ServiceWorkerDatabase::ResourceRecord> resources;
     resources.push_back(main_script_);
@@ -101,7 +105,7 @@ class ServiceWorkerReadFromCacheJobTest : public testing::Test {
     version_->script_cache_map()->SetResources(resources);
     version_->set_fetch_handler_existence(
         ServiceWorkerVersion::FetchHandlerExistence::EXISTS);
-    ASSERT_EQ(SERVICE_WORKER_OK, StoreRegistration());
+    ASSERT_EQ(blink::ServiceWorkerStatusCode::kOk, StoreRegistration());
     ASSERT_TRUE(WriteResource(main_script_.resource_id));
     ASSERT_TRUE(WriteResource(imported_script_.resource_id));
   }
@@ -109,20 +113,22 @@ class ServiceWorkerReadFromCacheJobTest : public testing::Test {
   bool WriteResource(int64_t resource_id) {
     const char kHttpHeaders[] = "HTTP/1.0 200 OK\0Content-Length: 5\0\0";
     const char kHttpBody[] = "Hello";
-    const int length = arraysize(kHttpBody);
-    std::string headers(kHttpHeaders, arraysize(kHttpHeaders));
-    scoped_refptr<net::IOBuffer> body(new net::WrappedIOBuffer(kHttpBody));
+    const int length = base::size(kHttpBody);
+    std::string headers(kHttpHeaders, base::size(kHttpHeaders));
+    scoped_refptr<net::IOBuffer> body =
+        base::MakeRefCounted<net::WrappedIOBuffer>(kHttpBody);
 
     std::unique_ptr<ServiceWorkerResponseWriter> writer =
         context()->storage()->CreateResponseWriter(resource_id);
 
-    std::unique_ptr<net::HttpResponseInfo> info(new net::HttpResponseInfo);
+    std::unique_ptr<net::HttpResponseInfo> info =
+        std::make_unique<net::HttpResponseInfo>();
     info->request_time = base::Time::Now();
     info->response_time = base::Time::Now();
     info->was_cached = false;
     info->headers = new net::HttpResponseHeaders(headers);
     scoped_refptr<HttpResponseInfoIOBuffer> info_buffer =
-        new HttpResponseInfoIOBuffer(info.release());
+        base::MakeRefCounted<HttpResponseInfoIOBuffer>(std::move(info));
     {
       net::TestCompletionCallback cb;
       writer->WriteInfo(info_buffer.get(), cb.callback());
@@ -140,22 +146,24 @@ class ServiceWorkerReadFromCacheJobTest : public testing::Test {
     return true;
   }
 
-  ServiceWorkerStatusCode StoreRegistration() {
+  blink::ServiceWorkerStatusCode StoreRegistration() {
     base::RunLoop run_loop;
-    ServiceWorkerStatusCode status = SERVICE_WORKER_ERROR_FAILED;
+    blink::ServiceWorkerStatusCode status =
+        blink::ServiceWorkerStatusCode::kErrorFailed;
     context()->storage()->StoreRegistration(
         registration_.get(), version_.get(),
-        base::Bind(&DidStoreRegistration, &status, run_loop.QuitClosure()));
+        base::BindOnce(&DidStoreRegistration, &status, run_loop.QuitClosure()));
     run_loop.Run();
     return status;
   }
 
-  ServiceWorkerStatusCode FindRegistration() {
+  blink::ServiceWorkerStatusCode FindRegistration() {
     base::RunLoop run_loop;
-    ServiceWorkerStatusCode status = SERVICE_WORKER_ERROR_FAILED;
+    blink::ServiceWorkerStatusCode status =
+        blink::ServiceWorkerStatusCode::kErrorFailed;
     context()->storage()->FindRegistrationForId(
-        registration_->id(), registration_->pattern().GetOrigin(),
-        base::Bind(&DidFindRegistration, &status, run_loop.QuitClosure()));
+        registration_->id(), registration_->scope().GetOrigin(),
+        base::BindOnce(&DidFindRegistration, &status, run_loop.QuitClosure()));
     run_loop.Run();
     return status;
   }
@@ -166,8 +174,8 @@ class ServiceWorkerReadFromCacheJobTest : public testing::Test {
     base::RunLoop().RunUntilIdle();
   }
 
-  ServiceWorkerStatusCode DeduceStartWorkerFailureReason(
-      ServiceWorkerStatusCode default_code) {
+  blink::ServiceWorkerStatusCode DeduceStartWorkerFailureReason(
+      blink::ServiceWorkerStatusCode default_code) {
     return version_->DeduceStartWorkerFailureReason(default_code);
   }
 
@@ -197,7 +205,7 @@ TEST_F(ServiceWorkerReadFromCacheJobTest, ReadMainScript) {
                                           net::DEFAULT_PRIORITY, &delegate_,
                                           TRAFFIC_ANNOTATION_FOR_TESTS);
   test_job_interceptor_->set_main_intercept_job(
-      base::MakeUnique<ServiceWorkerReadFromCacheJob>(
+      std::make_unique<ServiceWorkerReadFromCacheJob>(
           request.get(), nullptr /* NetworkDelegate */,
           RESOURCE_TYPE_SERVICE_WORKER, context()->AsWeakPtr(), version_,
           main_script_.resource_id));
@@ -205,8 +213,9 @@ TEST_F(ServiceWorkerReadFromCacheJobTest, ReadMainScript) {
 
   EXPECT_EQ(net::URLRequestStatus::SUCCESS, request->status().status());
   EXPECT_EQ(0, request->status().error());
-  EXPECT_EQ(SERVICE_WORKER_OK,
-            DeduceStartWorkerFailureReason(SERVICE_WORKER_OK));
+  EXPECT_EQ(
+      blink::ServiceWorkerStatusCode::kOk,
+      DeduceStartWorkerFailureReason(blink::ServiceWorkerStatusCode::kOk));
 }
 
 TEST_F(ServiceWorkerReadFromCacheJobTest, ReadImportedScript) {
@@ -216,19 +225,20 @@ TEST_F(ServiceWorkerReadFromCacheJobTest, ReadImportedScript) {
                                           net::DEFAULT_PRIORITY, &delegate_,
                                           TRAFFIC_ANNOTATION_FOR_TESTS);
   test_job_interceptor_->set_main_intercept_job(
-      base::MakeUnique<ServiceWorkerReadFromCacheJob>(
+      std::make_unique<ServiceWorkerReadFromCacheJob>(
           request.get(), nullptr /* NetworkDelegate */, RESOURCE_TYPE_SCRIPT,
           context()->AsWeakPtr(), version_, imported_script_.resource_id));
   StartAndWaitForRequest(request.get());
 
   EXPECT_EQ(net::URLRequestStatus::SUCCESS, request->status().status());
   EXPECT_EQ(0, request->status().error());
-  EXPECT_EQ(SERVICE_WORKER_OK,
-            DeduceStartWorkerFailureReason(SERVICE_WORKER_OK));
+  EXPECT_EQ(
+      blink::ServiceWorkerStatusCode::kOk,
+      DeduceStartWorkerFailureReason(blink::ServiceWorkerStatusCode::kOk));
 }
 
 TEST_F(ServiceWorkerReadFromCacheJobTest, ResourceNotFound) {
-  ASSERT_EQ(SERVICE_WORKER_OK, FindRegistration());
+  ASSERT_EQ(blink::ServiceWorkerStatusCode::kOk, FindRegistration());
 
   // Populate the script cache map with a nonexistent resource.
   ServiceWorkerScriptCacheMap* script_cache_map = version_->script_cache_map();
@@ -247,7 +257,7 @@ TEST_F(ServiceWorkerReadFromCacheJobTest, ResourceNotFound) {
                                           TRAFFIC_ANNOTATION_FOR_TESTS);
   const int64_t kNonexistentResourceId = 100;
   test_job_interceptor_->set_main_intercept_job(
-      base::MakeUnique<ServiceWorkerReadFromCacheJob>(
+      std::make_unique<ServiceWorkerReadFromCacheJob>(
           request.get(), nullptr /* NetworkDelegate */,
           RESOURCE_TYPE_SERVICE_WORKER, context()->AsWeakPtr(), version_,
           kNonexistentResourceId));
@@ -255,12 +265,13 @@ TEST_F(ServiceWorkerReadFromCacheJobTest, ResourceNotFound) {
 
   EXPECT_EQ(net::URLRequestStatus::FAILED, request->status().status());
   EXPECT_EQ(net::ERR_CACHE_MISS, request->status().error());
-  EXPECT_EQ(SERVICE_WORKER_ERROR_DISK_CACHE,
-            DeduceStartWorkerFailureReason(SERVICE_WORKER_OK));
+  EXPECT_EQ(
+      blink::ServiceWorkerStatusCode::kErrorDiskCache,
+      DeduceStartWorkerFailureReason(blink::ServiceWorkerStatusCode::kOk));
 
   // The version should be doomed by the job.
   EXPECT_EQ(ServiceWorkerVersion::REDUNDANT, version_->status());
-  EXPECT_EQ(SERVICE_WORKER_ERROR_NOT_FOUND, FindRegistration());
+  EXPECT_EQ(blink::ServiceWorkerStatusCode::kErrorNotFound, FindRegistration());
 }
 
 }  // namespace content

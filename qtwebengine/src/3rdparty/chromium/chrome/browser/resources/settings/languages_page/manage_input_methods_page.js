@@ -57,20 +57,21 @@ Polymer({
   /**
    * Handler for an input method checkbox.
    * @param {!{model: !{item: chrome.languageSettingsPrivate.InputMethod},
-   *           target: !PaperCheckboxElement}} e
+   *           target: !Element}} e
    * @private
    */
   onCheckboxChange_: function(e) {
     // TODO(michaelpg): Show confirmation dialog for 3rd-party IMEs.
-    var id = e.model.item.id;
-    if (e.target.checked)
+    const id = e.model.item.id;
+    if (e.target.checked) {
       this.languageHelper.addInputMethod(id);
-    else
+    } else {
       this.languageHelper.removeInputMethod(id);
+    }
   },
 
   /**
-   * Returns true if the input method can be removed.
+   * Returns true if the input method can be added/removed.
    * @param {!chrome.languageSettingsPrivate.InputMethod} targetInputMethod
    * @param {!Object} change Polymer change object (provided in the HTML so this
    *     gets called whenever languages.inputMethods.enabled.* changes).
@@ -78,12 +79,18 @@ Polymer({
    * @private
    */
   enableInputMethodCheckbox_: function(targetInputMethod, change) {
-    if (!targetInputMethod.enabled)
+    if (targetInputMethod.isProhibitedByPolicy) {
+      return false;
+    }
+
+    if (!targetInputMethod.enabled) {
       return true;
+    }
 
     // Third-party IMEs can always be removed.
-    if (!this.languageHelper.isComponentIme(targetInputMethod))
+    if (!this.languageHelper.isComponentIme(targetInputMethod)) {
       return true;
+    }
 
     // Can be removed as long as there is another component IME.
     return this.languages.inputMethods.enabled.some(function(inputMethod) {
@@ -98,56 +105,72 @@ Polymer({
    * @private
    */
   populateLanguageList_: function() {
-    var languageList = [];
+    const languageList = [];
 
     // Languages that have already been listed further up.
-    var /** !Set<string> */ usedLanguages = new Set();
+    const /** !Set<string> */ usedLanguages = new Set();
 
     // Add languages in preference order. However, if there are multiple
     // enabled variants of the same base language, group them all as the base
     // language instead of showing each variant individually. This prevents us
     // from displaying duplicate input methods under different variants.
-    for (var i = 0; i < this.languages.enabled.length; i++) {
-      var languageState = this.languages.enabled[i];
+    for (let i = 0; i < this.languages.enabled.length; i++) {
+      const languageState = this.languages.enabled[i];
       // Skip the language if we have already included it or its base language.
-      if (usedLanguages.has(languageState.language.code))
+      if (usedLanguages.has(languageState.language.code)) {
         continue;
-      var baseLanguageCode = this.languageHelper.getLanguageCodeWithoutRegion(
+      }
+      const baseLanguageCode = this.languageHelper.getLanguageCodeWithoutRegion(
           languageState.language.code);
-      if (usedLanguages.has(baseLanguageCode))
+      if (usedLanguages.has(baseLanguageCode)) {
         continue;
+      }
 
       // Find the other languages further down in the preferred languages list
       // which also use this language's base language code.
-      var languageFamilyCodes = [languageState.language.code];
-      for (var j = i + 1; j < this.languages.enabled.length; j++) {
-        var otherCode = this.languages.enabled[j].language.code;
+      const languageFamilyCodes = [languageState.language.code];
+      for (let j = i + 1; j < this.languages.enabled.length; j++) {
+        const otherCode = this.languages.enabled[j].language.code;
         if (this.languageHelper.getLanguageCodeWithoutRegion(otherCode) ==
             baseLanguageCode) {
           languageFamilyCodes.push(this.languages.enabled[j].language.code);
         }
       }
 
-      var combinedInputMethods =
+      const combinedInputMethods =
           this.getInputMethodsForLanguages(languageFamilyCodes);
 
       // Skip the language if it has no new input methods.
-      if (!combinedInputMethods.length)
+      if (!combinedInputMethods.length) {
         continue;
+      }
 
       // Add the language or base language.
-      var displayLanguage = languageState.language;
+      let displayLanguage = languageState.language;
       if (languageFamilyCodes.length > 1) {
-        var baseLanguage = this.languageHelper.getLanguage(baseLanguageCode);
-        if (baseLanguage)
+        const baseLanguage = this.languageHelper.getLanguage(baseLanguageCode);
+        if (baseLanguage) {
           displayLanguage = baseLanguage;
+        }
       }
       languageList.push({
         language: displayLanguage,
         inputMethods: combinedInputMethods,
       });
-      for (var k = 0; k < languageFamilyCodes.length; k++)
+      for (let k = 0; k < languageFamilyCodes.length; k++) {
         usedLanguages.add(languageFamilyCodes[k]);
+      }
+    }
+
+    // Add ARC IMEs to the bottom if any.
+    const arcInputMethods = this.getInputMethodsForLanguages(
+        [this.languageHelper.getArcImeLanguageCode()]);
+    if (arcInputMethods.length) {
+      languageList.push({
+        language: this.languageHelper.getLanguage(
+            this.languageHelper.getArcImeLanguageCode()),
+        inputMethods: arcInputMethods,
+      });
     }
 
     this.languageList_ = languageList;
@@ -162,16 +185,17 @@ Polymer({
    */
   getInputMethodsForLanguages: function(languageCodes) {
     // Input methods that have already been listed for this language.
-    var /** !Set<string> */ usedInputMethods = new Set();
+    const /** !Set<string> */ usedInputMethods = new Set();
     /** @type {!Array<chrome.languageSettingsPrivate.InputMethod>} */
-    var combinedInputMethods = [];
-    for (var i = 0; i < languageCodes.length; i++) {
-      var inputMethods =
+    const combinedInputMethods = [];
+    for (let i = 0; i < languageCodes.length; i++) {
+      const inputMethods =
           this.languageHelper.getInputMethodsForLanguage(languageCodes[i]);
       // Get the language's unused input methods and mark them as used.
-      var newInputMethods = inputMethods.filter(function(inputMethod) {
-        if (usedInputMethods.has(inputMethod.id))
+      const newInputMethods = inputMethods.filter(function(inputMethod) {
+        if (usedInputMethods.has(inputMethod.id)) {
           return false;
+        }
         usedInputMethods.add(inputMethod.id);
         return true;
       });
@@ -186,12 +210,21 @@ Polymer({
   // TODO(michaelpg): Test this behavior.
   /** @private */
   notifyInputMethodsChanged_: function() {
-    for (var i = 0; i < this.languageList_.length; i++) {
-      for (var j = 0; j < this.languageList_[i].inputMethods.length; j++) {
+    for (let i = 0; i < this.languageList_.length; i++) {
+      for (let j = 0; j < this.languageList_[i].inputMethods.length; j++) {
         this.notifyPath(
             'languageList_.' + i + '.inputMethods.' + j + '.enabled',
             this.languageList_[i].inputMethods[j].enabled);
       }
     }
   },
+
+  /**
+   * @param {Object} allowedInputMethods
+   * @return {boolean}
+   * @private
+   */
+  inputMethodsLimitedByPolicy_: function(allowedInputMethods) {
+    return !!allowedInputMethods && allowedInputMethods.value.length > 0;
+  }
 });

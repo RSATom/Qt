@@ -50,9 +50,9 @@ class QT_DATAVISUALIZATION_EXPORT QHeightMapSurfaceDataProxy : public QSurfaceDa
     Q_PROPERTY(float maxZValue READ maxZValue WRITE setMaxZValue NOTIFY maxZValueChanged)
 
 public:
-    explicit QHeightMapSurfaceDataProxy(QObject *parent = Q_NULLPTR);
-    explicit QHeightMapSurfaceDataProxy(const QImage &image, QObject *parent = Q_NULLPTR);
-    explicit QHeightMapSurfaceDataProxy(const QString &filename, QObject *parent = Q_NULLPTR);
+    explicit QHeightMapSurfaceDataProxy(QObject *parent = nullptr);
+    explicit QHeightMapSurfaceDataProxy(const QImage &image, QObject *parent = nullptr);
+    explicit QHeightMapSurfaceDataProxy(const QString &filename, QObject *parent = nullptr);
     virtual ~QHeightMapSurfaceDataProxy();
 
     void setHeightMap(const QImage &image);
@@ -79,7 +79,7 @@ Q_SIGNALS:
     void maxZValueChanged(float value);
 
 protected:
-    explicit QHeightMapSurfaceDataProxy(QHeightMapSurfaceDataProxyPrivate *d, QObject *parent = Q_NULLPTR);
+    explicit QHeightMapSurfaceDataProxy(QHeightMapSurfaceDataProxyPrivate *d, QObject *parent = nullptr);
     QHeightMapSurfaceDataProxyPrivate *dptr();
     const QHeightMapSurfaceDataProxyPrivate *dptrc() const;
 

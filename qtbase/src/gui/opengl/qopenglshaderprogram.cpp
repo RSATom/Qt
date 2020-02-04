@@ -39,14 +39,13 @@
 
 #include "qopenglshaderprogram.h"
 #include "qopenglprogrambinarycache_p.h"
-#include "qopenglfunctions.h"
+#include "qopenglextrafunctions.h"
 #include "private/qopenglcontext_p.h"
 #include <QtCore/private/qobject_p.h>
 #include <QtCore/qdebug.h>
 #include <QtCore/qfile.h>
 #include <QtCore/qvarlengtharray.h>
 #include <QtCore/qvector.h>
-#include <QtCore/qregularexpression.h>
 #include <QtCore/qloggingcategory.h>
 #include <QtCore/qcryptographichash.h>
 #include <QtCore/qcoreapplication.h>
@@ -171,13 +170,13 @@ QT_BEGIN_NAMESPACE
     \value Vertex Vertex shader written in the OpenGL Shading Language (GLSL).
     \value Fragment Fragment shader written in the OpenGL Shading Language (GLSL).
     \value Geometry Geometry shaders written in the OpenGL Shading Language (GLSL)
-           based on the OpenGL core feature (requires OpenGL >= 3.2).
+           (requires OpenGL >= 3.2 or OpenGL ES >= 3.2).
     \value TessellationControl Tessellation control shaders written in the OpenGL
-           shading language (GLSL), based on the core feature (requires OpenGL >= 4.0).
+           shading language (GLSL) (requires OpenGL >= 4.0 or OpenGL ES >= 3.2).
     \value TessellationEvaluation Tessellation evaluation shaders written in the OpenGL
-           shading language (GLSL), based on the core feature (requires OpenGL >= 4.0).
-    \value Compute Compute shaders written in the OpenGL shading language (GLSL),
-           based on the core feature (requires OpenGL >= 4.3).
+           shading language (GLSL) (requires OpenGL >= 4.0 or OpenGL ES >= 3.2).
+    \value Compute Compute shaders written in the OpenGL shading language (GLSL)
+           (requires OpenGL >= 4.3 or OpenGL ES >= 3.1).
 */
 
 Q_LOGGING_CATEGORY(DBG_SHADER_CACHE, "qt.opengl.diskcache")
@@ -224,26 +223,18 @@ static inline bool isFormatGLES(const QSurfaceFormat &f)
 
 static inline bool supportsGeometry(const QSurfaceFormat &f)
 {
-#ifndef QT_OPENGL_ES_2
-    if (!isFormatGLES(f))
-        return (f.version() >= qMakePair<int, int>(3, 2));
-    else
-        return false;
-#else
-    Q_UNUSED(f);
-    return false;
-#endif
+    return f.version() >= qMakePair(3, 2);
 }
 
 static inline bool supportsCompute(const QSurfaceFormat &f)
 {
 #ifndef QT_OPENGL_ES_2
     if (!isFormatGLES(f))
-        return (f.version() >= qMakePair<int, int>(4, 3));
+        return f.version() >= qMakePair(4, 3);
     else
-        return (f.version() >= qMakePair<int, int>(3, 1));
+        return f.version() >= qMakePair(3, 1);
 #else
-    return (f.version() >= qMakePair<int, int>(3, 1));
+    return f.version() >= qMakePair(3, 1);
 #endif
 }
 
@@ -251,12 +242,11 @@ static inline bool supportsTessellation(const QSurfaceFormat &f)
 {
 #ifndef QT_OPENGL_ES_2
     if (!isFormatGLES(f))
-        return (f.version() >= qMakePair<int, int>(4, 0));
+        return f.version() >= qMakePair(4, 0);
     else
-        return false;
+        return f.version() >= qMakePair(3, 2);
 #else
-    Q_UNUSED(f);
-    return false;
+    return f.version() >= qMakePair(3, 2);
 #endif
 }
 
@@ -268,7 +258,7 @@ public:
         : shaderGuard(0)
         , shaderType(type)
         , compiled(false)
-        , glfuncs(new QOpenGLFunctions(ctx))
+        , glfuncs(new QOpenGLExtraFunctions(ctx))
         , supportsGeometryShaders(false)
         , supportsTessellationShaders(false)
         , supportsComputeShaders(false)
@@ -287,7 +277,7 @@ public:
     bool compiled;
     QString log;
 
-    QOpenGLFunctions *glfuncs;
+    QOpenGLExtraFunctions *glfuncs;
 
     // Support for geometry shaders
     bool supportsGeometryShaders;
@@ -497,6 +487,13 @@ static const char redefineHighp[] =
     "#endif\n";
 #endif
 
+// Boiler-plate header to have the layout attributes available we need later
+static const char blendEquationAdvancedHeader[] =
+    "#ifdef GL_KHR_blend_equation_advanced\n"
+    "#extension GL_ARB_fragment_coord_conventions : enable\n"
+    "#extension GL_KHR_blend_equation_advanced : enable\n"
+    "#endif\n";
+
 struct QVersionDirectivePosition
 {
     Q_DECL_CONSTEXPR QVersionDirectivePosition(int position = 0, int line = -1)
@@ -562,7 +559,7 @@ static QVersionDirectivePosition findVersionDirectivePosition(const char *source
                 break;
             }
             state = Normal;
-            // fall through
+            Q_FALLTHROUGH();
         case Normal:
             if (*c == '/')
                 state = CommentStarting;
@@ -636,6 +633,10 @@ bool QOpenGLShader::compileSourceCode(const char *source)
                     sourceChunkLengths.append(GLint(sizeof(version110)) - 1);
                 }
             }
+        }
+        if (d->shaderType == Fragment) {
+            sourceChunks.append(blendEquationAdvancedHeader);
+            sourceChunkLengths.append(GLint(sizeof(blendEquationAdvancedHeader) - 1));
         }
 
         // The precision qualifiers are useful on OpenGL/ES systems,
@@ -792,7 +793,7 @@ public:
         , linked(false)
         , inited(false)
         , removingShaders(false)
-        , glfuncs(new QOpenGLFunctions)
+        , glfuncs(new QOpenGLExtraFunctions)
 #ifndef QT_OPENGL_ES_2
         , tessellationFuncs(0)
 #endif
@@ -810,10 +811,9 @@ public:
     QList<QOpenGLShader *> shaders;
     QList<QOpenGLShader *> anonShaders;
 
-    QOpenGLFunctions *glfuncs;
-
+    QOpenGLExtraFunctions *glfuncs;
 #ifndef QT_OPENGL_ES_2
-    // Tessellation shader support
+    // for tessellation features not in GLES 3.2
     QOpenGLFunctions_4_0_Core *tessellationFuncs;
 #endif
 
@@ -903,10 +903,7 @@ bool QOpenGLShaderProgram::init()
     d->glfuncs->initializeOpenGLFunctions();
 
 #ifndef QT_OPENGL_ES_2
-    // Resolve OpenGL 4 functions for tessellation shader support
-    QSurfaceFormat format = context->format();
-    if (!context->isOpenGLES()
-        && format.version() >= qMakePair<int, int>(4, 0)) {
+    if (!context->isOpenGLES() && context->format().version() >= qMakePair(4, 0)) {
         d->tessellationFuncs = context->versionFunctions<QOpenGLFunctions_4_0_Core>();
         d->tessellationFuncs->initializeOpenGLFunctions();
     }
@@ -3498,13 +3495,8 @@ int QOpenGLShaderProgram::maxGeometryOutputVertices() const
 */
 void QOpenGLShaderProgram::setPatchVertexCount(int count)
 {
-#ifndef QT_OPENGL_ES_2
     Q_D(QOpenGLShaderProgram);
-    if (d->tessellationFuncs)
-        d->tessellationFuncs->glPatchParameteri(GL_PATCH_VERTICES, count);
-#else
-    Q_UNUSED(count);
-#endif
+    d->glfuncs->glPatchParameteri(GL_PATCH_VERTICES, count);
 }
 
 /*!
@@ -3517,15 +3509,10 @@ void QOpenGLShaderProgram::setPatchVertexCount(int count)
 */
 int QOpenGLShaderProgram::patchVertexCount() const
 {
-#ifndef QT_OPENGL_ES_2
     int patchVertices = 0;
     Q_D(const QOpenGLShaderProgram);
-    if (d->tessellationFuncs)
-        d->tessellationFuncs->glGetIntegerv(GL_PATCH_VERTICES, &patchVertices);
+    d->glfuncs->glGetIntegerv(GL_PATCH_VERTICES, &patchVertices);
     return patchVertices;
-#else
-    return 0;
-#endif
 }
 
 /*!
@@ -3542,6 +3529,9 @@ int QOpenGLShaderProgram::patchVertexCount() const
     QOpenGLShaderProgram instance. You should call this in your render
     function when needed, as QOpenGLShaderProgram will not apply this for
     you. This is purely a convenience function.
+
+    \note This function is only available with OpenGL >= 4.0 and is not supported
+    with OpenGL ES 3.2.
 
     \sa defaultOuterTessellationLevels(), setDefaultInnerTessellationLevels()
 */
@@ -3580,6 +3570,9 @@ void QOpenGLShaderProgram::setDefaultOuterTessellationLevels(const QVector<float
     \note This returns the global OpenGL state value. It is not specific to
     this QOpenGLShaderProgram instance.
 
+    \note This function is only supported with OpenGL >= 4.0 and will not
+    return valid results with OpenGL ES 3.2.
+
     \sa setDefaultOuterTessellationLevels(), defaultInnerTessellationLevels()
 */
 QVector<float> QOpenGLShaderProgram::defaultOuterTessellationLevels() const
@@ -3609,6 +3602,9 @@ QVector<float> QOpenGLShaderProgram::defaultOuterTessellationLevels() const
     QOpenGLShaderProgram instance. You should call this in your render
     function when needed, as QOpenGLShaderProgram will not apply this for
     you. This is purely a convenience function.
+
+    \note This function is only available with OpenGL >= 4.0 and is not supported
+    with OpenGL ES 3.2.
 
     \sa defaultInnerTessellationLevels(), setDefaultOuterTessellationLevels()
 */
@@ -3647,6 +3643,9 @@ void QOpenGLShaderProgram::setDefaultInnerTessellationLevels(const QVector<float
     \note This returns the global OpenGL state value. It is not specific to
     this QOpenGLShaderProgram instance.
 
+    \note This function is only supported with OpenGL >= 4.0 and will not
+    return valid results with OpenGL ES 3.2.
+
     \sa setDefaultInnerTessellationLevels(), defaultOuterTessellationLevels()
 */
 QVector<float> QOpenGLShaderProgram::defaultInnerTessellationLevels() const
@@ -3668,7 +3667,8 @@ QVector<float> QOpenGLShaderProgram::defaultInnerTessellationLevels() const
     Language (GLSL) are supported on this system; false otherwise.
 
     The \a context is used to resolve the GLSL extensions.
-    If \a context is null, then QOpenGLContext::currentContext() is used.
+    If \a context is \nullptr, then QOpenGLContext::currentContext()
+    is used.
 */
 bool QOpenGLShaderProgram::hasOpenGLShaderPrograms(QOpenGLContext *context)
 {
@@ -3695,7 +3695,8 @@ void QOpenGLShaderProgram::shaderDestroyed()
     this system; false otherwise.
 
     The \a context is used to resolve the GLSL extensions.
-    If \a context is null, then QOpenGLContext::currentContext() is used.
+    If \a context is \nullptr, then QOpenGLContext::currentContext()
+    is used.
 */
 bool QOpenGLShader::hasOpenGLShaders(ShaderType type, QOpenGLContext *context)
 {
@@ -3754,8 +3755,14 @@ QOpenGLProgramBinarySupportCheck::QOpenGLProgramBinarySupportCheck(QOpenGLContex
     if (ctx) {
         if (ctx->isOpenGLES()) {
             qCDebug(DBG_SHADER_CACHE, "OpenGL ES v%d context", ctx->format().majorVersion());
-            if (ctx->format().majorVersion() >= 3)
+            if (ctx->format().majorVersion() >= 3) {
                 m_supported = true;
+            } else {
+                const bool hasExt = ctx->hasExtension("GL_OES_get_program_binary");
+                qCDebug(DBG_SHADER_CACHE, "GL_OES_get_program_binary support = %d", hasExt);
+                if (hasExt)
+                    m_supported = true;
+            }
         } else {
             const bool hasExt = ctx->hasExtension("GL_ARB_get_program_binary");
             qCDebug(DBG_SHADER_CACHE, "GL_ARB_get_program_binary support = %d", hasExt);
@@ -3824,13 +3831,7 @@ bool QOpenGLShaderProgramPrivate::linkBinary()
     bool needsCompile = true;
     if (binCache.load(cacheKey, q->programId())) {
         qCDebug(DBG_SHADER_CACHE, "Program binary received from cache");
-        linkBinaryRecursion = true;
-        bool ok = q->link();
-        linkBinaryRecursion = false;
-        if (ok)
-            needsCompile = false;
-        else
-            qCDebug(DBG_SHADER_CACHE, "Link failed after glProgramBinary");
+        needsCompile = false;
     }
 
     bool needsSave = false;

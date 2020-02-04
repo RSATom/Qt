@@ -12,31 +12,31 @@
 
 class SkPictureRecorder;
 
-class CFX_DefaultRenderDevice : public CFX_RenderDevice {
+class CFX_DefaultRenderDevice final : public CFX_RenderDevice {
  public:
   CFX_DefaultRenderDevice();
   ~CFX_DefaultRenderDevice() override;
 
-  bool Attach(const CFX_RetainPtr<CFX_DIBitmap>& pBitmap,
+  bool Attach(const RetainPtr<CFX_DIBitmap>& pBitmap,
               bool bRgbByteOrder,
-              const CFX_RetainPtr<CFX_DIBitmap>& pOriDevice,
+              const RetainPtr<CFX_DIBitmap>& pBackdropBitmap,
               bool bGroupKnockout);
   bool Create(int width,
               int height,
               FXDIB_Format format,
-              const CFX_RetainPtr<CFX_DIBitmap>& pOriDevice);
+              const RetainPtr<CFX_DIBitmap>& pBackdropBitmap);
 
 #ifdef _SKIA_SUPPORT_
   bool AttachRecorder(SkPictureRecorder* recorder);
   void Clear(uint32_t color);
   SkPictureRecorder* CreateRecorder(int size_x, int size_y);
   void DebugVerifyBitmapIsPreMultiplied() const override;
-  bool SetBitsWithMask(const CFX_RetainPtr<CFX_DIBSource>& pBitmap,
-                       const CFX_RetainPtr<CFX_DIBSource>& pMask,
+  bool SetBitsWithMask(const RetainPtr<CFX_DIBBase>& pBitmap,
+                       const RetainPtr<CFX_DIBBase>& pMask,
                        int left,
                        int top,
                        int bitmap_alpha,
-                       int blend_type) override;
+                       BlendMode blend_type) override;
 #endif
 };
 

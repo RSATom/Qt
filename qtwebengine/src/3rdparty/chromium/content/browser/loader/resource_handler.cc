@@ -4,6 +4,8 @@
 
 #include "content/browser/loader/resource_handler.h"
 
+#include "base/command_line.h"
+#include "base/strings/string_number_conversions.h"
 #include "content/browser/loader/resource_request_info_impl.h"
 
 namespace content {
@@ -11,6 +13,10 @@ namespace content {
 ResourceHandler::Delegate::Delegate() {}
 
 ResourceHandler::Delegate::~Delegate() {}
+
+void ResourceHandler::Delegate::PauseReadingBodyFromNet() {}
+
+void ResourceHandler::Delegate::ResumeReadingBodyFromNet() {}
 
 void ResourceHandler::SetDelegate(Delegate* delegate) {
   delegate_ = delegate;
@@ -38,12 +44,14 @@ void ResourceHandler::Resume() {
   ReleaseController()->Resume();
 }
 
-void ResourceHandler::Cancel() {
-  ReleaseController()->Cancel();
+void ResourceHandler::ResumeForRedirect(
+    const std::vector<std::string>& removed_headers,
+    const net::HttpRequestHeaders& modified_headers) {
+  ReleaseController()->ResumeForRedirect(removed_headers, modified_headers);
 }
 
-void ResourceHandler::CancelAndIgnore() {
-  ReleaseController()->CancelAndIgnore();
+void ResourceHandler::Cancel() {
+  ReleaseController()->Cancel();
 }
 
 void ResourceHandler::CancelWithError(int error_code) {
@@ -52,6 +60,21 @@ void ResourceHandler::CancelWithError(int error_code) {
 
 void ResourceHandler::OutOfBandCancel(int error_code, bool tell_renderer) {
   delegate_->OutOfBandCancel(error_code, tell_renderer);
+}
+
+void ResourceHandler::PauseReadingBodyFromNet() {
+  delegate_->PauseReadingBodyFromNet();
+}
+
+void ResourceHandler::ResumeReadingBodyFromNet() {
+  delegate_->ResumeReadingBodyFromNet();
+}
+
+void ResourceHandler::GetNumericArg(const std::string& name, int* result) {
+  const std::string& value =
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(name);
+  if (!value.empty())
+    base::StringToInt(value, result);
 }
 
 ResourceRequestInfoImpl* ResourceHandler::GetRequestInfo() const {

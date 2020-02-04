@@ -8,11 +8,6 @@
 #include "base/supports_user_data.h"
 #include "content/common/content_export.h"
 
-namespace net {
-class HostResolver;
-class URLRequestContext;
-}
-
 namespace content {
 
 // ResourceContext contains the relevant context information required for
@@ -23,12 +18,6 @@ class CONTENT_EXPORT ResourceContext : public base::SupportsUserData {
  public:
   ResourceContext();
   ~ResourceContext() override;
-  virtual net::HostResolver* GetHostResolver() = 0;
-
-  // DEPRECATED: This is no longer a valid given isolated apps/sites and
-  // storage partitioning. This getter returns the default context associated
-  // with a BrowsingContext.
-  virtual net::URLRequestContext* GetRequestContext() = 0;
 };
 
 }  // namespace content

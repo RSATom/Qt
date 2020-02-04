@@ -70,6 +70,10 @@ public:
     static QString generateRandomState();
     QNetworkRequest createRequest(QUrl url, const QVariantMap *parameters = nullptr);
 
+    void prepareRequestImpl(QNetworkRequest *request,
+                            const QByteArray &verb,
+                            const QByteArray &body) override;
+
     QString clientIdentifierSharedKey;
     QString scope;
     QString state = generateRandomState();

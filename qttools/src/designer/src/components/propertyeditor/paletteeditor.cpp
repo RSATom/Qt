@@ -31,14 +31,14 @@
 #include <iconloader_p.h>
 #include <qtcolorbutton.h>
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowManagerInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindowmanager.h>
 
-#include <QtCore/QMetaProperty>
-#include <QtGui/QPainter>
-#include <QtWidgets/QToolButton>
-#include <QtWidgets/QLabel>
-#include <QtWidgets/QHeaderView>
+#include <QtCore/qmetaobject.h>
+#include <QtGui/qpainter.h>
+#include <QtWidgets/qtoolbutton.h>
+#include <QtWidgets/qlabel.h>
+#include <QtWidgets/qheaderview.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -73,9 +73,7 @@ PaletteEditor::PaletteEditor(QDesignerFormEditorInterface *core, QWidget *parent
     ui.paletteView->setColumnHidden(3, true);
 }
 
-PaletteEditor::~PaletteEditor()
-{
-}
+PaletteEditor::~PaletteEditor() = default;
 
 QPalette PaletteEditor::palette() const
 {
@@ -182,7 +180,7 @@ void PaletteEditor::updatePreviewPalette()
     QPalette previewPalette;
     for (int i = QPalette::WindowText; i < QPalette::NColorRoles; i++) {
         const QPalette::ColorRole r = static_cast<QPalette::ColorRole>(i);
-        const QBrush br = currentPalette.brush(g, r);
+        const QBrush &br = currentPalette.brush(g, r);
         previewPalette.setBrush(QPalette::Active, r, br);
         previewPalette.setBrush(QPalette::Inactive, r, br);
         previewPalette.setBrush(QPalette::Disabled, r, br);
@@ -409,7 +407,7 @@ BrushEditor::BrushEditor(QDesignerFormEditorInterface *core, QWidget *parent) :
     m_core(core)
 {
     QLayout *layout = new QHBoxLayout(this);
-    layout->setMargin(0);
+    layout->setContentsMargins(QMargins());
     layout->addWidget(m_button);
     connect(m_button, &QtColorButton::colorChanged, this, &BrushEditor::brushChanged);
     setFocusProxy(m_button);
@@ -445,7 +443,7 @@ RoleEditor::RoleEditor(QWidget *parent) :
     m_edited(false)
 {
     QHBoxLayout *layout = new QHBoxLayout(this);
-    layout->setMargin(0);
+    layout->setContentsMargins(QMargins());
     layout->setSpacing(0);
 
     layout->addWidget(m_label);
@@ -470,9 +468,8 @@ void RoleEditor::setLabel(const QString &label)
 void RoleEditor::setEdited(bool on)
 {
     QFont font;
-    if (on == true) {
+    if (on)
         font.setBold(on);
-    }
     m_label->setFont(font);
     m_edited = on;
 }

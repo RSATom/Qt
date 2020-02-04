@@ -1,3 +1,4 @@
+
 !force_bootstrap {
     requires(qtConfig(xmlstreamwriter))
 }
@@ -10,6 +11,15 @@ qtHaveModule(qmldevtools-private) {
     DEFINES += QT_NO_DECLARATIVE
 }
 
+include($$OUT_PWD/qtqdoc-config.pri)
+
+LIBS += $$CLANG_LIBS
+!contains(QMAKE_DEFAULT_INCDIRS, $$CLANG_INCLUDEPATH): INCLUDEPATH += $$CLANG_INCLUDEPATH
+DEFINES += $$CLANG_DEFINES
+
+!contains(QMAKE_DEFAULT_LIBDIRS, $$CLANG_LIBDIR):!disable_external_rpath: QMAKE_RPATHDIR += $$CLANG_LIBDIR
+DEFINES += $$shell_quote(CLANG_RESOURCE_DIR=\"$${CLANG_LIBDIR}/clang/$${CLANG_VERSION}/include\")
+
 DEFINES += \
     QDOC2_COMPAT
 
@@ -17,11 +27,12 @@ INCLUDEPATH += $$QT_SOURCE_TREE/src/tools/qdoc \
                $$QT_SOURCE_TREE/src/tools/qdoc/qmlparser
 
 # Increase the stack size on MSVC to 4M to avoid a stack overflow
-win32-msvc*:{
+win32-icc*|win32-msvc*:{
     QMAKE_LFLAGS += /STACK:4194304
 }
 
 HEADERS += atom.h \
+           clangcodeparser.h \
            codechunk.h \
            codemarker.h \
            codeparser.h \
@@ -34,19 +45,26 @@ HEADERS += atom.h \
            helpprojectwriter.h \
            htmlgenerator.h \
            location.h \
+           loggingcategory.h \
            node.h \
            openedlist.h \
-           plaincodemarker.h \
+           parameters.h \
            puredocparser.h \
            qdocdatabase.h \
            qdoctagfiles.h \
            qdocindexfiles.h \
            quoter.h \
+           sections.h \
            separator.h \
            text.h \
            tokenizer.h \
-           tree.h
+           tree.h \
+           webxmlgenerator.h \
+           qdocglobals.h \
+           qdoccommandlineparser.h
+
 SOURCES += atom.cpp \
+           clangcodeparser.cpp \
            codechunk.cpp \
            codemarker.cpp \
            codeparser.cpp \
@@ -62,17 +80,21 @@ SOURCES += atom.cpp \
            main.cpp \
            node.cpp \
            openedlist.cpp \
-           plaincodemarker.cpp \
+           parameters.cpp \
            puredocparser.cpp \
            qdocdatabase.cpp \
            qdoctagfiles.cpp \
            qdocindexfiles.cpp \
            quoter.cpp \
+           sections.cpp \
            separator.cpp \
            text.cpp \
            tokenizer.cpp \
            tree.cpp \
-           yyindent.cpp
+           yyindent.cpp \
+           webxmlgenerator.cpp \
+           qdocglobals.cpp \
+           qdoccommandlineparser.cpp
 
 ### QML/JS Parser ###
 

@@ -41,8 +41,8 @@
   Use the following \c import statement in the QML files to access the Qt
   Purchasing QML types:
 
-  \qml
-  import QtPurchasing 1.0
+  \qml \QtMinorVersion
+  import QtPurchasing 1.\1
   \endqml
 
   Add the following statement to your \c .pro file to link against the Qt

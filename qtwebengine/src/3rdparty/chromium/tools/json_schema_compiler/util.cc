@@ -20,7 +20,7 @@ bool ReportError(const base::Value& from,
     error->append(base::ASCIIToUTF16("; "));
   error->append(base::ASCIIToUTF16(base::StringPrintf(
       "expected %s, got %s", base::Value::GetTypeName(expected),
-      base::Value::GetTypeName(from.GetType()))));
+      base::Value::GetTypeName(from.type()))));
   return false;  // Always false on purpose.
 }
 
@@ -68,7 +68,7 @@ bool PopulateItem(const base::Value& from,
   return true;
 }
 
-bool PopulateItem(const base::Value& from, std::vector<char>* out) {
+bool PopulateItem(const base::Value& from, std::vector<uint8_t>* out) {
   if (!from.is_blob())
     return false;
   *out = from.GetBlob();
@@ -76,7 +76,7 @@ bool PopulateItem(const base::Value& from, std::vector<char>* out) {
 }
 
 bool PopulateItem(const base::Value& from,
-                  std::vector<char>* out,
+                  std::vector<uint8_t>* out,
                   base::string16* error) {
   if (!from.is_blob())
     return ReportError(from, base::Value::Type::BINARY, error);
@@ -131,8 +131,8 @@ void AddItemToList(const std::string& from, base::ListValue* out) {
   out->AppendString(from);
 }
 
-void AddItemToList(const std::vector<char>& from, base::ListValue* out) {
-  out->Append(base::Value::CreateWithCopiedBuffer(from.data(), from.size()));
+void AddItemToList(const std::vector<uint8_t>& from, base::ListValue* out) {
+  out->GetList().emplace_back(from);
 }
 
 void AddItemToList(const std::unique_ptr<base::Value>& from,

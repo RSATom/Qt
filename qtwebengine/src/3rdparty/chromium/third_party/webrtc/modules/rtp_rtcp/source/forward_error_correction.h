@@ -8,21 +8,19 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_RTP_RTCP_SOURCE_FORWARD_ERROR_CORRECTION_H_
-#define WEBRTC_MODULES_RTP_RTCP_SOURCE_FORWARD_ERROR_CORRECTION_H_
+#ifndef MODULES_RTP_RTCP_SOURCE_FORWARD_ERROR_CORRECTION_H_
+#define MODULES_RTP_RTCP_SOURCE_FORWARD_ERROR_CORRECTION_H_
 
+#include <stddef.h>
 #include <stdint.h>
-
 #include <list>
 #include <memory>
 #include <vector>
 
-#include "webrtc/modules/rtp_rtcp/include/rtp_rtcp_defines.h"
-#include "webrtc/modules/rtp_rtcp/source/forward_error_correction_internal.h"
-#include "webrtc/rtc_base/basictypes.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/refcount.h"
-#include "webrtc/rtc_base/scoped_ref_ptr.h"
+#include "modules/include/module_fec_types.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
+#include "modules/rtp_rtcp/source/forward_error_correction_internal.h"
+#include "rtc_base/scoped_ref_ptr.h"
 
 namespace webrtc {
 
@@ -68,23 +66,24 @@ class ForwardErrorCorrection {
     // packets belonging to the same SSRC.
     struct LessThan {
       template <typename S, typename T>
-      bool operator() (const S& first, const T& second);
+      bool operator()(const S& first, const T& second);
     };
 
     uint32_t ssrc;
     uint16_t seq_num;
   };
 
-  // The received list parameter of DecodeFec() references structs of this type.
+  // Used for the input to DecodeFec().
   //
-  // TODO(holmer): Refactor into a proper class.
+  // TODO(nisse): Delete class, instead passing |is_fec| and |pkt| as separate
+  // arguments.
   class ReceivedPacket : public SortablePacket {
    public:
     ReceivedPacket();
     ~ReceivedPacket();
 
-    bool is_fec;    // Set to true if this is an FEC packet and false
-                    // otherwise.
+    bool is_fec;  // Set to true if this is an FEC packet and false
+                  // otherwise.
     rtc::scoped_refptr<Packet> pkt;  // Pointer to the packet storage.
   };
 
@@ -141,7 +140,6 @@ class ForwardErrorCorrection {
   };
 
   using PacketList = std::list<std::unique_ptr<Packet>>;
-  using ReceivedPacketList = std::list<std::unique_ptr<ReceivedPacket>>;
   using RecoveredPacketList = std::list<std::unique_ptr<RecoveredPacket>>;
   using ReceivedFecPacketList = std::list<std::unique_ptr<ReceivedFecPacket>>;
 
@@ -218,10 +216,8 @@ class ForwardErrorCorrection {
   //                            list will be valid until the next call to
   //                            DecodeFec().
   //
-  // Returns 0 on success, -1 on failure.
-  //
-  int DecodeFec(ReceivedPacketList* received_packets,
-                RecoveredPacketList* recovered_packets);
+  void DecodeFec(const ReceivedPacket& received_packet,
+                 RecoveredPacketList* recovered_packets);
 
   // Get the number of generated FEC packets, given the number of media packets
   // and the protection factor.
@@ -266,14 +262,14 @@ class ForwardErrorCorrection {
                           uint32_t media_ssrc,
                           uint16_t seq_num_base);
 
-  // Inserts the |received_packets| into the internal received FEC packet list
+  // Inserts the |received_packet| into the internal received FEC packet list
   // or into |recovered_packets|.
-  void InsertPackets(ReceivedPacketList* received_packets,
-                     RecoveredPacketList* recovered_packets);
+  void InsertPacket(const ReceivedPacket& received_packet,
+                    RecoveredPacketList* recovered_packets);
 
   // Inserts the |received_packet| into |recovered_packets|. Deletes duplicates.
   void InsertMediaPacket(RecoveredPacketList* recovered_packets,
-                         ReceivedPacket* received_packet);
+                         const ReceivedPacket& received_packet);
 
   // Assigns pointers to the recovered packet from all FEC packets which cover
   // it.
@@ -284,7 +280,7 @@ class ForwardErrorCorrection {
 
   // Insert |received_packet| into internal FEC list. Deletes duplicates.
   void InsertFecPacket(const RecoveredPacketList& recovered_packets,
-                       ReceivedPacket* received_packet);
+                       const ReceivedPacket& received_packet);
 
   // Assigns pointers to already recovered packets covered by |fec_packet|.
   static void AssignRecoveredPackets(
@@ -418,4 +414,4 @@ class FecHeaderWriter {
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_RTP_RTCP_SOURCE_FORWARD_ERROR_CORRECTION_H_
+#endif  // MODULES_RTP_RTCP_SOURCE_FORWARD_ERROR_CORRECTION_H_

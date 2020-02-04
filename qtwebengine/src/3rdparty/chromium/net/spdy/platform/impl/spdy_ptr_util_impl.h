@@ -10,11 +10,11 @@
 
 #include "base/memory/ptr_util.h"
 
-namespace net {
+namespace spdy {
 
 template <typename T, typename... Args>
 std::unique_ptr<T> SpdyMakeUniqueImpl(Args&&... args) {
-  return base::MakeUnique<T>(std::forward<Args>(args)...);
+  return std::make_unique<T>(std::forward<Args>(args)...);
 }
 
 template <typename T>
@@ -22,6 +22,6 @@ std::unique_ptr<T> SpdyWrapUniqueImpl(T* ptr) {
   return base::WrapUnique<T>(ptr);
 }
 
-}  // namespace net
+}  // namespace spdy
 
 #endif  // NET_SPDY_PLATFORM_IMPL_SPDY_PTR_UTIL_IMPL_H_

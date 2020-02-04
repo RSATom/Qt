@@ -5,7 +5,7 @@
 ## Copyright (C) 2017 The Qt Company Ltd.
 ## Contact: http://www.qt.io/licensing/
 ##
-## This file is part of the test suite of the Qt Toolkit.
+## This file is part of the provisioning scripts of the Qt Toolkit.
 ##
 ## $QT_BEGIN_LICENSE:LGPL21$
 ## Commercial License Usage
@@ -35,12 +35,13 @@
 
 set -ex
 
+# shellcheck source=../common/macos/install-commandlinetools.sh
 source "${BASH_SOURCE%/*}/../common/macos/install-commandlinetools.sh"
 
-version="8.3.2"
-packageName="CommandLineToolsforXcode$version.dmg"
+version="9.2"
+packageName="Command_Line_Tools_macOS_10.12_for_Xcode_$version.dmg"
 url="http://ci-files01-hki.intra.qt.io/input/mac/$packageName"
-sha1="da74b2bbf3058a0805c2d9f41ee5cf381d0e0ebe"
+sha1="f121c3b70fb77a98c1f2fc5e1932bd93bde03acf"
 
 InstallCommandLineTools $url $url $sha1 $packageName $version
 

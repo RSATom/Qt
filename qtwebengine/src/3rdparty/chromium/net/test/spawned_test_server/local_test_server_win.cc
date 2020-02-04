@@ -11,7 +11,7 @@
 #include "base/command_line.h"
 #include "base/environment.h"
 #include "base/files/file_path.h"
-#include "base/message_loop/message_loop.h"
+#include "base/path_service.h"
 #include "base/process/launch.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
@@ -19,6 +19,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/win/scoped_handle.h"
 #include "net/test/python_utils.h"
 
@@ -71,7 +72,9 @@ bool ReadData(HANDLE read_fd,
     bytes_read += num_bytes;
   }
 
+  base::ScopedAllowBaseSyncPrimitivesForTesting allow_thread_join;
   thread.Stop();
+
   // If the timeout kicked in, abort.
   if (unblocked) {
     LOG(ERROR) << "Timeout exceeded for ReadData";
@@ -125,7 +128,16 @@ bool LocalTestServer::LaunchPython(const base::FilePath& testserver_path) {
       base::IntToString(reinterpret_cast<uintptr_t>(child_write)));
 
   base::LaunchOptions launch_options;
-  launch_options.inherit_handles = true;
+
+  // Set CWD to source root.
+  if (!base::PathService::Get(base::DIR_SOURCE_ROOT,
+                              &launch_options.current_directory)) {
+    LOG(ERROR) << "Failed to get DIR_SOURCE_ROOT";
+    return false;
+  }
+
+  // TODO(brettw) bug 748258: Share only explicit handles.
+  launch_options.inherit_mode = base::LaunchOptions::Inherit::kAll;
   process_ = base::LaunchProcess(python_command, launch_options);
   if (!process_.IsValid()) {
     LOG(ERROR) << "Failed to launch " << python_command.GetCommandLineString();
@@ -155,10 +167,12 @@ bool LocalTestServer::WaitToStart() {
     return false;
   }
 
-  if (!ParseServerData(server_data)) {
+  int port;
+  if (!SetAndParseServerData(server_data, &port)) {
     LOG(ERROR) << "Could not parse server_data: " << server_data;
     return false;
   }
+  SetPort(port);
 
   return true;
 }

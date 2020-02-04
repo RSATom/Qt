@@ -51,24 +51,17 @@
 // We mean it.
 //
 
+#include "qrgba64.h"
+#include "qdrawhelper_p.h"
+
+#include <QtCore/private/qsimd_p.h>
 #include <QtGui/private/qtguiglobal_p.h>
-#include <QtGui/qrgba64.h>
-#include <QtGui/private/qdrawhelper_p.h>
-#include <private/qsimd_p.h>
 
 QT_BEGIN_NAMESPACE
 
 inline QRgba64 combineAlpha256(QRgba64 rgba64, uint alpha256)
 {
     return QRgba64::fromRgba64(rgba64.red(), rgba64.green(), rgba64.blue(), (rgba64.alpha() * alpha256) >> 8);
-}
-
-inline QRgba64 multiplyAlpha256(QRgba64 rgba64, uint alpha256)
-{
-    return QRgba64::fromRgba64((rgba64.red()   * alpha256) >> 8,
-                               (rgba64.green() * alpha256) >> 8,
-                               (rgba64.blue()  * alpha256) >> 8,
-                               (rgba64.alpha() * alpha256) >> 8);
 }
 
 inline QRgba64 multiplyAlpha65535(QRgba64 rgba64, uint alpha65535)
@@ -125,11 +118,6 @@ inline T multiplyAlpha255(T rgba64, uint alpha255)
 #endif
 }
 
-inline QRgba64 interpolate256(QRgba64 x, uint alpha1, QRgba64 y, uint alpha2)
-{
-    return QRgba64::fromRgba64(multiplyAlpha256(x, alpha1) + multiplyAlpha256(y, alpha2));
-}
-
 inline QRgba64 interpolate255(QRgba64 x, uint alpha1, QRgba64 y, uint alpha2)
 {
     return QRgba64::fromRgba64(multiplyAlpha255(x, alpha1) + multiplyAlpha255(y, alpha2));
@@ -159,7 +147,7 @@ Q_ALWAYS_INLINE __m128i interpolate65535(__m128i x, uint alpha1, __m128i y, uint
 {
     return _mm_add_epi32(multiplyAlpha65535(x, alpha1), multiplyAlpha65535(y, alpha2));
 }
-// alpha2 below is const-ref because otherwise MSVC2013 complains that it can't 16-byte align the argument.
+// alpha2 below is const-ref because otherwise MSVC2015 complains that it can't 16-byte align the argument.
 Q_ALWAYS_INLINE __m128i interpolate65535(__m128i x, __m128i alpha1, __m128i y, const __m128i &alpha2)
 {
     return _mm_add_epi32(multiplyAlpha65535(x, alpha1), multiplyAlpha65535(y, alpha2));
@@ -185,7 +173,8 @@ inline QRgba64 addWithSaturation(QRgba64 a, QRgba64 b)
                                qMin(a.alpha() + b.alpha(), 65535));
 }
 
-#if defined __SSE2__
+#if QT_COMPILER_SUPPORTS_HERE(SSE2)
+QT_FUNCTION_TARGET(SSE2)
 Q_ALWAYS_INLINE uint toArgb32(__m128i v)
 {
     v = _mm_unpacklo_epi16(v, _mm_setzero_si128());
@@ -239,20 +228,6 @@ inline uint toRgba8888(QRgba64 rgba64)
 #endif
 }
 
-#if defined(__SSE2__)
-Q_ALWAYS_INLINE __m128i addWithSaturation(__m128i a, __m128i b)
-{
-    return _mm_adds_epu16(a, b);
-}
-#endif
-
-#if defined(__ARM_NEON__)
-Q_ALWAYS_INLINE uint16x4_t addWithSaturation(uint16x4_t a, uint16x4_t b)
-{
-    return vqmovn_u32(vaddl_u16(a, b));
-}
-#endif
-
 inline QRgba64 rgbBlend(QRgba64 d, QRgba64 s, uint rgbAlpha)
 {
     QRgba64 blend;
@@ -291,14 +266,29 @@ inline QRgba64 rgbBlend(QRgba64 d, QRgba64 s, uint rgbAlpha)
     const int mr = qRed(rgbAlpha);
     const int mg = qGreen(rgbAlpha);
     const int mb = qBlue(rgbAlpha);
-    blend.setRed  (qt_div_255(s.red()   * mr + d.red()   * (255 - mr)));
-    blend.setGreen(qt_div_255(s.green() * mg + d.green() * (255 - mg)));
-    blend.setBlue (qt_div_255(s.blue()  * mb + d.blue()  * (255 - mb)));
-    blend.setAlpha(s.alpha());
+    blend = qRgba64(qt_div_255(s.red()   * mr + d.red()   * (255 - mr)),
+                    qt_div_255(s.green() * mg + d.green() * (255 - mg)),
+                    qt_div_255(s.blue()  * mb + d.blue()  * (255 - mb)),
+                    s.alpha());
 #endif
     return blend;
 }
 
+static Q_ALWAYS_INLINE void blend_pixel(QRgba64 &dst, QRgba64 src)
+{
+    if (src.isOpaque())
+        dst = src;
+    else if (!src.isTransparent())
+        dst = src + multiplyAlpha65535(dst, 65535 - src.alpha());
+}
+
+static Q_ALWAYS_INLINE void blend_pixel(QRgba64 &dst, QRgba64 src, const int const_alpha)
+{
+    if (!src.isTransparent()) {
+        src = multiplyAlpha255(src, const_alpha);
+        dst = src + multiplyAlpha65535(dst, 65535 - src.alpha());
+    }
+}
 
 QT_END_NAMESPACE
 

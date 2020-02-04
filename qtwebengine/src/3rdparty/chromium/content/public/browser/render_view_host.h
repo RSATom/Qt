@@ -6,27 +6,20 @@
 #define CONTENT_PUBLIC_BROWSER_RENDER_VIEW_HOST_H_
 
 #include "base/callback_forward.h"
-#include "base/files/file_path.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/public/common/drop_data.h"
 #include "content/public/common/page_zoom.h"
 #include "ipc/ipc_sender.h"
 #include "mojo/public/cpp/system/core.h"
-#include "third_party/WebKit/public/platform/WebDragOperation.h"
-
-namespace base {
-class FilePath;
-}
+#include "third_party/blink/public/platform/web_drag_operation.h"
 
 namespace blink {
-struct WebMediaPlayerAction;
 struct WebPluginAction;
 }
 
 namespace gfx {
 class Point;
-class Size;
 }
 
 namespace content {
@@ -56,7 +49,7 @@ struct WebPreferences;
 // WebContents (if it's page specific).
 //
 // For context, please see https://crbug.com/467770 and
-// http://www.chromium.org/developers/design-documents/site-isolation.
+// https://www.chromium.org/developers/design-documents/site-isolation.
 class CONTENT_EXPORT RenderViewHost : public IPC::Sender {
  public:
   // Returns the RenderViewHost given its ID and the ID of its render process.
@@ -86,31 +79,8 @@ class CONTENT_EXPORT RenderViewHost : public IPC::Sender {
   // Returns the main frame for this render view.
   virtual RenderFrameHost* GetMainFrame() = 0;
 
-  // Notifies the listener that a directory enumeration is complete.
-  virtual void DirectoryEnumerationFinished(
-      int request_id,
-      const std::vector<base::FilePath>& files) = 0;
-
-  // Tells the renderer not to add scrollbars with height and width below a
-  // threshold.
-  virtual void DisableScrollbarsForThreshold(const gfx::Size& size) = 0;
-
-  // Instructs the RenderView to automatically resize and send back updates
-  // for the new size.
-  virtual void EnableAutoResize(const gfx::Size& min_size,
-                                const gfx::Size& max_size) = 0;
-
-  // Turns off auto-resize and gives a new size that the view should be.
-  virtual void DisableAutoResize(const gfx::Size& new_size) = 0;
-
   // Instructs the RenderView to send back updates to the preferred size.
   virtual void EnablePreferredSizeMode() = 0;
-
-  // Tells the renderer to perform the given action on the media player
-  // located at the given point.
-  virtual void ExecuteMediaPlayerActionAtLocation(
-      const gfx::Point& location,
-      const blink::WebMediaPlayerAction& action) = 0;
 
   // Tells the renderer to perform the given action on the plugin located at
   // the given point.
@@ -133,23 +103,27 @@ class CONTENT_EXPORT RenderViewHost : public IPC::Sender {
   virtual void SetWebUIProperty(const std::string& name,
                                 const std::string& value) = 0;
 
-  // Send the renderer process the current preferences supplied by the
+  // Sends the renderer process the current preferences supplied by the
   // RenderViewHostDelegate.
   virtual void SyncRendererPrefs() = 0;
 
+  // TODO(mustaq): Replace "Webkit" from the following three method names.
+  //
   // Returns the current WebKit preferences. Note: WebPreferences is cached, so
-  // this lookup will be fast
+  // this lookup will be fast.
   virtual WebPreferences GetWebkitPreferences() = 0;
 
-  // If any state that affects the webkit preferences changed, this method must
-  // be called. This triggers recomputing preferences.
+  // Passes current web preferences to the renderer after possibly recomputing
+  // them as follows: all "fast" preferences (those not requiring slow
+  // platform/device polling) are recomputed unconditionally; the remaining
+  // "slow" ones are recomputed only if they have not been computed before.
+  //
+  // This method must be called if any state that affects web preferences has
+  // changed.
   virtual void OnWebkitPreferencesChanged() = 0;
 
   // Passes a list of Webkit preferences to the renderer.
   virtual void UpdateWebkitPreferences(const WebPreferences& prefs) = 0;
-
-  // Notify the render view host to select the word around the caret.
-  virtual void SelectWordAroundCaret() = 0;
 
  private:
   // This interface should only be implemented inside content.

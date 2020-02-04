@@ -64,7 +64,7 @@ class WlShellIntegration : public QWaylandQuickShellIntegration
     Q_OBJECT
 public:
     WlShellIntegration(QWaylandQuickShellSurfaceItem *item);
-    ~WlShellIntegration();
+    ~WlShellIntegration() override;
     bool mouseMoveEvent(QMouseEvent *event) override;
     bool mouseReleaseEvent(QMouseEvent *event) override;
 
@@ -80,6 +80,8 @@ private Q_SLOTS:
     void handleSurfaceHasContentChanged();
     void handleRedraw();
     void adjustOffsetForNextFrame(const QPointF &offset);
+    void handleFullScreenSizeChanged();
+    void handleMaximizedSizeChanged();
 
 private:
     enum class GrabberState {
@@ -92,23 +94,23 @@ private:
     void handlePopupRemoved();
     qreal devicePixelRatio() const;
 
-    QWaylandQuickShellSurfaceItem *m_item;
+    QWaylandQuickShellSurfaceItem *m_item = nullptr;
     QPointer<QWaylandWlShellSurface> m_shellSurface;
-    GrabberState grabberState;
+    GrabberState grabberState = GrabberState::Default;
     struct {
-        QWaylandSeat *seat;
+        QWaylandSeat *seat = nullptr;
         QPointF initialOffset;
-        bool initialized;
+        bool initialized = false;
     } moveState;
     struct {
-        QWaylandSeat *seat;
+        QWaylandSeat *seat = nullptr;
         QWaylandWlShellSurface::ResizeEdge resizeEdges;
         QSizeF initialSize;
         QPointF initialMousePos;
-        bool initialized;
+        bool initialized = false;
     } resizeState;
 
-    bool isPopup;
+    bool isPopup = false;
 
     enum class State {
         Windowed,
@@ -116,8 +118,16 @@ private:
         FullScreen
     };
 
-    State currentState;
-    State nextState;
+    State currentState = State::Windowed;
+    State nextState = State::Windowed;
+
+    struct {
+        QWaylandOutput *output = nullptr;
+        QMetaObject::Connection sizeChangedConnection; // Depending on whether maximized or fullscreen,
+                                                       // will be hooked to geometry-changed or available-
+                                                       // geometry-changed.
+    } nonwindowedState;
+
     QPointF normalPosition;
     QPointF finalPosition;
 };

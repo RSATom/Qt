@@ -1,7 +1,8 @@
-<link rel="import" href="chrome://resources/html/polymer.html">
-<link rel="import" href="chrome://resources/cr_elements/cr_search_field/cr_search_field_behavior.html">
-<link rel="import" href="chrome://resources/cr_elements/icons.html">
-<link rel="import" href="chrome://resources/cr_elements/shared_style_css.html">
+<link rel="import" href="../../html/polymer.html">
+
+<link rel="import" href="../cr_search_field/cr_search_field_behavior.html">
+<link rel="import" href="../icons.html">
+<link rel="import" href="../shared_style_css.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button-light.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-spinner/paper-spinner-lite.html">
@@ -22,7 +23,7 @@
         display: none !important;
       }
 
-      button[is='paper-icon-button-light'],
+      paper-icon-button-light,
       paper-icon-button {
         height: 32px;
         margin: 6px;
@@ -40,7 +41,7 @@
       }
 
       paper-spinner-lite {
-        @apply(--cr-icon-height-width);
+        @apply --cr-icon-height-width;
         --paper-spinner-color: white;
         margin: 0 6px;
         opacity: 0;
@@ -60,9 +61,9 @@
       /* Input field. */
       #searchTerm {
         -webkit-font-smoothing: antialiased;
-        -webkit-margin-start: 2px;
         flex: 1;
         line-height: 185%;
+        margin-inline-start: 2px;
         position: relative;
       }
 
@@ -101,11 +102,11 @@
 
       /** Wide layout. */
       :host(:not([narrow])) {
-        -webkit-padding-end: 0;
         background: rgba(0, 0, 0, 0.22);
         border-radius: 2px;
         cursor: text;
-        width: var(--cr-toolbar-field-width);
+        padding-inline-end: 0;
+        width: var(--cr-toolbar-field-width, 680px);
       }
 
       :host(:not([narrow]):not([showing-search])) #icon,
@@ -128,7 +129,7 @@
 
       :host([narrow][showing-search]) #icon,
       :host([narrow][showing-search]) paper-spinner-lite {
-        -webkit-margin-start: 18px;  /* Line up with Menu icon. */
+        margin-inline-start: 18px;  /* Line up with Menu icon. */
       }
     </style>
     <template is="dom-if" id="spinnerTemplate">
@@ -149,14 +150,14 @@
           on-keydown="onSearchTermKeydown_"
           on-focus="onInputFocus_"
           on-blur="onInputBlur_"
-          incremental
-          autofocus>
-      </input>
+          autofocus
+          spellcheck="false">
     </div>
     <template is="dom-if" if="[[hasSearchText]]">
-      <button is="paper-icon-button-light" class="icon-cancel-toolbar"
-          id="clearSearch" title="[[clearLabel]]" on-tap="clearSearch_">
-      </button>
+      <paper-icon-button-light class="icon-toolbar-cancel">
+        <button id="clearSearch" title="[[clearLabel]]" on-tap="clearSearch_">
+        </button>
+      </paper-icon-button-light>
     </template>
   </template>
   <script src="cr_toolbar_search_field.js"></script>

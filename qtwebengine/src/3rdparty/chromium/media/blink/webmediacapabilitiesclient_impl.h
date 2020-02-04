@@ -8,22 +8,29 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "media/blink/media_blink_export.h"
-#include "third_party/WebKit/public/platform/modules/media_capabilities/WebMediaCapabilitiesClient.h"
+#include "media/mojo/interfaces/video_decode_perf_history.mojom.h"
+#include "third_party/blink/public/platform/modules/media_capabilities/web_media_capabilities_client.h"
 
 namespace media {
 
 class MEDIA_BLINK_EXPORT WebMediaCapabilitiesClientImpl
-    : NON_EXPORTED_BASE(public blink::WebMediaCapabilitiesClient) {
+    : public blink::WebMediaCapabilitiesClient {
  public:
   WebMediaCapabilitiesClientImpl();
   ~WebMediaCapabilitiesClientImpl() override;
 
   // Implementation of blink::WebMediaCapabilitiesClient.
   void DecodingInfo(
-      const blink::WebMediaConfiguration&,
-      std::unique_ptr<blink::WebMediaCapabilitiesQueryCallbacks>) override;
+      const blink::WebMediaDecodingConfiguration&,
+      std::unique_ptr<blink::WebMediaCapabilitiesDecodingInfoCallbacks>)
+      override;
+
+  void BindVideoDecodePerfHistoryForTests(
+      mojom::VideoDecodePerfHistoryPtr decode_history_ptr);
 
  private:
+  mojom::VideoDecodePerfHistoryPtr decode_history_ptr_;
+
   DISALLOW_COPY_AND_ASSIGN(WebMediaCapabilitiesClientImpl);
 };
 

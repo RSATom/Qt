@@ -50,13 +50,13 @@ class QGeoRectangle;
 class QGeoRouteSegment;
 
 class QGeoRoutePrivate;
-
+class QGeoRouteLeg;
 class Q_LOCATION_EXPORT QGeoRoute
 {
 public:
     QGeoRoute();
     QGeoRoute(const QGeoRoute &other);
-    ~QGeoRoute();
+    ~QGeoRoute(); // ### Qt6: make this virtual
 
     QGeoRoute &operator = (const QGeoRoute &other);
 
@@ -87,8 +87,41 @@ public:
     void setPath(const QList<QGeoCoordinate> &path);
     QList<QGeoCoordinate> path() const;
 
+    void setRouteLegs(const QList<QGeoRouteLeg> &legs);
+    QList<QGeoRouteLeg> routeLegs() const;
+
+    void setExtendedAttributes(const QVariantMap &extendedAttributes);
+    QVariantMap extendedAttributes() const;
+
+protected:
+    QGeoRoute(const QExplicitlySharedDataPointer<QGeoRoutePrivate> &dd);
+    QExplicitlySharedDataPointer<QGeoRoutePrivate> &d();
+    const QExplicitlySharedDataPointer<QGeoRoutePrivate> &const_d() const;
+
 private:
     QExplicitlySharedDataPointer<QGeoRoutePrivate> d_ptr;
+    friend class QDeclarativeGeoRoute;
+    friend class QGeoRoutePrivate;
+};
+
+class Q_LOCATION_EXPORT QGeoRouteLeg: public QGeoRoute
+{
+public:
+    QGeoRouteLeg();
+    QGeoRouteLeg(const QGeoRouteLeg &other);
+    ~QGeoRouteLeg();
+
+    void setLegIndex(int idx);
+    int legIndex() const;
+
+    void setOverallRoute(const QGeoRoute &route);
+    QGeoRoute overallRoute() const;
+
+protected:
+    QGeoRouteLeg(const QExplicitlySharedDataPointer<QGeoRoutePrivate> &dd);
+
+    friend class QDeclarativeGeoRoute;
+    friend class QGeoRoutePrivate;
 };
 
 QT_END_NAMESPACE

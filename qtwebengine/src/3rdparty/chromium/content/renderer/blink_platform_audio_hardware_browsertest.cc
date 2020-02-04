@@ -3,14 +3,11 @@
 // found in the LICENSE file.
 
 #include "content/public/test/render_view_test.h"
-#include "third_party/WebKit/public/platform/Platform.h"
+#include "third_party/blink/public/platform/platform.h"
 
 namespace content {
 
-class BlinkPlatformAudioHardwareTest : public RenderViewTest {
- protected:
-  void SetUp() override { RenderViewTest::SetUp(); }
-};
+using BlinkPlatformAudioHardwareTest = RenderViewTest;
 
 // Test that calling audioHardware functions from blink::Platform without a v8
 // context returns valid values.

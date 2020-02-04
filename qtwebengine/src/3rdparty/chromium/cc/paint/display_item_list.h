@@ -9,6 +9,7 @@
 
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
@@ -26,6 +27,13 @@
 
 class SkCanvas;
 
+namespace gpu {
+namespace raster {
+class RasterImplementation;
+class RasterImplementationGLES;
+}  // namespace raster
+}  // namespace gpu
+
 namespace base {
 namespace trace_event {
 class TracedValue;
@@ -33,26 +41,66 @@ class TracedValue;
 }
 
 namespace cc {
+class PaintWorkletImageProvider;
 
+// DisplayItemList is a container of paint operations. One can populate the list
+// using StartPaint, followed by push{,_with_data,_with_array} functions
+// specialized with ops coming from paint_op_buffer.h. Internally, the
+// DisplayItemList contains a PaintOpBuffer and defers op saving to it.
+// Additionally, it store some meta information about the paint operations.
+// Specifically, it creates an rtree to assist in rasterization: when
+// rasterizing a rect, it queries the rtree to extract only the byte offsets of
+// the ops required and replays those into a canvas.
 class CC_PAINT_EXPORT DisplayItemList
     : public base::RefCountedThreadSafe<DisplayItemList> {
  public:
-  DisplayItemList();
+  // TODO(vmpstr): It would be cool if we didn't need this, and instead used
+  // PaintOpBuffer directly when we needed to release this as a paint op buffer.
+  enum UsageHint { kTopLevelDisplayItemList, kToBeReleasedAsPaintOpBuffer };
+
+  explicit DisplayItemList(UsageHint = kTopLevelDisplayItemList);
 
   void Raster(SkCanvas* canvas,
-              SkPicture::AbortCallback* callback = nullptr) const;
+              ImageProvider* image_provider = nullptr,
+              PaintWorkletImageProvider* = nullptr) const;
 
-  PaintOpBuffer* StartPaint() {
-    DCHECK(!in_painting_);
-    in_painting_ = true;
-    return &paint_op_buffer_;
+  void StartPaint() {
+#if DCHECK_IS_ON()
+    DCHECK(!IsPainting());
+    current_range_start_ = paint_op_buffer_.size();
+#endif
+  }
+
+  // Push functions construct a new op on the paint op buffer, while maintaining
+  // bookkeeping information. Must be called after invoking StartPaint().
+  // Returns the id (which is an opaque value) of the operation that can be used
+  // in UpdateSaveLayerBounds().
+  template <typename T, typename... Args>
+  size_t push(Args&&... args) {
+#if DCHECK_IS_ON()
+    DCHECK(IsPainting());
+#endif
+    size_t offset = paint_op_buffer_.next_op_offset();
+    if (usage_hint_ == kTopLevelDisplayItemList)
+      offsets_.push_back(offset);
+    paint_op_buffer_.push<T>(std::forward<Args>(args)...);
+    return offset;
+  }
+
+  // Called by blink::PaintChunksToCcLayer when an effect ends, to update the
+  // bounds of a SaveLayer[Alpha]Op which was emitted when the effect started.
+  // This is needed because blink doesn't know the bounds when an effect starts.
+  // Don't add other mutation methods like this if there is better alternative.
+  void UpdateSaveLayerBounds(size_t id, const SkRect& bounds) {
+    paint_op_buffer_.UpdateSaveLayerBounds(id, bounds);
   }
 
   void EndPaintOfUnpaired(const gfx::Rect& visual_rect) {
-    in_painting_ = false;
-
-    // Empty paint item.
-    if (visual_rects_.size() == paint_op_buffer_.size())
+#if DCHECK_IS_ON()
+    DCHECK(IsPainting());
+    current_range_start_ = kNotPainting;
+#endif
+    if (usage_hint_ == kToBeReleasedAsPaintOpBuffer)
       return;
 
     while (visual_rects_.size() < paint_op_buffer_.size())
@@ -61,21 +109,32 @@ class CC_PAINT_EXPORT DisplayItemList
   }
 
   void EndPaintOfPairedBegin(const gfx::Rect& visual_rect = gfx::Rect()) {
-    DCHECK_NE(visual_rects_.size(), paint_op_buffer_.size());
+#if DCHECK_IS_ON()
+    DCHECK(IsPainting());
+    DCHECK_LT(current_range_start_, paint_op_buffer_.size());
+    current_range_start_ = kNotPainting;
+#endif
+    if (usage_hint_ == kToBeReleasedAsPaintOpBuffer)
+      return;
+
+    DCHECK_LT(visual_rects_.size(), paint_op_buffer_.size());
     size_t count = paint_op_buffer_.size() - visual_rects_.size();
     for (size_t i = 0; i < count; ++i)
       visual_rects_.push_back(visual_rect);
     begin_paired_indices_.push_back(
         std::make_pair(visual_rects_.size() - 1, count));
-
-    in_painting_ = false;
-    in_paired_begin_count_++;
   }
 
   void EndPaintOfPairedEnd() {
-    DCHECK_NE(current_range_start_, paint_op_buffer_.size());
-    DCHECK(in_paired_begin_count_);
+#if DCHECK_IS_ON()
+    DCHECK(IsPainting());
+    DCHECK_LT(current_range_start_, paint_op_buffer_.size());
+    current_range_start_ = kNotPainting;
+#endif
+    if (usage_hint_ == kToBeReleasedAsPaintOpBuffer)
+      return;
 
+    DCHECK(begin_paired_indices_.size());
     size_t last_begin_index = begin_paired_indices_.back().first;
     size_t last_begin_count = begin_paired_indices_.back().second;
     DCHECK_GT(last_begin_count, 0u);
@@ -99,9 +158,6 @@ class CC_PAINT_EXPORT DisplayItemList
     // The block that ended needs to be included in the bounds of the enclosing
     // block.
     GrowCurrentBeginItemVisualRect(visual_rect);
-
-    in_painting_ = false;
-    in_paired_begin_count_--;
   }
 
   // Called after all items are appended, to process the items.
@@ -111,11 +167,15 @@ class CC_PAINT_EXPORT DisplayItemList
   bool HasNonAAPaint() const { return paint_op_buffer_.HasNonAAPaint(); }
 
   // This gives the total number of PaintOps.
-  size_t op_count() const { return paint_op_buffer_.size(); }
+  size_t TotalOpCount() const { return paint_op_buffer_.total_op_count(); }
   size_t BytesUsed() const;
 
   const DiscardableImageMap& discardable_image_map() const {
     return image_map_;
+  }
+  base::flat_map<PaintImage::Id, PaintImage::DecodingMode>
+  TakeDecodingModeMap() {
+    return image_map_.TakeDecodingModeMap();
   }
 
   void EmitTraceSnapshot() const;
@@ -137,6 +197,8 @@ class CC_PAINT_EXPORT DisplayItemList
  private:
   FRIEND_TEST_ALL_PREFIXES(DisplayItemListTest, AsValueWithNoOps);
   FRIEND_TEST_ALL_PREFIXES(DisplayItemListTest, AsValueWithOps);
+  friend gpu::raster::RasterImplementation;
+  friend gpu::raster::RasterImplementationGLES;
 
   ~DisplayItemList();
 
@@ -147,7 +209,11 @@ class CC_PAINT_EXPORT DisplayItemList
 
   // If we're currently within a paired display item block, unions the
   // given visual rect with the begin display item's visual rect.
-  void GrowCurrentBeginItemVisualRect(const gfx::Rect& visual_rect);
+  void GrowCurrentBeginItemVisualRect(const gfx::Rect& visual_rect) {
+    DCHECK_EQ(usage_hint_, kTopLevelDisplayItemList);
+    if (!begin_paired_indices_.empty())
+      visual_rects_[begin_paired_indices_.back().first].Union(visual_rect);
+  }
 
   // RTree stores indices into the paint op buffer.
   // TODO(vmpstr): Update the rtree to store offsets instead.
@@ -159,20 +225,23 @@ class CC_PAINT_EXPORT DisplayItemList
   // display item list. These rects are intentionally kept separate because they
   // are used to decide which ops to walk for raster.
   std::vector<gfx::Rect> visual_rects_;
+  // Byte offsets associated with each of the ops.
+  std::vector<size_t> offsets_;
   // A stack of pairs of indices and counts. The indices are into the
   // |visual_rects_| for each paired begin range that hasn't been closed. The
   // counts refer to the number of visual rects in that begin sequence that end
   // with the index.
   std::vector<std::pair<size_t, size_t>> begin_paired_indices_;
+
+#if DCHECK_IS_ON()
   // While recording a range of ops, this is the position in the PaintOpBuffer
   // where the recording started.
-  size_t current_range_start_ = 0;
-  // For debugging, tracks the number of currently nested visual rects being
-  // added.
-  int in_paired_begin_count_ = 0;
-  // For debugging, tracks if we're painting a visual rect range, to prevent
-  // nesting.
-  bool in_painting_ = false;
+  bool IsPainting() const { return current_range_start_ != kNotPainting; }
+  const size_t kNotPainting = static_cast<size_t>(-1);
+  size_t current_range_start_ = kNotPainting;
+#endif
+
+  UsageHint usage_hint_;
 
   friend class base::RefCountedThreadSafe<DisplayItemList>;
   FRIEND_TEST_ALL_PREFIXES(DisplayItemListTest, BytesUsed);

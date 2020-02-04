@@ -67,7 +67,7 @@ class Q_CORE_EXPORT QDebug
     friend class QMessageLogger;
     friend class QDebugStateSaverPrivate;
     struct Stream {
-        enum { DefaultVerbosity = 2, VerbosityShift = 29, VerbosityMask = 0x7 };
+        enum { VerbosityShift = 29, VerbosityMask = 0x7 };
 
         Stream(QIODevice *device) : ts(device), ref(1), type(QtDebugMsg),
             space(true), message_output(false), flags(DefaultVerbosity << VerbosityShift) {}
@@ -92,11 +92,11 @@ class Q_CORE_EXPORT QDebug
         void setFlag(FormatFlag flag) { if (context.version > 1) { flags |= flag; } }
         void unsetFlag(FormatFlag flag) { if (context.version > 1) { flags &= ~flag; } }
         int verbosity() const
-        { return context.version > 1 ? (flags >> VerbosityShift) & VerbosityMask : int(Stream::DefaultVerbosity); }
+        { return context.version > 1 ? (flags >> VerbosityShift) & VerbosityMask : int(DefaultVerbosity); }
         void setVerbosity(int v)
         {
             if (context.version > 1) {
-                flags &= ~(VerbosityMask << VerbosityShift);
+                flags &= ~(uint(VerbosityMask) << VerbosityShift);
                 flags |= (v & VerbosityMask) << VerbosityShift;
             }
         }
@@ -123,8 +123,10 @@ public:
     inline QDebug &space() { stream->space = true; stream->ts << ' '; return *this; }
     inline QDebug &nospace() { stream->space = false; return *this; }
     inline QDebug &maybeSpace() { if (stream->space) stream->ts << ' '; return *this; }
+    inline QDebug &verbosity(int verbosityLevel) { setVerbosity(verbosityLevel); return *this; }
     int verbosity() const { return stream->verbosity(); }
     void setVerbosity(int verbosityLevel) { stream->setVerbosity(verbosityLevel); }
+    enum VerbosityLevel { MinimumVerbosity = 0, DefaultVerbosity = 2, MaximumVerbosity = 7 };
 
     bool autoInsertSpaces() const { return stream->space; }
     void setAutoInsertSpaces(bool b) { stream->space = b; }
@@ -195,6 +197,7 @@ public:
     inline QNoDebug &quote() { return *this; }
     inline QNoDebug &noquote() { return *this; }
     inline QNoDebug &maybeQuote(const char = '"') { return *this; }
+    inline QNoDebug &verbosity(int) { return *this; }
 
     template<typename T>
     inline QNoDebug &operator<<(const T &) { return *this; }
@@ -374,6 +377,19 @@ operator<<(QDebug dbg, T value)
     const QMetaObject *obj = qt_getEnumMetaObject(value);
     const char *name = qt_getEnumName(value);
     return qt_QMetaEnum_debugOperator(dbg, typename QFlags<T>::Int(value), obj, name);
+}
+
+template<typename T,
+         typename A = typename std::enable_if<std::is_enum<T>::value, void>::type,
+         typename B = typename std::enable_if<sizeof(T) <= sizeof(int), void>::type,
+         typename C = typename std::enable_if<!QtPrivate::IsQEnumHelper<T>::Value, void>::type,
+         typename D = typename std::enable_if<QtPrivate::IsQEnumHelper<QFlags<T>>::Value, void>::type>
+inline QDebug operator<<(QDebug dbg, T value)
+{
+    typedef QFlags<T> FlagsT;
+    const QMetaObject *obj = qt_getEnumMetaObject(FlagsT());
+    const char *name = qt_getEnumName(FlagsT());
+    return qt_QMetaEnum_debugOperator(dbg, typename FlagsT::Int(value), obj, name);
 }
 
 template <class T>

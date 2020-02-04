@@ -46,9 +46,13 @@
 #include "qvariant.h"
 #include "qline.h"
 #include "qdebug.h"
+#include <QtCore/qjsondocument.h>
+#include <QtCore/qjsonarray.h>
 #include <QtCore/qcoreapplication.h>
 #include "private/qhexstring_p.h"
 #include <QtCore/qnumeric.h>
+#include <QtCore/qfile.h>
+#include <QtCore/qmutex.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -107,7 +111,7 @@ Q_GUI_EXPORT QPixmap qt_pixmapForBrush(int brushStyle, bool invert)
     QString key = QLatin1String("$qt-brush$")
                   % HexString<uint>(brushStyle)
                   % QLatin1Char(invert ? '1' : '0');
-    if (!QPixmapCache::find(key, pm)) {
+    if (!QPixmapCache::find(key, &pm)) {
         pm = QBitmap::fromData(QSize(8, 8), qt_patternForBrush(brushStyle, invert),
                                QImage::Format_MonoLSB);
         QPixmapCache::insert(key, pm);
@@ -541,9 +545,11 @@ QBrush::QBrush(const QBrush &other)
 */
 QBrush::QBrush(const QGradient &gradient)
 {
-    Q_ASSERT_X(gradient.type() != QGradient::NoGradient, "QBrush::QBrush",
-               "QGradient should not be used directly, use the linear, radial\n"
-               "or conical gradients instead");
+    if (Q_UNLIKELY(gradient.type() == QGradient::NoGradient)) {
+        d.reset(nullBrushInstance());
+        d->ref.ref();
+        return;
+    }
 
     const Qt::BrushStyle enum_table[] = {
         Qt::LinearGradientPattern,
@@ -1073,7 +1079,10 @@ QDataStream &operator<<(QDataStream &s, const QBrush &b)
         s << type_as_int;
         if (s.version() >= QDataStream::Qt_4_3) {
             s << int(gradient->spread());
-            s << int(gradient->coordinateMode());
+            QGradient::CoordinateMode co_mode = gradient->coordinateMode();
+            if (s.version() < QDataStream::Qt_5_12 && co_mode == QGradient::ObjectMode)
+                co_mode = QGradient::ObjectBoundingMode;
+            s << int(co_mode);
         }
 
         if (s.version() >= QDataStream::Qt_4_5)
@@ -1330,6 +1339,72 @@ QGradient::QGradient()
 {
 }
 
+/*!
+    \enum QGradient::Preset
+    \since 5.12
+
+    This enum specifies a set of predefined presets for QGradient,
+    based on the gradients from https://webgradients.com/.
+*/
+
+/*!
+    \fn QGradient::QGradient(QGradient::Preset preset)
+    \since 5.12
+
+    Constructs a gradient based on a predefined \a preset.
+
+    The coordinate mode of the resulting gradient is
+    QGradient::ObjectMode, allowing the preset
+    to be applied to arbitrary object sizes.
+*/
+QGradient::QGradient(Preset preset)
+    : QGradient()
+{
+    static QHash<int, QGradient> cachedPresets;
+    static QMutex cacheMutex;
+    QMutexLocker locker(&cacheMutex);
+    if (cachedPresets.contains(preset)) {
+        const QGradient &cachedPreset = cachedPresets.value(preset);
+        m_type = cachedPreset.m_type;
+        m_data = cachedPreset.m_data;
+        m_stops = cachedPreset.m_stops;
+        m_spread = cachedPreset.m_spread;
+        dummy = cachedPreset.dummy;
+    } else {
+        static QJsonDocument jsonPresets = []() {
+            QFile webGradients(QLatin1String(":/qgradient/webgradients.binaryjson"));
+            webGradients.open(QFile::ReadOnly);
+            return QJsonDocument::fromBinaryData(webGradients.readAll());
+        }();
+
+        const QJsonValue presetData = jsonPresets[preset - 1];
+        if (!presetData.isObject())
+            return;
+
+        m_type = LinearGradient;
+        setCoordinateMode(ObjectMode);
+        setSpread(PadSpread);
+
+        const QJsonValue start = presetData[QLatin1Literal("start")];
+        const QJsonValue end = presetData[QLatin1Literal("end")];
+        m_data.linear.x1 = start[QLatin1Literal("x")].toDouble();
+        m_data.linear.y1 = start[QLatin1Literal("y")].toDouble();
+        m_data.linear.x2 = end[QLatin1Literal("x")].toDouble();
+        m_data.linear.y2 = end[QLatin1Literal("y")].toDouble();
+
+        for (const QJsonValue &stop : presetData[QLatin1String("stops")].toArray()) {
+            setColorAt(stop[QLatin1Literal("position")].toDouble(),
+                QColor(QRgb(stop[QLatin1Literal("color")].toInt())));
+        }
+
+        cachedPresets.insert(preset, *this);
+    }
+}
+
+QT_END_NAMESPACE
+static void initGradientPresets() { Q_INIT_RESOURCE(qmake_webgradients); }
+Q_CONSTRUCTOR_FUNCTION(initGradientPresets);
+QT_BEGIN_NAMESPACE
 
 /*!
     \enum QGradient::Type
@@ -1492,14 +1567,19 @@ QGradientStops QGradient::stops() const
 
     \value LogicalMode This is the default mode. The gradient coordinates
     are specified logical space just like the object coordinates.
+    \value ObjectMode In this mode the gradient coordinates are
+    relative to the bounding rectangle of the object being drawn, with
+    (0,0) in the top left corner, and (1,1) in the bottom right corner
+    of the object's bounding rectangle. This value was added in Qt
+    5.12.
     \value StretchToDeviceMode In this mode the gradient coordinates
     are relative to the bounding rectangle of the paint device,
     with (0,0) in the top left corner, and (1,1) in the bottom right
     corner of the paint device.
-    \value ObjectBoundingMode In this mode the gradient coordinates are
-    relative to the bounding rectangle of the object being drawn, with
-    (0,0) in the top left corner, and (1,1) in the bottom right corner
-    of the object's bounding rectangle.
+    \value ObjectBoundingMode This mode is the same as ObjectMode, except that
+    the {QBrush::transform()} {brush transform}, if any, is applied relative to
+    the logical space instead of the object space. This enum value is
+    deprecated and should not be used in new code.
 */
 
 /*!

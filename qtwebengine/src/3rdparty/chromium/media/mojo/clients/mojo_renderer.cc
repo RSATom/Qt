@@ -30,7 +30,7 @@ MojoRenderer::MojoRenderer(
       video_renderer_sink_(video_renderer_sink),
       remote_renderer_info_(remote_renderer.PassInterface()),
       client_binding_(this),
-      media_time_interpolator_(&media_clock_) {
+      media_time_interpolator_(base::DefaultTickClock::GetInstance()) {
   DVLOG(1) << __func__;
 }
 
@@ -50,7 +50,8 @@ void MojoRenderer::Initialize(MediaResource* media_resource,
 
   if (encountered_error_) {
     task_runner_->PostTask(
-        FROM_HERE, base::Bind(init_cb, PIPELINE_ERROR_INITIALIZATION_FAILED));
+        FROM_HERE,
+        base::BindOnce(init_cb, PIPELINE_ERROR_INITIALIZATION_FAILED));
     return;
   }
 
@@ -75,13 +76,12 @@ void MojoRenderer::InitializeRendererFromStreams(
   // Create mojom::DemuxerStream for each demuxer stream and bind its lifetime
   // to the pipe.
   std::vector<DemuxerStream*> streams = media_resource_->GetAllStreams();
-  std::vector<mojom::DemuxerStreamPtr> stream_proxies;
+  std::vector<mojom::DemuxerStreamPtrInfo> stream_proxies;
 
   for (auto* stream : streams) {
-    mojom::DemuxerStreamPtr stream_proxy;
-    std::unique_ptr<MojoDemuxerStreamImpl> mojo_stream =
-        base::MakeUnique<MojoDemuxerStreamImpl>(stream,
-                                                MakeRequest(&stream_proxy));
+    mojom::DemuxerStreamPtrInfo stream_proxy_info;
+    auto mojo_stream = std::make_unique<MojoDemuxerStreamImpl>(
+        stream, mojo::MakeRequest(&stream_proxy_info));
 
     // Using base::Unretained(this) is safe because |this| owns |mojo_stream|,
     // and the error handler can't be invoked once |mojo_stream| is destroyed.
@@ -90,7 +90,7 @@ void MojoRenderer::InitializeRendererFromStreams(
                    base::Unretained(this), mojo_stream.get()));
 
     streams_.push_back(std::move(mojo_stream));
-    stream_proxies.push_back(std::move(stream_proxy));
+    stream_proxies.push_back(std::move(stream_proxy_info));
   }
 
   BindRemoteRendererIfNeeded();
@@ -121,10 +121,10 @@ void MojoRenderer::InitializeRendererFromUrl(media::RendererClient* client) {
   // Using base::Unretained(this) is safe because |this| owns
   // |remote_renderer_|, and the callback won't be dispatched if
   // |remote_renderer_| is destroyed.
-  std::vector<mojom::DemuxerStreamPtr> streams;
+  std::vector<mojom::DemuxerStreamPtrInfo> streams;
   remote_renderer_->Initialize(
       std::move(client_ptr_info), std::move(streams), url_params.media_url,
-      url_params.first_party_for_cookies,
+      url_params.site_for_cookies,
       base::Bind(&MojoRenderer::OnInitialized, base::Unretained(this), client));
 }
 
@@ -133,11 +133,11 @@ void MojoRenderer::SetCdm(CdmContext* cdm_context,
   DVLOG(1) << __func__;
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK(cdm_context);
-  DCHECK(!cdm_attached_cb.is_null());
-  DCHECK(cdm_attached_cb_.is_null());
+  DCHECK(cdm_attached_cb);
+  DCHECK(!cdm_attached_cb_);
 
   if (encountered_error_) {
-    task_runner_->PostTask(FROM_HERE, base::Bind(cdm_attached_cb, false));
+    task_runner_->PostTask(FROM_HERE, base::BindOnce(cdm_attached_cb, false));
     return;
   }
 
@@ -145,7 +145,7 @@ void MojoRenderer::SetCdm(CdmContext* cdm_context,
   if (cdm_id == CdmContext::kInvalidCdmId) {
     DVLOG(2) << "MojoRenderer only works with remote CDMs but the CDM ID "
                 "is invalid.";
-    task_runner_->PostTask(FROM_HERE, base::Bind(cdm_attached_cb, false));
+    task_runner_->PostTask(FROM_HERE, base::BindOnce(cdm_attached_cb, false));
     return;
   }
 
@@ -160,8 +160,8 @@ void MojoRenderer::Flush(const base::Closure& flush_cb) {
   DVLOG(2) << __func__;
   DCHECK(task_runner_->BelongsToCurrentThread());
   DCHECK(remote_renderer_.is_bound());
-  DCHECK(!flush_cb.is_null());
-  DCHECK(flush_cb_.is_null());
+  DCHECK(flush_cb);
+  DCHECK(!flush_cb_);
 
   if (encountered_error_) {
     task_runner_->PostTask(FROM_HERE, flush_cb);
@@ -186,7 +186,7 @@ void MojoRenderer::StartPlayingFrom(base::TimeDelta time) {
 
   {
     base::AutoLock auto_lock(lock_);
-    media_time_interpolator_.SetBounds(time, time, media_clock_.NowTicks());
+    media_time_interpolator_.SetBounds(time, time, base::TimeTicks::Now());
     media_time_interpolator_.StartInterpolating();
   }
 
@@ -244,15 +244,20 @@ void MojoRenderer::OnEnded() {
 
 void MojoRenderer::InitiateScopedSurfaceRequest(
     const ReceiveSurfaceRequestTokenCB& receive_request_token_cb) {
+  DCHECK(remote_renderer_.is_bound());
   DVLOG(1) << __func__;
 
-  remote_renderer_->InitiateScopedSurfaceRequest(receive_request_token_cb);
+  if (encountered_error_) {
+    receive_request_token_cb.Run(base::UnguessableToken::Null());
+  } else {
+    remote_renderer_->InitiateScopedSurfaceRequest(receive_request_token_cb);
+  }
 }
 
 void MojoRenderer::OnError() {
   DVLOG(1) << __func__;
   DCHECK(task_runner_->BelongsToCurrentThread());
-  DCHECK(init_cb_.is_null());
+  DCHECK(!init_cb_);
 
   encountered_error_ = true;
 
@@ -277,6 +282,11 @@ void MojoRenderer::OnDurationChange(base::TimeDelta duration) {
   client_->OnDurationChange(duration);
 }
 
+void MojoRenderer::OnRemotePlayStateChange(media::MediaStatus::State state) {
+  DVLOG(2) << __func__ << ": state [" << static_cast<int>(state) << "]";
+  client_->OnRemotePlayStateChange(state);
+}
+
 void MojoRenderer::OnVideoOpacityChange(bool opaque) {
   DVLOG(2) << __func__ << ": " << opaque;
   DCHECK(task_runner_->BelongsToCurrentThread());
@@ -298,13 +308,17 @@ void MojoRenderer::OnVideoConfigChange(const VideoDecoderConfig& config) {
 void MojoRenderer::OnStatisticsUpdate(const PipelineStatistics& stats) {
   DVLOG(3) << __func__;
   DCHECK(task_runner_->BelongsToCurrentThread());
+  if (!client_) {
+    pending_stats_ = stats;
+    return;
+  }
   client_->OnStatisticsUpdate(stats);
 }
 
-void MojoRenderer::OnWaitingForDecryptionKey() {
+void MojoRenderer::OnWaiting(WaitingReason reason) {
   DVLOG(1) << __func__;
   DCHECK(task_runner_->BelongsToCurrentThread());
-  client_->OnWaitingForDecryptionKey();
+  client_->OnWaiting(reason);
 }
 
 void MojoRenderer::OnConnectionError() {
@@ -356,45 +370,49 @@ void MojoRenderer::BindRemoteRendererIfNeeded() {
 void MojoRenderer::OnInitialized(media::RendererClient* client, bool success) {
   DVLOG(1) << __func__;
   DCHECK(task_runner_->BelongsToCurrentThread());
-  DCHECK(!init_cb_.is_null());
+  DCHECK(init_cb_);
 
   // Only set |client_| after initialization succeeded. No client methods should
   // be called before this.
   if (success)
     client_ = client;
 
-  base::ResetAndReturn(&init_cb_).Run(
-      success ? PIPELINE_OK : PIPELINE_ERROR_INITIALIZATION_FAILED);
+  std::move(init_cb_).Run(success ? PIPELINE_OK
+                                  : PIPELINE_ERROR_INITIALIZATION_FAILED);
+
+  if (client_ && pending_stats_.has_value())
+    client_->OnStatisticsUpdate(pending_stats_.value());
+  pending_stats_.reset();
 }
 
 void MojoRenderer::OnFlushed() {
   DVLOG(1) << __func__;
   DCHECK(task_runner_->BelongsToCurrentThread());
-  DCHECK(!flush_cb_.is_null());
+  DCHECK(flush_cb_);
 
-  base::ResetAndReturn(&flush_cb_).Run();
+  std::move(flush_cb_).Run();
 }
 
 void MojoRenderer::OnCdmAttached(bool success) {
   DVLOG(1) << __func__;
   DCHECK(task_runner_->BelongsToCurrentThread());
-  DCHECK(!cdm_attached_cb_.is_null());
+  DCHECK(cdm_attached_cb_);
 
-  base::ResetAndReturn(&cdm_attached_cb_).Run(success);
+  std::move(cdm_attached_cb_).Run(success);
 }
 
 void MojoRenderer::CancelPendingCallbacks() {
   DVLOG(1) << __func__;
   DCHECK(task_runner_->BelongsToCurrentThread());
 
-  if (!init_cb_.is_null())
-    base::ResetAndReturn(&init_cb_).Run(PIPELINE_ERROR_INITIALIZATION_FAILED);
+  if (init_cb_)
+    std::move(init_cb_).Run(PIPELINE_ERROR_INITIALIZATION_FAILED);
 
-  if (!flush_cb_.is_null())
-    base::ResetAndReturn(&flush_cb_).Run();
+  if (flush_cb_)
+    std::move(flush_cb_).Run();
 
-  if (!cdm_attached_cb_.is_null())
-    base::ResetAndReturn(&cdm_attached_cb_).Run(false);
+  if (cdm_attached_cb_)
+    std::move(cdm_attached_cb_).Run(false);
 }
 
 }  // namespace media

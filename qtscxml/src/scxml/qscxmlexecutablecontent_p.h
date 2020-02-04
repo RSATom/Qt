@@ -61,7 +61,6 @@
 #include <QtScxml/qscxmlstatemachine.h>
 #endif // BUILD_QSCXMLC
 
-#ifndef Q_QDOC
 QT_BEGIN_NAMESPACE
 
 namespace QScxmlExecutableContent {
@@ -510,6 +509,5 @@ private:
 };
 
 QT_END_NAMESPACE
-#endif // Q_QDOC
 
 #endif // QSCXMLEXECUTABLECONTENT_P_H

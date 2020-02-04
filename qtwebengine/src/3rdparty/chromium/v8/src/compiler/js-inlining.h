@@ -12,7 +12,7 @@ namespace v8 {
 namespace internal {
 
 class BailoutId;
-class CompilationInfo;
+class OptimizedCompilationInfo;
 
 namespace compiler {
 
@@ -23,12 +23,14 @@ class SourcePositionTable;
 // heuristics that decide what and how much to inline are beyond its scope.
 class JSInliner final : public AdvancedReducer {
  public:
-  JSInliner(Editor* editor, Zone* local_zone, CompilationInfo* info,
-            JSGraph* jsgraph, SourcePositionTable* source_positions)
+  JSInliner(Editor* editor, Zone* local_zone, OptimizedCompilationInfo* info,
+            JSGraph* jsgraph, JSHeapBroker* broker,
+            SourcePositionTable* source_positions)
       : AdvancedReducer(editor),
         local_zone_(local_zone),
         info_(info),
         jsgraph_(jsgraph),
+        broker_(broker),
         source_positions_(source_positions) {}
 
   const char* reducer_name() const override { return "JSInliner"; }
@@ -41,15 +43,21 @@ class JSInliner final : public AdvancedReducer {
   Reduction ReduceJSCall(Node* node);
 
  private:
+  Zone* zone() const { return local_zone_; }
   CommonOperatorBuilder* common() const;
   JSOperatorBuilder* javascript() const;
   SimplifiedOperatorBuilder* simplified() const;
   Graph* graph() const;
   JSGraph* jsgraph() const { return jsgraph_; }
+  // TODO(neis): Make heap broker a component of JSGraph?
+  JSHeapBroker* broker() const { return broker_; }
+  Isolate* isolate() const { return jsgraph_->isolate(); }
+  Handle<Context> native_context() const;
 
   Zone* const local_zone_;
-  CompilationInfo* info_;
+  OptimizedCompilationInfo* info_;
   JSGraph* const jsgraph_;
+  JSHeapBroker* const broker_;
   SourcePositionTable* const source_positions_;
 
   bool DetermineCallTarget(Node* node,
@@ -60,7 +68,8 @@ class JSInliner final : public AdvancedReducer {
   Node* CreateArtificialFrameState(Node* node, Node* outer_frame_state,
                                    int parameter_count, BailoutId bailout_id,
                                    FrameStateType frame_state_type,
-                                   Handle<SharedFunctionInfo> shared);
+                                   Handle<SharedFunctionInfo> shared,
+                                   Node* context = nullptr);
 
   Reduction InlineCall(Node* call, Node* new_target, Node* context,
                        Node* frame_state, Node* start, Node* end,

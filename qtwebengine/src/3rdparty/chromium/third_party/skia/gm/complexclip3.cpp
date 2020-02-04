@@ -9,6 +9,8 @@
 #include "SkCanvas.h"
 #include "SkPath.h"
 
+#include <utility>
+
 namespace skiagm {
 
 constexpr SkColor gPathColor = SK_ColorYELLOW;
@@ -17,7 +19,7 @@ class ComplexClip3GM : public GM {
 public:
     ComplexClip3GM(bool doSimpleClipFirst)
         : fDoSimpleClipFirst(doSimpleClipFirst) {
-        this->setBGColor(sk_tool_utils::color_to_565(0xFFDDDDDD));
+        this->setBGColor(0xFFDDDDDD);
     }
 
 protected:
@@ -44,13 +46,14 @@ protected:
         SkPath* secondClip = &clipComplex;
 
         if (!fDoSimpleClipFirst) {
-            SkTSwap<SkPath*>(firstClip, secondClip);
+            using std::swap;
+            swap(firstClip, secondClip);
         }
 
         SkPaint paint;
         paint.setAntiAlias(true);
-        sk_tool_utils::set_portable_typeface(&paint);
-        paint.setTextSize(SkIntToScalar(20));
+
+        SkFont font(sk_tool_utils::create_portable_typeface(), 20);
 
         constexpr struct {
             SkClipOp    fOp;
@@ -103,7 +106,7 @@ protected:
                                                    doAAB ? "A" : "B",
                                                    doInvB ? "I" : "N");
 
-                        canvas->drawString(str.c_str(), txtX, SkIntToScalar(130), paint);
+                        canvas->drawString(str.c_str(), txtX, SkIntToScalar(130), font, paint);
                         if (doInvB) {
                             canvas->translate(SkIntToScalar(150),0);
                         } else {

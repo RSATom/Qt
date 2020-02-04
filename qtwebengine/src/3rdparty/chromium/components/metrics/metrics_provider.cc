@@ -4,6 +4,8 @@
 
 #include "components/metrics/metrics_provider.h"
 
+#include "third_party/metrics_proto/chrome_user_metrics_extension.pb.h"
+
 namespace metrics {
 
 MetricsProvider::MetricsProvider() {
@@ -13,6 +15,10 @@ MetricsProvider::~MetricsProvider() {
 }
 
 void MetricsProvider::Init() {
+}
+
+void MetricsProvider::AsyncInit(const base::Closure& done_callback) {
+  done_callback.Run();
 }
 
 void MetricsProvider::OnDidCreateMetricsLog() {
@@ -27,22 +33,36 @@ void MetricsProvider::OnRecordingDisabled() {
 void MetricsProvider::OnAppEnterBackground() {
 }
 
-bool MetricsProvider::ProvideIndependentMetrics(
+bool MetricsProvider::HasIndependentMetrics() {
+  return false;
+}
+
+void MetricsProvider::ProvideIndependentMetrics(
+    base::OnceCallback<void(bool)> done_callback,
     SystemProfileProto* system_profile_proto,
     base::HistogramSnapshotManager* snapshot_manager) {
-  return false;
+  // Either the method HasIndependentMetrics() has been overridden and this
+  // method has not, or this method being called without regard to Has().
+  // Both are wrong.
+  NOTREACHED();
 }
 
 void MetricsProvider::ProvideSystemProfileMetrics(
     SystemProfileProto* system_profile_proto) {
 }
 
-bool MetricsProvider::HasInitialStabilityMetrics() {
+bool MetricsProvider::HasPreviousSessionData() {
   return false;
 }
 
-void MetricsProvider::ProvideInitialStabilityMetrics(
-    SystemProfileProto* system_profile_proto) {
+void MetricsProvider::ProvidePreviousSessionData(
+    ChromeUserMetricsExtension* uma_proto) {
+  ProvideStabilityMetrics(uma_proto->mutable_system_profile());
+}
+
+void MetricsProvider::ProvideCurrentSessionData(
+    ChromeUserMetricsExtension* uma_proto) {
+  ProvideStabilityMetrics(uma_proto->mutable_system_profile());
 }
 
 void MetricsProvider::ProvideStabilityMetrics(
@@ -50,10 +70,6 @@ void MetricsProvider::ProvideStabilityMetrics(
 }
 
 void MetricsProvider::ClearSavedStabilityMetrics() {
-}
-
-void MetricsProvider::ProvideGeneralMetrics(
-    ChromeUserMetricsExtension* uma_proto) {
 }
 
 void MetricsProvider::RecordHistogramSnapshots(

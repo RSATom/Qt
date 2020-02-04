@@ -10,16 +10,25 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
+#include "base/callback.h"
 #include "base/files/file_path.h"
+#include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/ref_counted_delete_on_sequence.h"
+#include "base/sequence_checker.h"
+#include "base/sequenced_task_runner.h"
 #include "base/synchronization/lock.h"
+#include "base/thread_annotations.h"
 #include "content/common/content_export.h"
 #include "content/common/dom_storage/dom_storage_types.h"
 #include "third_party/leveldatabase/src/include/leveldb/status.h"
 
-class GURL;
+namespace url {
+class Origin;
+}
 
 namespace leveldb {
 class DB;
@@ -39,21 +48,28 @@ namespace content {
 // origins. All DOMStorageAreas for session storage share the same
 // SessionStorageDatabase.
 
-// Only one thread is allowed to call the public functions other than
-// ReadAreaValues and ReadNamespacesAndOrigins. Other threads are allowed to
-// call ReadAreaValues and ReadNamespacesAndOrigins.
-class CONTENT_EXPORT SessionStorageDatabase :
-    public base::RefCountedThreadSafe<SessionStorageDatabase> {
+// This class is not thread safe. Read-only methods (ReadAreaValues,
+// ReadNamespacesAndOrigins, and OnMemoryDump) may be called on any thread.
+// Methods that modify the database must be called on the same thread.
+class CONTENT_EXPORT SessionStorageDatabase
+    : public base::RefCountedDeleteOnSequence<SessionStorageDatabase> {
  public:
-  explicit SessionStorageDatabase(const base::FilePath& file_path);
+  // |file_path| is the path to the directory where the database will be
+  // created. |commit_task_runner| is the runner on which methods which modify
+  // the database must be run and where this object will be deleted.
+  SessionStorageDatabase(
+      const base::FilePath& file_path,
+      scoped_refptr<base::SequencedTaskRunner> commit_task_runner);
 
   // Reads the (key, value) pairs for |namespace_id| and |origin|. |result| is
   // assumed to be empty and any duplicate keys will be overwritten. If the
   // database exists on disk then it will be opened. If it does not exist then
   // it will not be created and |result| will be unmodified.
-  void ReadAreaValues(const std::string& namespace_id,
-                      const GURL& origin,
-                      DOMStorageValuesMap* result);
+  void ReadAreaValues(
+      const std::string& namespace_id,
+      const std::vector<std::string>& original_permanent_namespace_ids,
+      const url::Origin& origin,
+      DOMStorageValuesMap* result);
 
   // Updates the data for |namespace_id| and |origin|. Will remove all keys
   // before updating the database if |clear_all_first| is set. Then all entries
@@ -62,7 +78,7 @@ class CONTENT_EXPORT SessionStorageDatabase :
   // allowed to write data into a shallow copy created by CloneNamespace, and in
   // that case the copy will be made deep before writing the values.
   bool CommitAreaChanges(const std::string& namespace_id,
-                         const GURL& origin,
+                         const url::Origin& origin,
                          bool clear_all_first,
                          const DOMStorageValuesMap& changes);
 
@@ -72,23 +88,31 @@ class CONTENT_EXPORT SessionStorageDatabase :
                       const std::string& new_namespace_id);
 
   // Deletes the data for |namespace_id| and |origin|.
-  bool DeleteArea(const std::string& namespace_id, const GURL& origin);
+  bool DeleteArea(const std::string& namespace_id, const url::Origin& origin);
 
   // Deletes the data for |namespace_id|.
   bool DeleteNamespace(const std::string& namespace_id);
 
   // Reads the namespace IDs and origins present in the database.
   bool ReadNamespacesAndOrigins(
-      std::map<std::string, std::vector<GURL> >* namespaces_and_origins);
+      std::map<std::string, std::vector<url::Origin>>* namespaces_and_origins);
 
   // Adds memory statistics to |pmd| for chrome://tracing.
   void OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd);
 
+  // Used in testing to set an easier to handle in-memory database. Should
+  // happen before any database operations.
+  void SetDatabaseForTesting(std::unique_ptr<leveldb::DB> db);
+
+  leveldb::DB* db() const { return db_.get(); }
+
  private:
-  friend class base::RefCountedThreadSafe<SessionStorageDatabase>;
   class DBOperation;
   friend class SessionStorageDatabase::DBOperation;
   friend class SessionStorageDatabaseTest;
+  friend class base::RefCountedDeleteOnSequence<SessionStorageDatabase>;
+  friend class base::DeleteHelper<SessionStorageDatabase>;
+  FRIEND_TEST_ALL_PREFIXES(DOMStorageAreaParamTest, ShallowCopyWithBacking);
 
   ~SessionStorageDatabase();
 
@@ -155,7 +179,7 @@ class CONTENT_EXPORT SessionStorageDatabase :
   // this just overwrites the map id. The caller is responsible for decreasing
   // the ref count.
   bool CreateMapForArea(const std::string& namespace_id,
-                        const GURL& origin,
+                        const url::Origin& origin,
                         std::string* map_id,
                         leveldb::WriteBatch* batch);
   // Reads the contents of the map |map_id| into |result|. If |only_keys| is
@@ -186,7 +210,7 @@ class CONTENT_EXPORT SessionStorageDatabase :
   // creates a new map for (|namespace_id|, |origin|). Copies the data from the
   // old map if |copy_data| is true.
   bool DeepCopyArea(const std::string& namespace_id,
-                    const GURL& origin,
+                    const url::Origin& origin,
                     bool copy_data,
                     std::string* map_id,
                     leveldb::WriteBatch* batch);
@@ -207,16 +231,19 @@ class CONTENT_EXPORT SessionStorageDatabase :
   base::Lock db_lock_;
 
   // True if a database error has occurred (e.g., cannot read data).
-  bool db_error_;
+  bool db_error_ GUARDED_BY(db_lock_);
   // True if the database is in an inconsistent state.
-  bool is_inconsistent_;
+  bool is_inconsistent_ GUARDED_BY(db_lock_);
   // True if the database is in a failed or inconsistent state, and we have
   // already deleted it (as an attempt to recover later).
-  bool invalid_db_deleted_;
+  bool invalid_db_deleted_ GUARDED_BY(db_lock_);
 
   // The number of database operations in progress. We need this so that we can
   // delete an inconsistent database at the right moment.
-  int operation_count_;
+  int operation_count_ GUARDED_BY(db_lock_);
+
+  // Used to check methods that run on the commit sequence.
+  SEQUENCE_CHECKER(sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(SessionStorageDatabase);
 };

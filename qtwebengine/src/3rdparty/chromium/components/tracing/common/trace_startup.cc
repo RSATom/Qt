@@ -8,44 +8,43 @@
 #include "base/logging.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/trace_log.h"
-#include "components/tracing/common/trace_config_file.h"
+#include "build/build_config.h"
+#include "components/tracing/common/trace_startup_config.h"
 #include "components/tracing/common/trace_to_console.h"
 #include "components/tracing/common/tracing_switches.h"
 
 namespace tracing {
 
-void EnableStartupTracingIfNeeded(bool can_access_file_system) {
+void EnableStartupTracingIfNeeded() {
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
 
-  // Enables heap profiling if "--enable-heap-profiling" flag is passed.
-  base::trace_event::MemoryDumpManager::GetInstance()
-      ->EnableHeapProfilingIfNeeded();
+  // TODO(oysteine): Startup tracing using Perfetto
+  // is enabled by the Mojo consumer in content/browser
+  // for now; this is too late in the browser startup
+  // process however.
+  if (command_line.HasSwitch(switches::kPerfettoOutputFile))
+    return;
 
-  if (command_line.HasSwitch(switches::kTraceStartup)) {
-    base::trace_event::TraceConfig trace_config(
-        command_line.GetSwitchValueASCII(switches::kTraceStartup),
-        base::trace_event::RECORD_UNTIL_FULL);
+  // Ensure TraceLog is initialized first.
+  // https://crbug.com/764357
+  base::trace_event::TraceLog::GetInstance();
+
+  if (TraceStartupConfig::GetInstance()->IsEnabled()) {
+    const base::trace_event::TraceConfig& trace_config =
+        TraceStartupConfig::GetInstance()->GetTraceConfig();
+    uint8_t modes = base::trace_event::TraceLog::RECORDING_MODE;
+    if (!trace_config.event_filters().empty())
+      modes |= base::trace_event::TraceLog::FILTERING_MODE;
     base::trace_event::TraceLog::GetInstance()->SetEnabled(
-        trace_config, base::trace_event::TraceLog::RECORDING_MODE);
+        TraceStartupConfig::GetInstance()->GetTraceConfig(), modes);
   } else if (command_line.HasSwitch(switches::kTraceToConsole)) {
-    base::trace_event::TraceConfig trace_config =
-        tracing::GetConfigForTraceToConsole();
+    base::trace_event::TraceConfig trace_config = GetConfigForTraceToConsole();
     LOG(ERROR) << "Start " << switches::kTraceToConsole
                << " with CategoryFilter '"
                << trace_config.ToCategoryFilterString() << "'.";
     base::trace_event::TraceLog::GetInstance()->SetEnabled(
         trace_config, base::trace_event::TraceLog::RECORDING_MODE);
-  } else if (can_access_file_system &&
-             tracing::TraceConfigFile::GetInstance()->IsEnabled()) {
-    const base::trace_event::TraceConfig& trace_config =
-        tracing::TraceConfigFile::GetInstance()->GetTraceConfig();
-    uint8_t modes = base::trace_event::TraceLog::RECORDING_MODE;
-    if (!trace_config.event_filters().empty())
-      modes |= base::trace_event::TraceLog::FILTERING_MODE;
-    // This checks kTraceConfigFile switch.
-    base::trace_event::TraceLog::GetInstance()->SetEnabled(
-        tracing::TraceConfigFile::GetInstance()->GetTraceConfig(), modes);
   }
 }
 

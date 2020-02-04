@@ -489,30 +489,39 @@ static INLINE void highbd_d63_predictor(uint16_t *dst, ptrdiff_t stride, int bs,
                                         const uint16_t *above,
                                         const uint16_t *left, int bd) {
   int r, c;
+  int size;
   (void)left;
   (void)bd;
-  for (r = 0; r < bs; ++r) {
-    for (c = 0; c < bs; ++c) {
-      dst[c] = r & 1 ? AVG3(above[(r >> 1) + c], above[(r >> 1) + c + 1],
-                            above[(r >> 1) + c + 2])
-                     : AVG2(above[(r >> 1) + c], above[(r >> 1) + c + 1]);
-    }
-    dst += stride;
+  for (c = 0; c < bs; ++c) {
+    dst[c] = AVG2(above[c], above[c + 1]);
+    dst[stride + c] = AVG3(above[c], above[c + 1], above[c + 2]);
+  }
+  for (r = 2, size = bs - 2; r < bs; r += 2, --size) {
+    memcpy(dst + (r + 0) * stride, dst + (r >> 1), size * sizeof(*dst));
+    vpx_memset16(dst + (r + 0) * stride + size, above[bs - 1], bs - size);
+    memcpy(dst + (r + 1) * stride, dst + stride + (r >> 1),
+           size * sizeof(*dst));
+    vpx_memset16(dst + (r + 1) * stride + size, above[bs - 1], bs - size);
   }
 }
 
 static INLINE void highbd_d45_predictor(uint16_t *dst, ptrdiff_t stride, int bs,
                                         const uint16_t *above,
                                         const uint16_t *left, int bd) {
-  int r, c;
+  const uint16_t above_right = above[bs - 1];
+  const uint16_t *const dst_row0 = dst;
+  int x, size;
   (void)left;
   (void)bd;
-  for (r = 0; r < bs; ++r) {
-    for (c = 0; c < bs; ++c) {
-      dst[c] = r + c + 2 < bs * 2
-                   ? AVG3(above[r + c], above[r + c + 1], above[r + c + 2])
-                   : above[bs * 2 - 1];
-    }
+
+  for (x = 0; x < bs - 1; ++x) {
+    dst[x] = AVG3(above[x], above[x + 1], above[x + 2]);
+  }
+  dst[bs - 1] = above_right;
+  dst += stride;
+  for (x = 1, size = bs - 2; x < bs; ++x, --size) {
+    memcpy(dst, dst_row0 + x, size * sizeof(*dst));
+    vpx_memset16(dst + size, above_right, x + 1);
     dst += stride;
   }
 }

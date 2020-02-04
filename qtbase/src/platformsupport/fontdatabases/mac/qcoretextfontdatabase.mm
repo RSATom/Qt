@@ -50,7 +50,9 @@
 
 #include "qcoretextfontdatabase_p.h"
 #include "qfontengine_coretext_p.h"
+#if QT_CONFIG(settings)
 #include <QtCore/QSettings>
+#endif
 #include <QtCore/QtEndian>
 #ifndef QT_NO_FREETYPE
 #include <QtFontDatabaseSupport/private/qfontengine_ft_p.h>
@@ -101,81 +103,20 @@ enum { LanguageCount = sizeof(languageForWritingSystem) / sizeof(const char *) }
 #ifdef Q_OS_OSX
 static NSInteger languageMapSort(id obj1, id obj2, void *context)
 {
-    NSArray *map1 = (NSArray *) obj1;
-    NSArray *map2 = (NSArray *) obj2;
-    NSArray *languages = (NSArray *) context;
+    NSArray<NSString *> *map1 = reinterpret_cast<NSArray<NSString *> *>(obj1);
+    NSArray<NSString *> *map2 = reinterpret_cast<NSArray<NSString *> *>(obj2);
+    NSArray<NSString *> *languages = reinterpret_cast<NSArray<NSString *> *>(context);
 
-    NSString *lang1 = [map1 objectAtIndex: 0];
-    NSString *lang2 = [map2 objectAtIndex: 0];
+    NSString *lang1 = [map1 objectAtIndex:0];
+    NSString *lang2 = [map2 objectAtIndex:0];
 
-    return [languages indexOfObject: lang1] - [languages indexOfObject: lang2];
+    return [languages indexOfObject:lang1] - [languages indexOfObject:lang2];
 }
 #endif
 
 QCoreTextFontDatabase::QCoreTextFontDatabase()
     : m_hasPopulatedAliases(false)
 {
-#ifdef Q_OS_MACX
-    QSettings appleSettings(QLatin1String("apple.com"));
-    QVariant appleValue = appleSettings.value(QLatin1String("AppleAntiAliasingThreshold"));
-    if (appleValue.isValid())
-        QCoreTextFontEngine::antialiasingThreshold = appleValue.toInt();
-
-    /*
-        font_smoothing = 0 means no smoothing, while 1-3 means subpixel
-        antialiasing with different hinting styles (but we don't care about the
-        exact value, only if subpixel rendering is available or not)
-    */
-    int font_smoothing = 0;
-    appleValue = appleSettings.value(QLatin1String("AppleFontSmoothing"));
-    if (appleValue.isValid()) {
-        font_smoothing = appleValue.toInt();
-    } else {
-        // non-Apple displays do not provide enough information about subpixel rendering so
-        // draw text with cocoa and compare pixel colors to see if subpixel rendering is enabled
-        int w = 10;
-        int h = 10;
-        NSRect rect = NSMakeRect(0.0, 0.0, w, h);
-        NSImage *fontImage = [[NSImage alloc] initWithSize:NSMakeSize(w, h)];
-
-        [fontImage lockFocus];
-
-        [[NSColor whiteColor] setFill];
-        NSRectFill(rect);
-
-        NSString *str = @"X\\";
-        NSFont *font = [NSFont fontWithName:@"Helvetica" size:10.0];
-        NSMutableDictionary *attrs = [NSMutableDictionary dictionary];
-        [attrs setObject:font forKey:NSFontAttributeName];
-        [attrs setObject:[NSColor blackColor] forKey:NSForegroundColorAttributeName];
-
-        [str drawInRect:rect withAttributes:attrs];
-
-        NSBitmapImageRep *nsBitmapImage = [[NSBitmapImageRep alloc] initWithFocusedViewRect:rect];
-
-        [fontImage unlockFocus];
-
-        float red, green, blue;
-        for (int x = 0; x < w; x++) {
-            for (int y = 0; y < h; y++) {
-                NSColor *pixelColor = [nsBitmapImage colorAtX:x y:y];
-                red = [pixelColor redComponent];
-                green = [pixelColor greenComponent];
-                blue = [pixelColor blueComponent];
-                if (red != green || red != blue)
-                    font_smoothing = 1;
-            }
-        }
-
-        [nsBitmapImage release];
-        [fontImage release];
-    }
-    QCoreTextFontEngine::defaultGlyphFormat = (font_smoothing > 0
-                                               ? QFontEngine::Format_A32
-                                               : QFontEngine::Format_A8);
-#else
-    QCoreTextFontEngine::defaultGlyphFormat = QFontEngine::Format_A8;
-#endif
 }
 
 QCoreTextFontDatabase::~QCoreTextFontDatabase()
@@ -184,23 +125,9 @@ QCoreTextFontDatabase::~QCoreTextFontDatabase()
         CFRelease(ref);
 }
 
-static CFArrayRef availableFamilyNames()
-{
-#if QT_DARWIN_PLATFORM_SDK_EQUAL_OR_ABOVE(1060, 100000, 100000, 30000)
-    if (&CTFontManagerCopyAvailableFontFamilyNames)
-        return CTFontManagerCopyAvailableFontFamilyNames();
-#endif
-#if defined(QT_PLATFORM_UIKIT)
-    CFMutableArrayRef familyNames = CFArrayCreateMutableCopy(kCFAllocatorDefault, 0, (CFArrayRef)[UIFont familyNames]);
-    CFArrayAppendValue(familyNames, CFSTR(".PhoneFallback"));
-    return familyNames;
-#endif
-    Q_UNREACHABLE();
-}
-
 void QCoreTextFontDatabase::populateFontDatabase()
 {
-    QCFType<CFArrayRef> familyNames = availableFamilyNames();
+    QCFType<CFArrayRef> familyNames = CTFontManagerCopyAvailableFontFamilyNames();
     for (NSString *familyName in familyNames.as<const NSArray *>())
         QPlatformFontDatabase::registerFontFamily(QString::fromNSString(familyName));
 
@@ -220,7 +147,7 @@ bool QCoreTextFontDatabase::populateFamilyAliases()
     if (m_hasPopulatedAliases)
         return false;
 
-    QCFType<CFArrayRef> familyNames = availableFamilyNames();
+    QCFType<CFArrayRef> familyNames = CTFontManagerCopyAvailableFontFamilyNames();
     for (NSString *familyName in familyNames.as<const NSArray *>()) {
         NSFontManager *fontManager = [NSFontManager sharedFontManager];
         NSString *localizedFamilyName = [fontManager localizedNameForFamily:familyName face:nil];
@@ -267,7 +194,7 @@ struct FontDescription {
     QFont::Weight weight;
     QFont::Style style;
     QFont::Stretch stretch;
-    int pixelSize;
+    qreal pointSize;
     bool fixedPitch;
     QSupportedWritingSystems writingSystems;
 };
@@ -283,7 +210,7 @@ Q_DECL_UNUSED static inline QDebug operator<<(QDebug debug, const FontDescriptio
         << ", weight=" << fd.weight
         << ", style=" << fd.style
         << ", stretch=" << fd.stretch
-        << ", pixelSize=" << fd.pixelSize
+        << ", pointSize=" << fd.pointSize
         << ", fixedPitch=" << fd.fixedPitch
         << ", writingSystems=" << fd.writingSystems
     << ")";
@@ -331,9 +258,9 @@ static void getFontDescription(CTFontDescriptorRef font, FontDescription *fd)
 
     if (styles) {
         if (CFNumberRef weightValue = (CFNumberRef) CFDictionaryGetValue(styles, kCTFontWeightTrait)) {
-            float normalizedWeight;
-            if (CFNumberGetValue(weightValue, kCFNumberFloatType, &normalizedWeight))
-                fd->weight = QCoreTextFontEngine::qtWeightFromCFWeight(normalizedWeight);
+            double normalizedWeight;
+            if (CFNumberGetValue(weightValue, kCFNumberFloat64Type, &normalizedWeight))
+                fd->weight = QCoreTextFontEngine::qtWeightFromCFWeight(float(normalizedWeight));
         }
         if (CFNumberRef italic = (CFNumberRef) CFDictionaryGetValue(styles, kCTFontSlantTrait)) {
             double d;
@@ -359,9 +286,11 @@ static void getFontDescription(CTFontDescriptorRef font, FontDescription *fd)
         if (CFNumberIsFloatType(size)) {
             double d;
             CFNumberGetValue(size, kCFNumberDoubleType, &d);
-            fd->pixelSize = d;
+            fd->pointSize = d;
         } else {
-            CFNumberGetValue(size, kCFNumberIntType, &fd->pixelSize);
+            int i;
+            CFNumberGetValue(size, kCFNumberIntType, &i);
+            fd->pointSize = i;
         }
     }
 
@@ -389,8 +318,8 @@ void QCoreTextFontDatabase::populateFromDescriptor(CTFontDescriptorRef font, con
 
     CFRetain(font);
     QPlatformFontDatabase::registerFont(family, fd.styleName, fd.foundryName, fd.weight, fd.style, fd.stretch,
-            true /* antialiased */, true /* scalable */,
-            fd.pixelSize, fd.fixedPitch, fd.writingSystems, (void *) font);
+            true /* antialiased */, true /* scalable */, 0 /* pixelSize, ignored as font is scalable */,
+            fd.fixedPitch, fd.writingSystems, (void *)font);
 }
 
 static NSString * const kQtFontDataAttribute = @"QtFontDataAttribute";
@@ -451,16 +380,15 @@ QFontEngine *QCoreTextFontDatabaseEngineFactory<QFontEngineFT>::fontEngine(const
 {
     CTFontDescriptorRef descriptor = static_cast<CTFontDescriptorRef>(usrPtr);
 
-    if (NSURL *url = descriptorAttribute<NSURL>(descriptor, kCTFontURLAttribute)) {
+    if (NSValue *fontDataValue = descriptorAttribute<NSValue>(descriptor, (CFStringRef)kQtFontDataAttribute)) {
+        QByteArray *fontData = static_cast<QByteArray *>(fontDataValue.pointerValue);
+        return QFontEngineFT::create(*fontData, fontDef.pixelSize,
+            static_cast<QFont::HintingPreference>(fontDef.hintingPreference));
+    } else if (NSURL *url = descriptorAttribute<NSURL>(descriptor, kCTFontURLAttribute)) {
         Q_ASSERT(url.fileURL);
         QFontEngine::FaceId faceId;
         faceId.filename = QString::fromNSString(url.path).toUtf8();
         return QFontEngineFT::create(fontDef, faceId);
-
-    } else if (NSValue *fontDataValue = descriptorAttribute<NSValue>(descriptor, (CFStringRef)kQtFontDataAttribute)) {
-        QByteArray *fontData = static_cast<QByteArray *>(fontDataValue.pointerValue);
-        return QFontEngineFT::create(*fontData, fontDef.pixelSize,
-            static_cast<QFont::HintingPreference>(fontDef.hintingPreference));
     }
     Q_UNREACHABLE();
 }
@@ -521,8 +449,13 @@ static void addExtraFallbacks(QStringList *fallbackList)
     // add Apple Symbols to cover those too.
     if (!fallbackList->contains(QStringLiteral("Apple Symbols")))
         fallbackList->append(QStringLiteral("Apple Symbols"));
+#else
+    Q_UNUSED(fallbackList)
 #endif
 }
+
+// ### Replace this with QPlatformFontDatabase::isFamilyPopulated() in Qt 5.14
+Q_GUI_EXPORT extern bool qt_isFontFamilyPopulated(const QString &familyName);
 
 QStringList QCoreTextFontDatabase::fallbacksForFamily(const QString &family, QFont::Style style, QFont::StyleHint styleHint, QChar::Script script) const
 {
@@ -545,13 +478,43 @@ QStringList QCoreTextFontDatabase::fallbacksForFamily(const QString &family, QFo
                 if (cascadeList) {
                     QStringList fallbackList;
                     const int numCascades = CFArrayGetCount(cascadeList);
+
+                    int symbolIndex = -1;
+                    int notoSansUniversalIndex = -1;
                     for (int i = 0; i < numCascades; ++i) {
                         CTFontDescriptorRef fontFallback = (CTFontDescriptorRef) CFArrayGetValueAtIndex(cascadeList, i);
                         QCFString fallbackFamilyName = (CFStringRef) CTFontDescriptorCopyAttribute(fontFallback, kCTFontFamilyNameAttribute);
-                        fallbackList.append(QString::fromCFString(fallbackFamilyName));
+
+                        QString fallbackName = QString::fromCFString(fallbackFamilyName);
+                        fallbackList.append(fallbackName);
+
+                        if (!qt_isFontFamilyPopulated(fallbackName))
+                            const_cast<QCoreTextFontDatabase *>(this)->populateFromDescriptor(fontFallback, fallbackName);
+
+                        if (fallbackName == QLatin1String(".Apple Symbols Fallback"))
+                            symbolIndex = fallbackList.size() - 1;
+                        else if (fallbackName == QLatin1String(".Noto Sans Universal"))
+                            notoSansUniversalIndex = fallbackList.size() - 1;
                     }
 
+                    // .Apple Symbols Fallback will be at the beginning of the list and we will
+                    // detect that this has glyphs for Arabic and other writing systems.
+                    // Since it is a symbol font, it should be the last resort, so that
+                    // the proper fonts for these writing systems are preferred.
+                    if (symbolIndex >= 0) {
+                        fallbackList.move(symbolIndex, fallbackList.size() - 1);
+                        if (notoSansUniversalIndex > symbolIndex)
+                            --notoSansUniversalIndex;
+                    }
+
+                    // .Noto Sans Universal appears to have a bug when the application
+                    // does not have a valid Info.plist, which causes it to return glyph #4
+                    // (a question mark) for any character.
+                    if (notoSansUniversalIndex >= 0)
+                        fallbackList.move(notoSansUniversalIndex, fallbackList.size() - 1);
+
                     addExtraFallbacks(&fallbackList);
+
                     extern QStringList qt_sort_families_by_writing_system(QChar::Script, const QStringList &);
                     fallbackList = qt_sort_families_by_writing_system(script, fallbackList);
 
@@ -570,21 +533,21 @@ QStringList QCoreTextFontDatabase::fallbacksForFamily(const QString &family, QFo
     if (!didPopulateStyleFallbacks) {
 #if defined(Q_OS_MACX)
         NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-        NSArray *languages = [defaults stringArrayForKey: @"AppleLanguages"];
+        NSArray<NSString *> *languages = [defaults stringArrayForKey:@"AppleLanguages"];
 
-        NSDictionary *fallbackDict = [NSDictionary dictionaryWithContentsOfFile: @"/System/Library/Frameworks/ApplicationServices.framework/Frameworks/CoreText.framework/Resources/DefaultFontFallbacks.plist"];
+        NSDictionary<NSString *, id> *fallbackDict = [NSDictionary<NSString *, id> dictionaryWithContentsOfFile:@"/System/Library/Frameworks/ApplicationServices.framework/Frameworks/CoreText.framework/Resources/DefaultFontFallbacks.plist"];
 
         for (NSString *style in [fallbackDict allKeys]) {
-            NSArray *list = [fallbackDict valueForKey: style];
+            NSArray *list = [fallbackDict valueForKey:style];
             QFont::StyleHint fallbackStyleHint = styleHintFromNSString(style);
             QStringList fallbackList;
             for (id item in list) {
                 // sort the array based on system language preferences
-                if ([item isKindOfClass: [NSArray class]]) {
-                    NSArray *langs = [(NSArray *) item sortedArrayUsingFunction: languageMapSort
-                                                                        context: languages];
-                    for (NSArray *map in langs)
-                        fallbackList.append(familyNameFromPostScriptName([map objectAtIndex: 1]));
+                if ([item isKindOfClass:[NSArray class]]) {
+                    NSArray *langs = [reinterpret_cast<NSArray *>(item)
+                        sortedArrayUsingFunction:languageMapSort context:languages];
+                    for (NSArray<NSString *> *map in langs)
+                        fallbackList.append(familyNameFromPostScriptName([map objectAtIndex:1]));
                 }
                 else if ([item isKindOfClass: [NSString class]])
                     fallbackList.append(familyNameFromPostScriptName(item));
@@ -687,8 +650,10 @@ static CTFontUIFontType fontTypeFromTheme(QPlatformTheme::Font f)
         return kCTFontUIFontWindowTitle;
 
     case QPlatformTheme::MdiSubWindowTitleFont:
-    case QPlatformTheme::DockWidgetTitleFont:
         return kCTFontUIFontSystem;
+
+    case QPlatformTheme::DockWidgetTitleFont:
+        return kCTFontUIFontSmallSystem;
 
     case QPlatformTheme::PushButtonFont:
         return kCTFontUIFontPushButton;
@@ -797,7 +762,7 @@ QFont *QCoreTextFontDatabase::themeFont(QPlatformTheme::Font f) const
     else
         CFRelease(fontDesc);
 
-    QFont *font = new QFont(fd.familyName, fd.pixelSize, fd.weight, fd.style == QFont::StyleItalic);
+    QFont *font = new QFont(fd.familyName, fd.pointSize, fd.weight, fd.style == QFont::StyleItalic);
     return font;
 }
 

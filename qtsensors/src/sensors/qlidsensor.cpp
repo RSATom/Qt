@@ -178,5 +178,6 @@ QLidReading *QLidSensor::reading() const
     return static_cast<QLidReading*>(QSensor::reading());
 }
 
-#include "moc_qlidsensor.cpp"
 QT_END_NAMESPACE
+
+#include "moc_qlidsensor.cpp"

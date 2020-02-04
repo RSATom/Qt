@@ -2,10 +2,12 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
+import("//ui/ozone/ozone.gni")
 
-component("util") {
+jumbo_component("util") {
   output_name = "display_util"
   sources = [
     "display_util.cc",
@@ -15,15 +17,18 @@ component("util") {
     "edid_parser.h",
   ]
 
+  configs += [ "//build/config/compiler:wexit_time_destructors" ]
+
   defines = [ "DISPLAY_UTIL_IMPLEMENTATION" ]
 
   deps = [
     "//base",
+    "//skia",
     "//ui/display/types",
     "//ui/gfx/geometry",
   ]
 
-  if (use_x11) {
+  if ((use_x11 || ozone_platform_x11) && !use_qt) {
     sources += [
       "x11/edid_parser_x11.cc",
       "x11/edid_parser_x11.h",
@@ -36,6 +41,10 @@ component("util") {
   }
   if (is_chromeos) {
     deps += [ "//ui/display/types" ]
+  } else if (is_mac) {
+    libs = [
+      "IOSurface.framework",
+    ]
   }
 }
 
@@ -46,6 +55,7 @@ fuzzer_test("edid_parser_fuzzer") {
   deps = [
     ":util",
     "//base",
+    "//skia",
     "//ui/gfx/geometry",
   ]
   seed_corpus = "fuzz_corpus"

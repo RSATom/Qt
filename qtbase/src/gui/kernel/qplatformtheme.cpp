@@ -471,6 +471,8 @@ QVariant QPlatformTheme::themeHint(ThemeHint hint) const
         return QGuiApplicationPrivate::platformIntegration()->styleHint(QPlatformIntegration::ItemViewActivateItemOnSingleClick);
     case QPlatformTheme::UiEffects:
         return QGuiApplicationPrivate::platformIntegration()->styleHint(QPlatformIntegration::UiEffects);
+    case QPlatformTheme::ShowShortcutsInContextMenus:
+        return QGuiApplicationPrivate::platformIntegration()->styleHint(QPlatformIntegration::ShowShortcutsInContextMenus);
     default:
         return QPlatformTheme::defaultThemeHint(hint);
     }
@@ -516,10 +518,12 @@ QVariant QPlatformTheme::defaultThemeHint(ThemeHint hint)
         return QVariant(QString());
     case QPlatformTheme::IconThemeSearchPaths:
         return QVariant(QStringList());
+    case QPlatformTheme::IconFallbackSearchPaths:
+        return QVariant(QStringList());
     case QPlatformTheme::StyleNames:
         return QVariant(QStringList());
     case QPlatformTheme::ShowShortcutsInContextMenus:
-        return QVariant(false);
+        return QVariant(true);
     case TextCursorWidth:
         return QVariant(1);
     case DropShadow:
@@ -557,6 +561,8 @@ QVariant QPlatformTheme::defaultThemeHint(ThemeHint hint)
                 dist = defaultThemeHint(MouseDoubleClickDistance).toInt(&ok) * 2;
             return QVariant(ok ? dist : 10);
         }
+    case MouseQuickSelectionThreshold:
+        return QVariant(10);
     }
     return QVariant();
 }
@@ -747,8 +753,7 @@ QString QPlatformTheme::removeMnemonics(const QString &original)
     int currPos = 0;
     int l = original.length();
     while (l) {
-        if (original.at(currPos) == QLatin1Char('&')
-            && (l == 1 || original.at(currPos + 1) != QLatin1Char('&'))) {
+        if (original.at(currPos) == QLatin1Char('&')) {
             ++currPos;
             --l;
             if (l == 0)

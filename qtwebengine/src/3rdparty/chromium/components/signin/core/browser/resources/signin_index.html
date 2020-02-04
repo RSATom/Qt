@@ -2,7 +2,6 @@
 <html dir="$i18n{textdirection}" lang="$i18n{language}">
 <head>
   <meta charset="utf-8">
-  <title>Signin Internals</title>
   <script src="chrome://resources/js/cr.js"></script>
   <script src="chrome://resources/js/util.js"></script>
   <script src="chrome://resources/js/load_time_data.js"></script>
@@ -79,13 +78,37 @@
       <table class="signin-details">
         <tr class="header">
           <td>Accound Id</td>
+          <td>Has refresh token</td>
+          <td>Has persistent auth error</td>
         </tr>
         <tr jsselect="accountInfo">
           <td jscontent="accountId"></td>
+          <td jscontent="hasRefreshToken"></td>
+          <td jscontent="hasAuthError"></td>
         </tr>
       </table>
     </div>
   </div>
+  <div id="refresh-token-events">
+    <h2>Refresh token events</h2>
+    <div class="refresh-token-events-section">
+      <table class="signin-details">
+        <tr class="header">
+          <td>Timestamp</td>
+          <td>Accound Id</td>
+          <td>Event type</td>
+          <td>Source</td>
+        </tr>
+        <tr jsselect="refreshTokenEvents">
+          <td jscontent="timestamp"></td>
+          <td jscontent="accountId"></td>
+          <td jscontent="type"></td>
+          <td jscontent="source"></td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
   <script src="chrome://resources/js/i18n_template.js"></script>
   <script src="chrome://resources/js/jstemplate_compiled.js"></script>
   <script src="chrome://signin-internals/signin_internals.js"></script>

@@ -35,38 +35,39 @@
 #include "qdesigner_formwindow.h"
 #include "appfontdialog.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormWindowManagerInterface>
-#include <QtDesigner/QDesignerFormEditorPluginInterface>
-#include <QtDesigner/QDesignerWidgetBoxInterface>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformwindowmanager.h>
+#include <QtDesigner/abstractformeditorplugin.h>
+#include <QtDesigner/abstractwidgetbox.h>
+#include <QtDesigner/abstractmetadatabase.h>
 
 #include <QtDesigner/QDesignerComponents>
-#include <QtDesigner/QDesignerIntegrationInterface>
+#include <QtDesigner/abstractintegration.h>
 #include <QtDesigner/private/pluginmanager_p.h>
 #include <QtDesigner/private/formwindowbase_p.h>
 #include <QtDesigner/private/actioneditor_p.h>
 
-#include <QtCore/QDir>
-#include <QtCore/QFile>
-#include <QtCore/QUrl>
-#include <QtCore/QTimer>
-#include <QtCore/QPluginLoader>
+#include <QtCore/qdir.h>
+#include <QtCore/qfile.h>
+#include <QtCore/qurl.h>
+#include <QtCore/qtimer.h>
+#include <QtCore/qpluginloader.h>
 #include <QtCore/qdebug.h>
 
-#include <QtWidgets/QActionGroup>
-#include <QtGui/QCloseEvent>
-#include <QtWidgets/QDesktopWidget>
-#include <QtWidgets/QDockWidget>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QMenuBar>
-#include <QtWidgets/QMessageBox>
-#include <QtWidgets/QPushButton>
-#include <QtWidgets/QToolBar>
-#include <QtWidgets/QMdiArea>
-#include <QtWidgets/QMdiSubWindow>
-#include <QtWidgets/QLayout>
+#include <QtWidgets/qactiongroup.h>
+#include <QtGui/qevent.h>
+#include <QtGui/qscreen.h>
+#include <QtWidgets/qdesktopwidget.h>
+#include <QtWidgets/qdockwidget.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qmenubar.h>
+#include <QtWidgets/qmessagebox.h>
+#include <QtWidgets/qpushbutton.h>
+#include <QtWidgets/qtoolbar.h>
+#include <QtWidgets/qmdiarea.h>
+#include <QtWidgets/qmdisubwindow.h>
+#include <QtWidgets/qlayout.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -269,7 +270,7 @@ void QDesignerWorkbench::saveGeometriesForModeChange()
     case NeutralMode:
         break;
     case TopLevelMode: {
-        const QPoint desktopOffset = QApplication::desktop()->availableGeometry().topLeft();
+        const QPoint desktopOffset = QGuiApplication::primaryScreen()->availableGeometry().topLeft();
         for (QDesignerToolWindow *tw : qAsConst(m_toolWindows))
             m_Positions.insert(tw, Position(tw, desktopOffset));
         for (QDesignerFormWindow *fw : qAsConst(m_formWindows))
@@ -572,9 +573,9 @@ QRect QDesignerWorkbench::desktopGeometry() const
     case NeutralMode:
         break;
     }
-    const QDesktopWidget *desktop = qApp->desktop();
-    const int screenNumber = widget ? desktop->screenNumber(widget) : 0;
-    return desktop->availableGeometry(screenNumber);
+    const int screenNumber = widget ? QApplication::desktop()->screenNumber(widget) : 0;
+    auto screen = QGuiApplication::screens().value(screenNumber, QGuiApplication::primaryScreen());
+    return screen->availableGeometry();
 }
 
 QRect QDesignerWorkbench::availableGeometry() const
@@ -582,8 +583,9 @@ QRect QDesignerWorkbench::availableGeometry() const
     if (m_mode == DockedMode)
         return m_dockedMainWindow->mdiArea()->geometry();
 
-    const QDesktopWidget *desktop = qDesigner->desktop();
-    return desktop->availableGeometry(desktop->screenNumber(widgetBoxToolWindow()));
+    const int screenNumber = QApplication::desktop()->screenNumber(widgetBoxToolWindow());
+    auto screen = QGuiApplication::screens().value(screenNumber, QGuiApplication::primaryScreen());
+    return screen->availableGeometry();
 }
 
 int QDesignerWorkbench::marginHint() const
@@ -697,44 +699,42 @@ bool QDesignerWorkbench::handleClose()
             dirtyForms << w;
     }
 
-    if (dirtyForms.size()) {
-        if (dirtyForms.size() == 1) {
-            if (!dirtyForms.at(0)->close()) {
-                m_state = StateUp;
-                return false;
+    const int count = dirtyForms.size();
+    if (count == 1) {
+        if (!dirtyForms.at(0)->close()) {
+            m_state = StateUp;
+            return false;
+        }
+    } else if (count > 1) {
+        QMessageBox box(QMessageBox::Warning, tr("Save Forms?"),
+                        tr("There are %n forms with unsaved changes."
+                           " Do you want to review these changes before quitting?", "", count),
+                        QMessageBox::Cancel | QMessageBox::Discard | QMessageBox::Save);
+        box.setInformativeText(tr("If you do not review your documents, all your changes will be lost."));
+        box.button(QMessageBox::Discard)->setText(tr("Discard Changes"));
+        QPushButton *save = static_cast<QPushButton *>(box.button(QMessageBox::Save));
+        save->setText(tr("Review Changes"));
+        box.setDefaultButton(save);
+        switch (box.exec()) {
+        case QMessageBox::Cancel:
+            m_state = StateUp;
+            return false;
+        case QMessageBox::Save:
+            for (QDesignerFormWindow *fw : qAsConst(dirtyForms)) {
+                fw->show();
+                fw->raise();
+                if (!fw->close()) {
+                    m_state = StateUp;
+                    return false;
+                }
             }
-        } else {
-            int count = dirtyForms.size();
-            QMessageBox box(QMessageBox::Warning, tr("Save Forms?"),
-                    tr("There are %n forms with unsaved changes."
-                        " Do you want to review these changes before quitting?", "", count),
-                    QMessageBox::Cancel | QMessageBox::Discard | QMessageBox::Save);
-            box.setInformativeText(tr("If you do not review your documents, all your changes will be lost."));
-            box.button(QMessageBox::Discard)->setText(tr("Discard Changes"));
-            QPushButton *save = static_cast<QPushButton *>(box.button(QMessageBox::Save));
-            save->setText(tr("Review Changes"));
-            box.setDefaultButton(save);
-            switch (box.exec()) {
-            case QMessageBox::Cancel:
-                m_state = StateUp;
-                return false;
-            case QMessageBox::Save:
-               for (QDesignerFormWindow *fw : qAsConst(dirtyForms)) {
-                   fw->show();
-                   fw->raise();
-                   if (!fw->close()) {
-                       m_state = StateUp;
-                       return false;
-                   }
-               }
-               break;
-            case QMessageBox::Discard:
-              for (QDesignerFormWindow *fw : qAsConst(dirtyForms)) {
-                  fw->editor()->setDirty(false);
-                  fw->setWindowModified(false);
-              }
-              break;
+            break;
+        case QMessageBox::Discard:
+            for (QDesignerFormWindow *fw : qAsConst(dirtyForms)) {
+                fw->editor()->setDirty(false);
+                fw->setWindowModified(false);
             }
+            break;
         }
     }
 
@@ -757,7 +757,7 @@ void QDesignerWorkbench::updateWindowMenu(QDesignerFormWindowInterface *fwi)
     QDesignerFormWindow *activeFormWindow = 0;
     do {
         if (!fwi)
-        break;
+            break;
         activeFormWindow = qobject_cast<QDesignerFormWindow *>(fwi->parentWidget());
         if (!activeFormWindow)
             break;

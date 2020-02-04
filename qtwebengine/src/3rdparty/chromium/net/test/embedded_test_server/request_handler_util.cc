@@ -13,10 +13,11 @@
 #include "base/base64.h"
 #include "base/files/file_util.h"
 #include "base/format_macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
+#include "build/build_config.h"
 #include "net/base/escape.h"
 #include "net/base/url_util.h"
 #include "net/http/http_byte_range.h"
@@ -26,17 +27,13 @@
 
 namespace net {
 namespace test_server {
-namespace {
-
-const UnescapeRule::Type kUnescapeAll =
-    UnescapeRule::SPACES | UnescapeRule::PATH_SEPARATORS |
-    UnescapeRule::URL_SPECIAL_CHARS_EXCEPT_PATH_SEPARATORS |
-    UnescapeRule::SPOOFING_AND_CONTROL_CHARS |
-    UnescapeRule::REPLACE_PLUS_WITH_SPACE;
+const char kMockHttpHeadersExtension[] = "mock-http-headers";
 
 std::string GetContentType(const base::FilePath& path) {
   if (path.MatchesExtension(FILE_PATH_LITERAL(".crx")))
     return "application/x-chrome-extension";
+  if (path.MatchesExtension(FILE_PATH_LITERAL(".css")))
+    return "text/css";
   if (path.MatchesExtension(FILE_PATH_LITERAL(".exe")))
     return "application/octet-stream";
   if (path.MatchesExtension(FILE_PATH_LITERAL(".gif")))
@@ -61,14 +58,16 @@ std::string GetContentType(const base::FilePath& path) {
     return "audio/wav";
   if (path.MatchesExtension(FILE_PATH_LITERAL(".xml")))
     return "text/xml";
+  if (path.MatchesExtension(FILE_PATH_LITERAL(".mhtml")))
+    return "multipart/related";
+  if (path.MatchesExtension(FILE_PATH_LITERAL(".mht")))
+    return "message/rfc822";
   if (path.MatchesExtension(FILE_PATH_LITERAL(".html")) ||
       path.MatchesExtension(FILE_PATH_LITERAL(".htm"))) {
     return "text/html";
   }
   return "";
 }
-
-}  // namespace
 
 bool ShouldHandle(const HttpRequest& request, const std::string& path_prefix) {
   GURL url = request.GetURL();
@@ -89,15 +88,17 @@ std::unique_ptr<HttpResponse> HandlePrefixedRequest(
 RequestQuery ParseQuery(const GURL& url) {
   RequestQuery queries;
   for (QueryIterator it(url); !it.IsAtEnd(); it.Advance()) {
-    queries[net::UnescapeURLComponent(it.GetKey(), kUnescapeAll)].push_back(
-        it.GetUnescapedValue());
+    std::string unescaped_query;
+    UnescapeBinaryURLComponent(
+        it.GetKey(), UnescapeRule::REPLACE_PLUS_WITH_SPACE, &unescaped_query);
+    queries[unescaped_query].push_back(it.GetUnescapedValue());
   }
   return queries;
 }
 
-void GetFilePathWithReplacements(const std::string& original_file_path,
-                                 const base::StringPairs& text_to_replace,
-                                 std::string* replacement_path) {
+std::string GetFilePathWithReplacements(
+    const std::string& original_file_path,
+    const base::StringPairs& text_to_replace) {
   std::string new_file_path = original_file_path;
   for (const auto& replacement : text_to_replace) {
     const std::string& old_text = replacement.first;
@@ -116,7 +117,26 @@ void GetFilePathWithReplacements(const std::string& original_file_path,
     new_file_path += base64_new;
   }
 
-  *replacement_path = new_file_path;
+  return new_file_path;
+}
+
+// Returns false if there were errors, otherwise true.
+bool UpdateReplacedText(const RequestQuery& query, std::string* data) {
+  auto replace_text = query.find("replace_text");
+  if (replace_text == query.end())
+    return true;
+
+  for (const auto& replacement : replace_text->second) {
+    if (replacement.find(":") == std::string::npos)
+      return false;
+    std::string find;
+    std::string with;
+    base::Base64Decode(replacement.substr(0, replacement.find(":")), &find);
+    base::Base64Decode(replacement.substr(replacement.find(":") + 1), &with);
+    base::ReplaceSubstringsAfterOffset(data, 0, find, with);
+  }
+
+  return true;
 }
 
 // Handles |request| by serving a file from under |server_root|.
@@ -125,7 +145,7 @@ std::unique_ptr<HttpResponse> HandleFileRequest(
     const HttpRequest& request) {
   // This is a test-only server. Ignore I/O thread restrictions.
   // TODO(svaldez): Figure out why thread is I/O restricted in the first place.
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
 
   // A proxy request will have an absolute path. Simulate the proxy by stripping
   // the scheme, host, and port.
@@ -179,28 +199,28 @@ std::unique_ptr<HttpResponse> HandleFileRequest(
   if (request.method == METHOD_HEAD)
     file_contents = "";
 
-  if (query.find("replace_text") != query.end()) {
-    for (const auto& replacement : query["replace_text"]) {
-      if (replacement.find(":") == std::string::npos)
-        return std::move(failed_response);
-      std::string find;
-      std::string with;
-      base::Base64Decode(replacement.substr(0, replacement.find(":")), &find);
-      base::Base64Decode(replacement.substr(replacement.find(":") + 1), &with);
-      base::ReplaceSubstringsAfterOffset(&file_contents, 0, find, with);
-    }
-  }
+  if (!UpdateReplacedText(query, &file_contents))
+    return std::move(failed_response);
 
-  base::FilePath headers_path(
-      file_path.AddExtension(FILE_PATH_LITERAL("mock-http-headers")));
+  base::FilePath::StringPieceType mock_headers_extension;
+#if defined(OS_WIN)
+  base::string16 temp = base::ASCIIToUTF16(kMockHttpHeadersExtension);
+  mock_headers_extension = temp;
+#else
+  mock_headers_extension = kMockHttpHeadersExtension;
+#endif
+
+  base::FilePath headers_path(file_path.AddExtension(mock_headers_extension));
 
   if (base::PathExists(headers_path)) {
     std::string headers_contents;
 
-    if (!base::ReadFileToString(headers_path, &headers_contents))
+    if (!base::ReadFileToString(headers_path, &headers_contents) ||
+        !UpdateReplacedText(query, &headers_contents)) {
       return nullptr;
+    }
 
-    return base::MakeUnique<RawHttpResponse>(headers_contents, file_contents);
+    return std::make_unique<RawHttpResponse>(headers_contents, file_contents);
   }
 
   std::unique_ptr<BasicHttpResponse> http_response(new BasicHttpResponse);

@@ -46,7 +46,7 @@
 #if USE(PTHREADS)
 #include <pthread.h>
 #elif PLATFORM(QT)
-#include <QThreadStorage>
+#include <QtCore/qthreadstorage.h>
 #elif OS(WINDOWS)
 #include <windows.h>
 #endif

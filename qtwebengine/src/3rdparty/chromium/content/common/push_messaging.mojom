@@ -5,7 +5,7 @@
 module content.mojom;
 
 import "content/public/common/push_messaging_status.mojom";
-import "url/mojo/url.mojom";
+import "url/mojom/url.mojom";
 
 // TODO(heke): The type-mapping struct and enums are duplicately defined. Need
 // to remove/replace those defined in content or blink namespace.
@@ -23,14 +23,6 @@ enum PushErrorType {
   NOT_FOUND = 4,
   NOT_SUPPORTED = 5,
   INVALID_STATE = 6,
-  LAST = INVALID_STATE
-};
-
-enum PushPermissionStatus {
-  GRANTED = 0,
-  DENIED = 1,
-  PROMPT = 2,
-  LAST = PROMPT
 };
 
 interface PushMessaging {
@@ -58,12 +50,4 @@ interface PushMessaging {
                      PushSubscriptionOptions? options,
                      array<uint8>? p256dh,
                      array<uint8>? auth);
-
-  // We use the value of |error_type| as a flag. If |error_type| == NONE, it
-  // means no error and returns |status|. Else, it means there is an error and
-  // returns |error_type|.
-  GetPermissionStatus(int64 service_worker_registration_id,
-                      bool user_visible)
-                     => (PushErrorType error_type,
-                         PushPermissionStatus status);
 };

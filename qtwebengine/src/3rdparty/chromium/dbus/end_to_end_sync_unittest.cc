@@ -19,15 +19,14 @@ namespace dbus {
 // operations (i.e. ExportedObject side).
 class EndToEndSyncTest : public testing::Test {
  public:
-  EndToEndSyncTest() {
-  }
+  EndToEndSyncTest() = default;
 
   void SetUp() override {
     // Start the test service;
     TestService::Options options;
     test_service_.reset(new TestService(options));
     ASSERT_TRUE(test_service_->StartService());
-    ASSERT_TRUE(test_service_->WaitUntilServiceIsStarted());
+    test_service_->WaitUntilServiceIsStarted();
     ASSERT_FALSE(test_service_->HasDBusThread());
 
     // Create the client.
@@ -108,29 +107,13 @@ TEST_F(EndToEndSyncTest, BrokenMethod) {
   ASSERT_FALSE(response.get());
 }
 
-TEST_F(EndToEndSyncTest, InvalidObjectPath) {
-  // Trailing '/' is only allowed for the root path.
-  const ObjectPath invalid_object_path("/org/chromium/TestObject/");
-
-  // Replace object proxy with new one.
-  object_proxy_ = client_bus_->GetObjectProxy(test_service_->service_name(),
-                                              invalid_object_path);
-
-  MethodCall method_call("org.chromium.TestInterface", "Echo");
-
-  const int timeout_ms = ObjectProxy::TIMEOUT_USE_DEFAULT;
-  std::unique_ptr<Response> response(
-      object_proxy_->CallMethodAndBlock(&method_call, timeout_ms));
-  ASSERT_FALSE(response.get());
-}
-
 TEST_F(EndToEndSyncTest, InvalidServiceName) {
   // Bus name cannot contain '/'.
   const std::string invalid_service_name = ":1/2";
 
   // Replace object proxy with new one.
   object_proxy_ = client_bus_->GetObjectProxy(
-      invalid_service_name, ObjectPath("org.chromium.TestObject"));
+      invalid_service_name, ObjectPath("/org/chromium/TestObject"));
 
   MethodCall method_call("org.chromium.TestInterface", "Echo");
 

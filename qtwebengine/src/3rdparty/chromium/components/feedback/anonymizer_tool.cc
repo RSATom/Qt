@@ -4,12 +4,15 @@
 
 #include "components/feedback/anonymizer_tool.h"
 
+#include <memory>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "content/public/browser/browser_thread.h"
+#include "net/base/ip_address.h"
 #include "third_party/re2/src/re2/re2.h"
 
 using re2::RE2;
@@ -37,17 +40,67 @@ namespace {
 //
 // +? is a non-greedy (lazy) +.
 // \b matches a word boundary.
-// (?i) turns on case insensitivy for the remainder of the regex.
+// (?i) turns on case insensitivity for the remainder of the regex.
 // (?-s) turns off "dot matches newline" for the remainder of the regex.
 // (?:regex) denotes non-capturing parentheses group.
-const char* kCustomPatternsWithContext[] = {
-    "(\\bCell ID: ')([0-9a-fA-F]+)(')",                      // ModemManager
-    "(\\bLocation area code: ')([0-9a-fA-F]+)(')",           // ModemManager
-    "(?i-s)(\\bssid[= ]')(.+)(')",                           // wpa_supplicant
-    "(?-s)(\\bSSID - hexdump\\(len=[0-9]+\\): )(.+)()",      // wpa_supplicant
-    "(?-s)(\\[SSID=)(.+?)(\\])",                             // shill
-    "(?i-s)(serial\\s*number\\s*:\\s*)([0-9a-zA-Z\\-]+)()",  // Serial numbers
+constexpr const char* kCustomPatternsWithContext[] = {
+    // ModemManager
+    "(\\bCell ID: ')([0-9a-fA-F]+)(')",
+    "(\\bLocation area code: ')([0-9a-fA-F]+)(')",
+
+    // wpa_supplicant
+    "(?i-s)(\\bssid[= ]')(.+)(')",
+    "(?-s)(\\bSSID - hexdump\\(len=[0-9]+\\): )(.+)()",
+
+    // shill
+    "(?-s)(\\[SSID=)(.+?)(\\])",
+
+    // Serial numbers
+    "(?i-s)(serial\\s*(?:number)?\\s*[:=]\\s*)([0-9a-zA-Z\\-\"]+)()",
 };
+
+// Returns the number of leading bytes that may be kept unsanitized.
+std::string MaybeScrubIPv4Address(const std::string& addr) {
+  struct {
+    net::IPAddress ip_addr;
+    int prefix_length;
+    bool scrub;
+  } static const kWhitelistedIPv4Ranges[] = {
+      // Private.
+      {net::IPAddress(10, 0, 0, 0), 8, true},
+      {net::IPAddress(172, 16, 0, 0), 12, true},
+      {net::IPAddress(192, 168, 0, 0), 16, true},
+      // Chrome OS containers and VMs.
+      {net::IPAddress(100, 115, 92, 0), 24, false},
+      // Loopback.
+      {net::IPAddress(127, 0, 0, 0), 8, true},
+      // Any.
+      {net::IPAddress(0, 0, 0, 0), 8, true},
+      // DNS.
+      {net::IPAddress(8, 8, 8, 8), 32, false},
+      {net::IPAddress(8, 8, 4, 4), 32, false},
+      {net::IPAddress(1, 1, 1, 1), 32, false},
+      // Multicast.
+      {net::IPAddress(224, 0, 0, 0), 4, true},
+      // Link local.
+      {net::IPAddress(169, 254, 0, 0), 16, true},
+      // Broadcast.
+      {net::IPAddress(255, 255, 255, 255), 32, false},
+  };
+  net::IPAddress input_addr;
+  if (input_addr.AssignFromIPLiteral(addr) && input_addr.IsIPv4()) {
+    for (const auto& range : kWhitelistedIPv4Ranges) {
+      if (IPAddressMatchesPrefix(input_addr, range.ip_addr,
+                                 range.prefix_length)) {
+        return range.scrub ? base::StringPrintf(
+                                 "%s/%d", range.ip_addr.ToString().c_str(),
+                                 range.prefix_length)
+                           : addr;
+      }
+    }
+  }
+  return "";
+}
 
 // Helper macro: Non capturing group
 #define NCG(x) "(?:" x ")"
@@ -69,7 +122,7 @@ const char* kCustomPatternsWithContext[] = {
 
 #define PCT_ENCODED "%" HEXDIG HEXDIG
 
-#define DEC_OCTET NCG("[0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-9]")
+#define DEC_OCTET NCG("1[0-9][0-9]|2[0-4][0-9]|25[0-5]|[1-9][0-9]|[0-9]")
 
 #define IPV4ADDRESS DEC_OCTET "\\." DEC_OCTET "\\." DEC_OCTET "\\." DEC_OCTET
 
@@ -221,19 +274,27 @@ bool FindAndConsumeAndGetSkipped(re2::StringPiece* input,
                                  Arg*... match_groups) {
   re2::StringPiece* args[] = {match_groups...};
   return FindAndConsumeAndGetSkippedN(input, pattern, skipped_input, args,
-                                      arraysize(args));
+                                      base::size(args));
 }
 
 }  // namespace
 
 AnonymizerTool::AnonymizerTool()
-    : custom_patterns_with_context_(arraysize(kCustomPatternsWithContext)),
+    : custom_patterns_with_context_(base::size(kCustomPatternsWithContext)),
       custom_patterns_without_context_(
-          arraysize(kCustomPatternsWithoutContext)) {}
+          base::size(kCustomPatternsWithoutContext)) {
+  DETACH_FROM_SEQUENCE(sequence_checker_);
+}
 
-AnonymizerTool::~AnonymizerTool() {}
+AnonymizerTool::~AnonymizerTool() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+}
 
 std::string AnonymizerTool::Anonymize(const std::string& input) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(!::content::BrowserThread::CurrentlyOn(::content::BrowserThread::UI))
+      << "This is an expensive operation. Do not execute this on the UI "
+         "thread.";
   std::string anonymized = AnonymizeMACAddresses(input);
   anonymized = AnonymizeCustomPatterns(std::move(anonymized));
   return anonymized;
@@ -244,7 +305,7 @@ RE2* AnonymizerTool::GetRegExp(const std::string& pattern) {
     RE2::Options options;
     // set_multiline of pcre is not supported by RE2, yet.
     options.set_dot_nl(true);  // Dot matches a new line.
-    std::unique_ptr<RE2> re = base::MakeUnique<RE2>(pattern, options);
+    std::unique_ptr<RE2> re = std::make_unique<RE2>(pattern, options);
     DCHECK_EQ(re2::RE2::NoError, re->error_code())
         << "Failed to parse:\n" << pattern << "\n" << re->error();
     regexp_cache_[pattern] = std::move(re);
@@ -297,12 +358,12 @@ std::string AnonymizerTool::AnonymizeMACAddresses(const std::string& input) {
 }
 
 std::string AnonymizerTool::AnonymizeCustomPatterns(std::string input) {
-  for (size_t i = 0; i < arraysize(kCustomPatternsWithContext); i++) {
+  for (size_t i = 0; i < base::size(kCustomPatternsWithContext); i++) {
     input =
         AnonymizeCustomPatternWithContext(input, kCustomPatternsWithContext[i],
                                           &custom_patterns_with_context_[i]);
   }
-  for (size_t i = 0; i < arraysize(kCustomPatternsWithoutContext); i++) {
+  for (size_t i = 0; i < base::size(kCustomPatternsWithoutContext); i++) {
     input = AnonymizeCustomPatternWithoutContext(
         input, kCustomPatternsWithoutContext[i],
         &custom_patterns_without_context_[i]);
@@ -360,12 +421,16 @@ std::string AnonymizerTool::AnonymizeCustomPatternWithoutContext(
     std::string matched_id_as_string = matched_id.as_string();
     std::string replacement_id = (*identifier_space)[matched_id_as_string];
     if (replacement_id.empty()) {
-      // The weird Uint64toString trick is because Windows does not like to deal
-      // with %zu and a size_t in printf, nor does it support %llu.
-      replacement_id = base::StringPrintf(
-          "<%s: %s>", pattern.alias,
-          base::Uint64ToString(identifier_space->size()).c_str());
-      (*identifier_space)[matched_id_as_string] = replacement_id;
+      replacement_id = MaybeScrubIPv4Address(matched_id_as_string);
+      if (replacement_id != matched_id_as_string) {
+        // The weird Uint64toString trick is because Windows does not like
+        // to deal with %zu and a size_t in printf, nor does it support %llu.
+        replacement_id = base::StringPrintf(
+            "<%s: %s>",
+            replacement_id.empty() ? pattern.alias : replacement_id.c_str(),
+            base::NumberToString(identifier_space->size()).c_str());
+        (*identifier_space)[matched_id_as_string] = replacement_id;
+      }
     }
 
     skipped.AppendToString(&result);
@@ -373,6 +438,19 @@ std::string AnonymizerTool::AnonymizeCustomPatternWithoutContext(
   }
   text.AppendToString(&result);
   return result;
+}
+
+AnonymizerToolContainer::AnonymizerToolContainer(
+    scoped_refptr<base::SequencedTaskRunner> task_runner)
+    : anonymizer_(new AnonymizerTool), task_runner_(task_runner) {}
+
+AnonymizerToolContainer::~AnonymizerToolContainer() {
+  task_runner_->DeleteSoon(FROM_HERE, std::move(anonymizer_));
+}
+
+AnonymizerTool* AnonymizerToolContainer::Get() {
+  DCHECK(task_runner_->RunsTasksInCurrentSequence());
+  return anonymizer_.get();
 }
 
 }  // namespace feedback

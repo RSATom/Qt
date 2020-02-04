@@ -18,24 +18,17 @@
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
-#include "core/fxge/fx_font.h"
+#include "core/fxcrt/unowned_ptr.h"
 
 class CPVT_Word;
 class CSection;
 class IPVT_FontMap;
-struct CPVT_SecProps;
-struct CPVT_Section;
-struct CPVT_SectionInfo;
-
 struct CPVT_WordInfo;
-struct CPVT_WordProps;
 
 #define VARIABLETEXT_HALF 0.5f
 
 class CPDF_VariableText {
  public:
-  enum class ScriptType { Normal, Super, Sub };
-
   class Iterator {
    public:
     explicit Iterator(CPDF_VariableText* pVT);
@@ -44,21 +37,15 @@ class CPDF_VariableText {
     bool NextWord();
     bool PrevWord();
     bool NextLine();
-    bool PrevLine();
-    bool NextSection();
-    bool PrevSection();
-    bool SetWord(const CPVT_Word& word);
     bool GetWord(CPVT_Word& word) const;
     bool GetLine(CPVT_Line& line) const;
-    bool GetSection(CPVT_Section& section) const;
-    bool SetSection(const CPVT_Section& section);
     void SetAt(int32_t nWordIndex);
     void SetAt(const CPVT_WordPlace& place);
-    const CPVT_WordPlace& GetAt() const { return m_CurPos; }
+    const CPVT_WordPlace& GetWordPlace() const { return m_CurPos; }
 
    private:
     CPVT_WordPlace m_CurPos;
-    CFX_UnownedPtr<CPDF_VariableText> const m_pVT;
+    UnownedPtr<CPDF_VariableText> const m_pVT;
   };
 
   class Provider {
@@ -66,7 +53,7 @@ class CPDF_VariableText {
     explicit Provider(IPVT_FontMap* pFontMap);
     virtual ~Provider();
 
-    virtual int32_t GetCharWidth(int32_t nFontIndex, uint16_t word);
+    virtual uint32_t GetCharWidth(int32_t nFontIndex, uint16_t word);
     virtual int32_t GetTypeAscent(int32_t nFontIndex);
     virtual int32_t GetTypeDescent(int32_t nFontIndex);
     virtual int32_t GetWordFontIndex(uint16_t word,
@@ -76,7 +63,7 @@ class CPDF_VariableText {
     virtual int32_t GetDefaultFontIndex();
 
    private:
-    IPVT_FontMap* const m_pFontMap;
+    UnownedPtr<IPVT_FontMap> const m_pFontMap;
   };
 
   CPDF_VariableText();
@@ -105,16 +92,11 @@ class CPDF_VariableText {
 
   void RearrangeAll();
   void RearrangePart(const CPVT_WordRange& PlaceRange);
-  void ResetAll();
-  void SetText(const CFX_WideString& text);
+  void SetText(const WideString& text);
   CPVT_WordPlace InsertWord(const CPVT_WordPlace& place,
                             uint16_t word,
-                            int32_t charset,
-                            const CPVT_WordProps* pWordProps);
-  CPVT_WordPlace InsertSection(const CPVT_WordPlace& place,
-                               const CPVT_SecProps* pSecProps,
-                               const CPVT_WordProps* pWordProps);
-  CPVT_WordPlace InsertText(const CPVT_WordPlace& place, const wchar_t* text);
+                            int32_t charset);
+  CPVT_WordPlace InsertSection(const CPVT_WordPlace& place);
   CPVT_WordPlace DeleteWords(const CPVT_WordRange& PlaceRange);
   CPVT_WordPlace DeleteWord(const CPVT_WordPlace& place);
   CPVT_WordPlace BackSpaceWord(const CPVT_WordPlace& place);
@@ -126,8 +108,9 @@ class CPDF_VariableText {
   int32_t GetCharArray() const { return m_nCharArray; }
   int32_t GetLimitChar() const { return m_nLimitChar; }
   bool IsMultiLine() const { return m_bMultiLine; }
-  int32_t GetHorzScale() const { return m_nHorzScale; }
   float GetCharSpace() const { return m_fCharSpace; }
+  bool IsAutoReturn() const { return m_bLimitWidth; }
+
   CPVT_WordPlace GetBeginWordPlace() const;
   CPVT_WordPlace GetEndWordPlace() const;
   CPVT_WordPlace GetPrevWordPlace(const CPVT_WordPlace& place) const;
@@ -151,7 +134,6 @@ class CPDF_VariableText {
 
   float GetPlateWidth() const { return m_rcPlate.right - m_rcPlate.left; }
   float GetPlateHeight() const { return m_rcPlate.top - m_rcPlate.bottom; }
-  CFX_SizeF GetPlateSize() const;
   CFX_PointF GetBTPoint() const;
   CFX_PointF GetETPoint() const;
 
@@ -160,50 +142,40 @@ class CPDF_VariableText {
   CFX_FloatRect InToOut(const CPVT_FloatRect& rect) const;
   CPVT_FloatRect OutToIn(const CFX_FloatRect& rect) const;
 
- private:
-  friend class CTypeset;
-  friend class CSection;
-
-  int32_t GetCharWidth(int32_t nFontIndex, uint16_t Word, uint16_t SubWord);
-  int32_t GetTypeAscent(int32_t nFontIndex);
-  int32_t GetTypeDescent(int32_t nFontIndex);
-  int32_t GetWordFontIndex(uint16_t word, int32_t charset, int32_t nFontIndex);
+  float GetFontAscent(int32_t nFontIndex, float fFontSize);
+  float GetFontDescent(int32_t nFontIndex, float fFontSize);
   int32_t GetDefaultFontIndex();
-  bool IsLatinWord(uint16_t word);
-
-  CPVT_WordPlace AddSection(const CPVT_WordPlace& place,
-                            const CPVT_SectionInfo& secinfo);
-  CPVT_WordPlace AddLine(const CPVT_WordPlace& place,
-                         const CPVT_LineInfo& lineinfo);
-  CPVT_WordPlace AddWord(const CPVT_WordPlace& place,
-                         const CPVT_WordInfo& wordinfo);
-  bool GetWordInfo(const CPVT_WordPlace& place, CPVT_WordInfo& wordinfo);
-  bool SetWordInfo(const CPVT_WordPlace& place, const CPVT_WordInfo& wordinfo);
-  bool GetLineInfo(const CPVT_WordPlace& place, CPVT_LineInfo& lineinfo);
-  bool GetSectionInfo(const CPVT_WordPlace& place, CPVT_SectionInfo& secinfo);
-  float GetWordFontSize(const CPVT_WordInfo& WordInfo);
+  float GetLineLeading();
+  int32_t GetAlignment();
+  float GetWordWidth(const CPVT_WordInfo& WordInfo);
   float GetWordWidth(int32_t nFontIndex,
                      uint16_t Word,
                      uint16_t SubWord,
                      float fCharSpace,
-                     int32_t nHorzScale,
                      float fFontSize,
                      float fWordTail);
-  float GetWordWidth(const CPVT_WordInfo& WordInfo);
-  float GetWordAscent(const CPVT_WordInfo& WordInfo, float fFontSize);
-  float GetWordDescent(const CPVT_WordInfo& WordInfo, float fFontSize);
   float GetWordAscent(const CPVT_WordInfo& WordInfo);
   float GetWordDescent(const CPVT_WordInfo& WordInfo);
-  float GetLineAscent(const CPVT_SectionInfo& SecInfo);
-  float GetLineDescent(const CPVT_SectionInfo& SecInfo);
-  float GetFontAscent(int32_t nFontIndex, float fFontSize);
-  float GetFontDescent(int32_t nFontIndex, float fFontSize);
+  float GetWordAscent(const CPVT_WordInfo& WordInfo, float fFontSize);
+  float GetWordDescent(const CPVT_WordInfo& WordInfo, float fFontSize);
+  float GetLineAscent();
+  float GetLineDescent();
+  float GetLineIndent();
+
+ private:
+  uint32_t GetCharWidth(int32_t nFontIndex, uint16_t Word, uint16_t SubWord);
+  int32_t GetTypeAscent(int32_t nFontIndex);
+  int32_t GetTypeDescent(int32_t nFontIndex);
+  int32_t GetWordFontIndex(uint16_t word, int32_t charset, int32_t nFontIndex);
+  bool IsLatinWord(uint16_t word);
+
+  CPVT_WordPlace AddSection(const CPVT_WordPlace& place);
+  CPVT_WordPlace AddLine(const CPVT_WordPlace& place,
+                         const CPVT_LineInfo& lineinfo);
+  CPVT_WordPlace AddWord(const CPVT_WordPlace& place,
+                         const CPVT_WordInfo& wordinfo);
+  float GetWordFontSize();
   int32_t GetWordFontIndex(const CPVT_WordInfo& WordInfo);
-  float GetCharSpace(const CPVT_WordInfo& WordInfo);
-  int32_t GetHorzScale(const CPVT_WordInfo& WordInfo);
-  float GetLineLeading(const CPVT_SectionInfo& SecInfo);
-  float GetLineIndent(const CPVT_SectionInfo& SecInfo);
-  int32_t GetAlignment(const CPVT_SectionInfo& SecInfo);
 
   void ClearSectionRightWords(const CPVT_WordPlace& place);
 
@@ -219,20 +191,19 @@ class CPDF_VariableText {
   bool IsBigger(float fFontSize) const;
   CPVT_FloatRect RearrangeSections(const CPVT_WordRange& PlaceRange);
 
+  bool m_bInitialized = false;
+  bool m_bMultiLine = false;
+  bool m_bLimitWidth = false;
+  bool m_bAutoFontSize = false;
+  uint16_t m_wSubWord = 0;
+  int32_t m_nLimitChar = 0;
+  int32_t m_nCharArray = 0;
+  int32_t m_nAlignment = 0;
+  float m_fLineLeading = 0.0f;
+  float m_fCharSpace = 0.0f;
+  float m_fFontSize = 0.0f;
   std::vector<std::unique_ptr<CSection>> m_SectionArray;
-  int32_t m_nLimitChar;
-  int32_t m_nCharArray;
-  bool m_bMultiLine;
-  bool m_bLimitWidth;
-  bool m_bAutoFontSize;
-  int32_t m_nAlignment;
-  float m_fLineLeading;
-  float m_fCharSpace;
-  int32_t m_nHorzScale;
-  uint16_t m_wSubWord;
-  float m_fFontSize;
-  bool m_bInitialized;
-  CPDF_VariableText::Provider* m_pVTProvider;
+  UnownedPtr<CPDF_VariableText::Provider> m_pVTProvider;
   std::unique_ptr<CPDF_VariableText::Iterator> m_pVTIterator;
   CFX_FloatRect m_rcPlate;
   CPVT_FloatRect m_rcContent;

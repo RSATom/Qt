@@ -5,15 +5,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "base/macros.h"
+#include "base/stl_util.h"
 #include "base/values.h"
 #include "components/webcrypto/algorithm_dispatch.h"
 #include "components/webcrypto/algorithms/test_helpers.h"
 #include "components/webcrypto/crypto_data.h"
 #include "components/webcrypto/status.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/platform/WebCryptoAlgorithmParams.h"
-#include "third_party/WebKit/public/platform/WebCryptoKeyAlgorithm.h"
+#include "third_party/blink/public/platform/web_crypto_algorithm_params.h"
+#include "third_party/blink/public/platform/web_crypto_key_algorithm.h"
 
 namespace webcrypto {
 
@@ -99,7 +99,7 @@ class WebCryptoAesGcmTest : public WebCryptoTestBase {};
 TEST_F(WebCryptoAesGcmTest, GenerateKeyBadLength) {
   const unsigned short kKeyLen[] = {0, 127, 257};
   blink::WebCryptoKey key;
-  for (size_t i = 0; i < arraysize(kKeyLen); ++i) {
+  for (size_t i = 0; i < base::size(kKeyLen); ++i) {
     SCOPED_TRACE(i);
     EXPECT_EQ(Status::ErrorGenerateAesKeyLength(),
               GenerateSecretKey(CreateAesGcmKeyGenAlgorithm(kKeyLen[i]), true,
@@ -205,7 +205,7 @@ TEST_F(WebCryptoAesGcmTest, SampleSets) {
 
     // Try different incorrect tag lengths
     uint8_t kAlternateTagLengths[] = {0, 8, 96, 120, 128, 160, 255};
-    for (size_t tag_i = 0; tag_i < arraysize(kAlternateTagLengths); ++tag_i) {
+    for (size_t tag_i = 0; tag_i < base::size(kAlternateTagLengths); ++tag_i) {
       unsigned int wrong_tag_size_bits = kAlternateTagLengths[tag_i];
       if (test_tag_size_bits == wrong_tag_size_bits)
         continue;

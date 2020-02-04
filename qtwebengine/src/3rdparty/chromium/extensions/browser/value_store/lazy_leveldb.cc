@@ -8,7 +8,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "base/threading/sequenced_task_runner_handle.h"
-#include "base/threading/thread_restrictions.h"
 #include "content/public/browser/browser_thread.h"
 #include "third_party/leveldatabase/env_chromium.h"
 #include "third_party/leveldatabase/src/include/leveldb/iterator.h"
@@ -51,8 +50,6 @@ ValueStore::StatusCode LevelDbToValueStoreStatusCode(
 }
 
 leveldb::Status DeleteValue(leveldb::DB* db, const std::string& key) {
-  base::ThreadRestrictions::AssertIOAllowed();
-
   leveldb::WriteBatch batch;
   batch.Delete(key);
 
@@ -63,10 +60,9 @@ leveldb::Status DeleteValue(leveldb::DB* db, const std::string& key) {
 
 LazyLevelDb::LazyLevelDb(const std::string& uma_client_name,
                          const base::FilePath& path)
-    : db_path_(path) {
+    : db_path_(path), open_options_(leveldb_env::Options()) {
   open_options_.create_if_missing = true;
   open_options_.paranoid_checks = true;
-  open_options_.reuse_logs = leveldb_env::kDefaultLogReuseOptionValue;
 
   read_options_.verify_checksums = true;
 
@@ -86,13 +82,10 @@ LazyLevelDb::LazyLevelDb(const std::string& uma_client_name,
       base::Histogram::kUmaTargetedHistogramFlag);
 }
 
-LazyLevelDb::~LazyLevelDb() {
-  base::ThreadRestrictions::AssertIOAllowed();
-}
+LazyLevelDb::~LazyLevelDb() = default;
 
 ValueStore::Status LazyLevelDb::Read(const std::string& key,
                                      std::unique_ptr<base::Value>* value) {
-  base::ThreadRestrictions::AssertIOAllowed();
   DCHECK(value);
 
   std::string value_as_json;
@@ -118,8 +111,6 @@ ValueStore::Status LazyLevelDb::Read(const std::string& key,
 }
 
 ValueStore::Status LazyLevelDb::Delete(const std::string& key) {
-  base::ThreadRestrictions::AssertIOAllowed();
-
   ValueStore::Status status = EnsureDbIsOpen();
   if (!status.ok())
     return status;
@@ -154,7 +145,6 @@ ValueStore::BackingStoreRestoreStatus LazyLevelDb::LogRestoreStatus(
 
 ValueStore::BackingStoreRestoreStatus LazyLevelDb::FixCorruption(
     const std::string* key) {
-  base::ThreadRestrictions::AssertIOAllowed();
   leveldb::Status s;
   if (key && db_) {
     s = DeleteValue(db_.get(), *key);
@@ -174,7 +164,8 @@ ValueStore::BackingStoreRestoreStatus LazyLevelDb::FixCorruption(
   ValueStore::BackingStoreRestoreStatus restore_status =
       ValueStore::RESTORE_NONE;
 
-  leveldb::Options repair_options;
+  leveldb_env::Options repair_options;
+  repair_options.reuse_logs = false;
   repair_options.create_if_missing = true;
   repair_options.paranoid_checks = true;
 
@@ -219,8 +210,6 @@ ValueStore::BackingStoreRestoreStatus LazyLevelDb::FixCorruption(
 }
 
 ValueStore::Status LazyLevelDb::EnsureDbIsOpen() {
-  base::ThreadRestrictions::AssertIOAllowed();
-
   if (db_)
     return ValueStore::Status();
 
@@ -262,11 +251,10 @@ ValueStore::Status LazyLevelDb::ToValueStoreError(
 }
 
 bool LazyLevelDb::DeleteDbFile() {
-  base::ThreadRestrictions::AssertIOAllowed();
   db_.reset();  // Close the database.
 
   leveldb::Status s =
-      leveldb::DestroyDB(db_path_.AsUTF8Unsafe(), leveldb::Options());
+      leveldb::DestroyDB(db_path_.AsUTF8Unsafe(), leveldb_env::Options());
   if (!s.ok()) {
     LOG(WARNING) << "Failed to destroy leveldb database at "
                  << db_path_.value();

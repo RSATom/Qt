@@ -90,13 +90,6 @@ ObjCStrongReference<IOBluetoothDevice> device_with_address(const QBluetoothAddre
 QT_END_NAMESPACE
 
 @interface QT_MANGLE_NAMESPACE(OSXBTPairing) : NSObject<IOBluetoothDevicePairDelegate>
-{
-    QT_PREPEND_NAMESPACE(QBluetoothAddress) m_targetAddress;
-
-    bool m_active;
-    IOBluetoothDevicePair *m_pairing; // The real pairing request
-    QT_PREPEND_NAMESPACE(OSXBluetooth)::PairingDelegate *m_object;
-}
 
 - (id)initWithTarget:(const QBluetoothAddress &)address
       delegate:(QT_PREPEND_NAMESPACE(OSXBluetooth::PairingDelegate) *)object;

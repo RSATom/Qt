@@ -14,24 +14,27 @@ namespace offline_pages {
 MarkAttemptCompletedTask::MarkAttemptCompletedTask(
     RequestQueueStore* store,
     int64_t request_id,
-    const RequestQueueStore::UpdateCallback& callback)
-    : UpdateRequestTask(store, request_id, callback) {}
+    FailState fail_state,
+    RequestQueueStore::UpdateCallback callback)
+    : UpdateRequestTask(store, request_id, std::move(callback)),
+      fail_state_(fail_state) {}
 
 MarkAttemptCompletedTask::~MarkAttemptCompletedTask() {}
 
 void MarkAttemptCompletedTask::UpdateRequestImpl(
-    std::unique_ptr<UpdateRequestsResult> read_result) {
-  if (!ValidateReadResult(read_result.get())) {
+    UpdateRequestsResult read_result) {
+  if (!ValidateReadResult(read_result)) {
     CompleteWithResult(std::move(read_result));
     return;
   }
 
-  // It is perfectly fine to reuse the read_result->updated_items collection, as
+  // It is perfectly fine to reuse the read_result.updated_items collection, as
   // it is owned by this callback and will be destroyed when out of scope.
-  read_result->updated_items[0].MarkAttemptCompleted();
+  read_result.updated_items[0].MarkAttemptCompleted(fail_state_);
   store()->UpdateRequests(
-      read_result->updated_items,
-      base::Bind(&MarkAttemptCompletedTask::CompleteWithResult, GetWeakPtr()));
+      read_result.updated_items,
+      base::BindOnce(&MarkAttemptCompletedTask::CompleteWithResult,
+                     GetWeakPtr()));
 }
 
 }  // namespace offline_pages

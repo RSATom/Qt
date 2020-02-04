@@ -4,6 +4,7 @@
 
 import("//build/config/chrome_build.gni")
 import("//build/config/chromecast_build.gni")
+import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
 
 group("config") {
@@ -16,16 +17,6 @@ group("config") {
       ":config_sources",
     ]
   }
-}
-
-# This needs to be a small target, because it links into both chrome.exe and
-# chrome.dll targets. If this target grows, that will lead to a size regression.
-# See https://crbug.com/703622
-source_set("crash_keys") {
-  sources = [
-    "gpu_crash_keys.cc",
-    "gpu_crash_keys.h",
-  ]
 }
 
 process_json_outputs = [
@@ -70,9 +61,35 @@ action("process_json") {
   } else {
     args += [ "linux" ]
   }
+
+  public_deps = [
+    ":workaround_list",
+  ]
 }
 
-source_set("config_sources") {
+action("workaround_list") {
+  script = "build_workaround_header.py"
+
+  skia_workaround_list = "//third_party/skia/src/gpu/gpu_workaround_list.txt"
+  inputs = [
+    "gpu_workaround_list.txt",
+    skia_workaround_list,
+  ]
+
+  outputs = [
+    "$target_gen_dir/gpu_driver_bug_workaround_autogen.h",
+  ]
+
+  args = [
+    "--output-file",
+    rebase_path(outputs[0], root_build_dir),
+  ]
+  foreach(file, inputs) {
+    args += [ rebase_path(file, root_build_dir) ]
+  }
+}
+
+jumbo_source_set("config_sources") {
   # External code should depend on this via //gpu/config above rather than
   # depending on this directly or the component build will break.
   visibility = [ "//gpu/*" ]
@@ -84,6 +101,9 @@ source_set("config_sources") {
     "gpu_blacklist.h",
     "gpu_control_list.cc",
     "gpu_control_list.h",
+    "gpu_crash_keys.cc",
+    "gpu_crash_keys.h",
+    "gpu_domain_guilt.h",
     "gpu_driver_bug_list.cc",
     "gpu_driver_bug_list.h",
     "gpu_driver_bug_workaround_type.h",
@@ -103,8 +123,13 @@ source_set("config_sources") {
     "gpu_info_collector_linux.cc",
     "gpu_info_collector_mac.mm",
     "gpu_info_collector_win.cc",
+    "gpu_mode.h",
+    "gpu_preferences.cc",
+    "gpu_preferences.h",
     "gpu_switches.cc",
     "gpu_switches.h",
+    "gpu_switching.cc",
+    "gpu_switching.h",
     "gpu_test_config.cc",
     "gpu_test_config.h",
     "gpu_test_expectations_parser.cc",
@@ -113,30 +138,42 @@ source_set("config_sources") {
     "gpu_util.h",
   ]
 
+  if (is_fuchsia) {
+    sources += [ "gpu_info_collector_fuchsia.cc" ]
+  }
+
   sources += process_json_outputs
 
-  configs += [
-    # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-    "//build/config/compiler:no_size_t_to_int_warning",
-    "//gpu:gpu_implementation",
+  configs += [ "//gpu:gpu_implementation" ]
+
+  public_deps = [
+    "//components/crash/core/common:crash_key",
   ]
 
   deps = [
-    ":crash_keys",
     ":process_json",
     "//base",
+    "//gpu/ipc/common:gpu_preferences_interface",
+    "//media:media_buildflags",
     "//third_party/re2",
     "//ui/gl",
+    "//ui/gl:buildflags",
     "//ui/gl/init",
   ]
 
   # Prefer mesa GL headers to system headers, which cause problems on Win.
-  include_dirs = [ "//third_party/mesa/src/include" ]
+  include_dirs = [ "//third_party/mesa_headers" ]
 
   if (is_win) {
     libs = [
       "dxguid.lib",
       "setupapi.lib",
+    ]
+
+    sources += [
+      "//third_party/nvml/nvml.h",
+      "nvml_info.cc",
+      "nvml_info.h",
     ]
 
     if (is_chrome_branded && is_official_build) {
@@ -145,6 +182,9 @@ source_set("config_sources") {
         "//third_party/amd/amd_videocard_info_win.cc",
       ]
     }
+  }
+  if (is_mac) {
+    libs = [ "OpenGL.framework" ]
   }
   if (is_linux || is_mac) {
     deps += [ "//third_party/angle:angle_gpu_info_util" ]

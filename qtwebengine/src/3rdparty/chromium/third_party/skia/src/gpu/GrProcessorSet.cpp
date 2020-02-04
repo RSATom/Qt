@@ -13,8 +13,12 @@
 #include "effects/GrPorterDuffXferProcessor.h"
 
 const GrProcessorSet& GrProcessorSet::EmptySet() {
-    static const GrProcessorSet gEmpty(GrProcessorSet::Empty::kEmpty);
+    static GrProcessorSet gEmpty(GrProcessorSet::Empty::kEmpty);
     return gEmpty;
+}
+
+GrProcessorSet GrProcessorSet::MakeEmptySet() {
+    return GrProcessorSet(GrProcessorSet::Empty::kEmpty);
 }
 
 GrProcessorSet::GrProcessorSet(GrPaint&& paint) : fXP(paint.getXPFactory()) {
@@ -25,16 +29,17 @@ GrProcessorSet::GrProcessorSet(GrPaint&& paint) : fXP(paint.getXPFactory()) {
         int i = 0;
         for (auto& fp : paint.fColorFragmentProcessors) {
             SkASSERT(fp.get());
-            fFragmentProcessors[i++] = fp.release();
+            fFragmentProcessors[i++] = std::move(fp);
         }
         for (auto& fp : paint.fCoverageFragmentProcessors) {
             SkASSERT(fp.get());
-            fFragmentProcessors[i++] = fp.release();
+            fFragmentProcessors[i++] = std::move(fp);
         }
     } else {
         SkDebugf("Insane number of color fragment processors in paint. Dropping all processors.");
         fColorFragmentProcessorCnt = 0;
     }
+    SkDEBUGCODE(paint.fAlive = false;)
 }
 
 GrProcessorSet::GrProcessorSet(SkBlendMode mode)
@@ -43,29 +48,37 @@ GrProcessorSet::GrProcessorSet(SkBlendMode mode)
         , fFragmentProcessorOffset(0)
         , fFlags(0) {}
 
-GrProcessorSet::GrProcessorSet(sk_sp<GrFragmentProcessor> colorFP)
+GrProcessorSet::GrProcessorSet(std::unique_ptr<GrFragmentProcessor> colorFP)
         : fFragmentProcessors(1)
         , fXP((const GrXPFactory*)nullptr)
         , fColorFragmentProcessorCnt(1)
         , fFragmentProcessorOffset(0)
         , fFlags(0) {
     SkASSERT(colorFP);
-    fFragmentProcessors[0] = colorFP.release();
+    fFragmentProcessors[0] = std::move(colorFP);
+}
+
+GrProcessorSet::GrProcessorSet(GrProcessorSet&& that)
+        : fXP(std::move(that.fXP))
+        , fColorFragmentProcessorCnt(that.fColorFragmentProcessorCnt)
+        , fFragmentProcessorOffset(0)
+        , fFlags(that.fFlags) {
+    fFragmentProcessors.reset(that.fFragmentProcessors.count() - that.fFragmentProcessorOffset);
+    for (int i = 0; i < fFragmentProcessors.count(); ++i) {
+        fFragmentProcessors[i] =
+                std::move(that.fFragmentProcessors[i + that.fFragmentProcessorOffset]);
+    }
+    that.fColorFragmentProcessorCnt = 0;
+    that.fFragmentProcessors.reset(0);
 }
 
 GrProcessorSet::~GrProcessorSet() {
-    for (int i = fFragmentProcessorOffset; i < fFragmentProcessors.count(); ++i) {
-        if (this->isFinalized()) {
-            fFragmentProcessors[i]->completedExecution();
-        } else {
-            fFragmentProcessors[i]->unref();
-        }
-    }
     if (this->isFinalized() && this->xferProcessor()) {
         this->xferProcessor()->unref();
     }
 }
 
+#ifdef SK_DEBUG
 SkString dump_fragment_processor_tree(const GrFragmentProcessor* fp, int indentCnt) {
     SkString result;
     SkString indentString;
@@ -111,10 +124,11 @@ SkString GrProcessorSet::dumpProcessors() const {
             result.append("SrcOver\n");
         }
     } else {
-        result.append("XP Factory dumping not implemented.\n");
+        result.appendf("XP Factory: %s\n", GrXPFactory::GetDescription(this->xpFactory()).c_str());
     }
     return result;
 }
+#endif
 
 bool GrProcessorSet::operator==(const GrProcessorSet& that) const {
     SkASSERT(this->isFinalized());
@@ -148,18 +162,18 @@ bool GrProcessorSet::operator==(const GrProcessorSet& that) const {
 GrProcessorSet::Analysis GrProcessorSet::finalize(const GrProcessorAnalysisColor& colorInput,
                                                   const GrProcessorAnalysisCoverage coverageInput,
                                                   const GrAppliedClip* clip, bool isMixedSamples,
-                                                  const GrCaps& caps, GrColor* overrideInputColor) {
+                                                  const GrCaps& caps,
+                                                  SkPMColor4f* overrideInputColor) {
     SkASSERT(!this->isFinalized());
     SkASSERT(!fFragmentProcessorOffset);
 
     GrProcessorSet::Analysis analysis;
-
-    const GrFragmentProcessor* clipFP = clip ? clip->clipCoverageFragmentProcessor() : nullptr;
-    GrColorFragmentProcessorAnalysis colorAnalysis(colorInput);
     analysis.fCompatibleWithCoverageAsAlpha = GrProcessorAnalysisCoverage::kLCD != coverageInput;
 
-    const GrFragmentProcessor* const* fps = fFragmentProcessors.get() + fFragmentProcessorOffset;
-    colorAnalysis.analyzeProcessors(fps, fColorFragmentProcessorCnt);
+    const std::unique_ptr<const GrFragmentProcessor>* fps =
+            fFragmentProcessors.get() + fFragmentProcessorOffset;
+    GrColorFragmentProcessorAnalysis colorAnalysis(
+            colorInput, unique_ptr_address_as_pointer_address(fps), fColorFragmentProcessorCnt);
     analysis.fCompatibleWithCoverageAsAlpha &=
             colorAnalysis.allProcessorsCompatibleWithCoverageAsAlpha();
     fps += fColorFragmentProcessorCnt;
@@ -169,17 +183,16 @@ GrProcessorSet::Analysis GrProcessorSet::finalize(const GrProcessorAnalysisColor
     for (int i = 0; i < n; ++i) {
         if (!fps[i]->compatibleWithCoverageAsAlpha()) {
             analysis.fCompatibleWithCoverageAsAlpha = false;
-            // Other than tests that exercise atypical behavior we expect all coverage FPs to be
-            // compatible with the coverage-as-alpha optimization.
-            GrCapsDebugf(&caps, "Coverage FP is not compatible with coverage as alpha.\n");
         }
         coverageUsesLocalCoords |= fps[i]->usesLocalCoords();
     }
-
-    if (clipFP) {
-        analysis.fCompatibleWithCoverageAsAlpha &= clipFP->compatibleWithCoverageAsAlpha();
-        coverageUsesLocalCoords |= clipFP->usesLocalCoords();
-        hasCoverageFP = true;
+    if (clip) {
+        hasCoverageFP = hasCoverageFP || clip->numClipCoverageFragmentProcessors();
+        for (int i = 0; i < clip->numClipCoverageFragmentProcessors(); ++i) {
+            const GrFragmentProcessor* clipFP = clip->clipCoverageFragmentProcessor(i);
+            analysis.fCompatibleWithCoverageAsAlpha &= clipFP->compatibleWithCoverageAsAlpha();
+            coverageUsesLocalCoords |= clipFP->usesLocalCoords();
+        }
     }
     int colorFPsToEliminate = colorAnalysis.initialProcessorsToEliminate(overrideInputColor);
     analysis.fInputColorType = static_cast<Analysis::PackedInputColorType>(
@@ -199,19 +212,13 @@ GrProcessorSet::Analysis GrProcessorSet::finalize(const GrProcessorAnalysisColor
             this->xpFactory(), colorAnalysis.outputColor(), outputCoverage, caps);
     if (!this->numCoverageFragmentProcessors() &&
         GrProcessorAnalysisCoverage::kNone == coverageInput) {
-        analysis.fCanCombineOverlappedStencilAndCover = SkToBool(
-                props & GrXPFactory::AnalysisProperties::kCanCombineOverlappedStencilAndCover);
-    } else {
-        // If we have non-clipping coverage processors we don't try to merge stencil steps as its
-        // unclear whether it will be correct. We don't expect this to happen in practice.
-        analysis.fCanCombineOverlappedStencilAndCover = false;
     }
     analysis.fRequiresDstTexture =
             SkToBool(props & GrXPFactory::AnalysisProperties::kRequiresDstTexture);
     analysis.fCompatibleWithCoverageAsAlpha &=
             SkToBool(props & GrXPFactory::AnalysisProperties::kCompatibleWithAlphaAsCoverage);
-    analysis.fRequiresBarrierBetweenOverlappingDraws = SkToBool(
-            props & GrXPFactory::AnalysisProperties::kRequiresBarrierBetweenOverlappingDraws);
+    analysis.fRequiresNonOverlappingDraws = SkToBool(
+            props & GrXPFactory::AnalysisProperties::kRequiresNonOverlappingDraws);
     if (props & GrXPFactory::AnalysisProperties::kIgnoresInputColor) {
         colorFPsToEliminate = this->numColorFragmentProcessors();
         analysis.fInputColorType =
@@ -221,12 +228,10 @@ GrProcessorSet::Analysis GrProcessorSet::finalize(const GrProcessorAnalysisColor
         analysis.fUsesLocalCoords = coverageUsesLocalCoords | colorAnalysis.usesLocalCoords();
     }
     for (int i = 0; i < colorFPsToEliminate; ++i) {
-        fFragmentProcessors[i]->unref();
-        fFragmentProcessors[i] = nullptr;
+        fFragmentProcessors[i].reset(nullptr);
     }
     for (int i = colorFPsToEliminate; i < fFragmentProcessors.count(); ++i) {
-        fFragmentProcessors[i]->addPendingExecution();
-        fFragmentProcessors[i]->unref();
+        fFragmentProcessors[i]->markPendingExecution();
     }
     fFragmentProcessorOffset = colorFPsToEliminate;
     fColorFragmentProcessorCnt -= colorFPsToEliminate;
@@ -237,5 +242,12 @@ GrProcessorSet::Analysis GrProcessorSet::finalize(const GrProcessorAnalysisColor
 
     fFlags |= kFinalized_Flag;
     analysis.fIsInitialized = true;
+#ifdef SK_DEBUG
+    bool hasXferBarrier =
+            fXP.fProcessor &&
+            GrXferBarrierType::kNone_GrXferBarrierType != fXP.fProcessor->xferBarrierType(caps);
+    bool needsNonOverlappingDraws = analysis.fRequiresDstTexture || hasXferBarrier;
+    SkASSERT(analysis.fRequiresNonOverlappingDraws == needsNonOverlappingDraws);
+#endif
     return analysis;
 }

@@ -7,10 +7,12 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
+#include "base/logging.h"
+#include "components/image_fetcher/core/image_fetcher.h"
 #include "components/offline_pages/core/client_id.h"
 #include "components/offline_pages/core/client_namespace_constants.h"
 #include "components/offline_pages/core/prefetch/offline_metrics_collector.h"
+#include "components/offline_pages/core/prefetch/prefetch_background_task_handler.h"
 #include "components/offline_pages/core/prefetch/prefetch_dispatcher.h"
 #include "components/offline_pages/core/prefetch/prefetch_downloader.h"
 #include "components/offline_pages/core/prefetch/prefetch_gcm_handler.h"
@@ -18,6 +20,8 @@
 #include "components/offline_pages/core/prefetch/prefetch_network_request_factory.h"
 #include "components/offline_pages/core/prefetch/store/prefetch_store.h"
 #include "components/offline_pages/core/prefetch/suggested_articles_observer.h"
+#include "components/offline_pages/core/prefetch/suggestions_provider.h"
+#include "components/offline_pages/core/prefetch/thumbnail_fetcher.h"
 
 namespace offline_pages {
 
@@ -26,28 +30,75 @@ PrefetchServiceImpl::PrefetchServiceImpl(
     std::unique_ptr<PrefetchDispatcher> dispatcher,
     std::unique_ptr<PrefetchGCMHandler> gcm_handler,
     std::unique_ptr<PrefetchNetworkRequestFactory> network_request_factory,
+    OfflinePageModel* offline_page_model,
     std::unique_ptr<PrefetchStore> prefetch_store,
     std::unique_ptr<SuggestedArticlesObserver> suggested_articles_observer,
     std::unique_ptr<PrefetchDownloader> prefetch_downloader,
-    std::unique_ptr<PrefetchImporter> prefetch_importer)
+    std::unique_ptr<PrefetchImporter> prefetch_importer,
+    std::unique_ptr<PrefetchBackgroundTaskHandler>
+        prefetch_background_task_handler,
+    std::unique_ptr<ThumbnailFetcher> thumbnail_fetcher,
+    std::unique_ptr<image_fetcher::ImageFetcher> thumbnail_image_fetcher)
     : offline_metrics_collector_(std::move(offline_metrics_collector)),
       prefetch_dispatcher_(std::move(dispatcher)),
       prefetch_gcm_handler_(std::move(gcm_handler)),
       network_request_factory_(std::move(network_request_factory)),
+      offline_page_model_(offline_page_model),
       prefetch_store_(std::move(prefetch_store)),
-      suggested_articles_observer_(std::move(suggested_articles_observer)),
       prefetch_downloader_(std::move(prefetch_downloader)),
-      prefetch_importer_(std::move(prefetch_importer)) {
+      prefetch_importer_(std::move(prefetch_importer)),
+      prefetch_background_task_handler_(
+          std::move(prefetch_background_task_handler)),
+      suggested_articles_observer_(std::move(suggested_articles_observer)),
+      thumbnail_fetcher_(std::move(thumbnail_fetcher)),
+      thumbnail_image_fetcher_(std::move(thumbnail_image_fetcher)) {
   prefetch_dispatcher_->SetService(this);
+  prefetch_downloader_->SetPrefetchService(this);
   prefetch_gcm_handler_->SetService(this);
-  suggested_articles_observer_->SetPrefetchService(this);
-  prefetch_downloader_->SetCompletedCallback(
-      base::Bind(&PrefetchServiceImpl::OnDownloadCompleted,
-                 // Downloader is owned by this instance.
-                 base::Unretained(this)));
+  if (suggested_articles_observer_)
+    suggested_articles_observer_->SetPrefetchService(this);
 }
 
-PrefetchServiceImpl::~PrefetchServiceImpl() = default;
+PrefetchServiceImpl::~PrefetchServiceImpl() {
+  // The dispatcher needs to be disposed first because it may need to
+  // communicate with other members owned by the service at destruction time.
+  prefetch_dispatcher_.reset();
+}
+
+void PrefetchServiceImpl::SetContentSuggestionsService(
+    ntp_snippets::ContentSuggestionsService* content_suggestions) {
+  if (!suggested_articles_observer_) {
+    // TODO(https://crbug.com/892265): When the Feed is enabled, we currently
+    // need to ignore Zine. Eventually, Zine will be disabled when using Feed,
+    // so this check will be unnecessary.
+    return;
+  }
+  DCHECK(suggested_articles_observer_);
+  DCHECK(!suggestions_provider_);
+  DCHECK(thumbnail_fetcher_);
+  DCHECK(!thumbnail_image_fetcher_);
+  suggested_articles_observer_->SetContentSuggestionsServiceAndObserve(
+      content_suggestions);
+  thumbnail_fetcher_->SetContentSuggestionsService(content_suggestions);
+}
+
+void PrefetchServiceImpl::SetSuggestionProvider(
+    SuggestionsProvider* suggestions_provider) {
+  DCHECK(!suggested_articles_observer_);
+  DCHECK(!thumbnail_fetcher_);
+  DCHECK(thumbnail_image_fetcher_);
+  suggestions_provider_ = suggestions_provider;
+}
+
+void PrefetchServiceImpl::NewSuggestionsAvailable() {
+  DCHECK(suggestions_provider_);
+  prefetch_dispatcher_->NewSuggestionsAvailable(suggestions_provider_);
+}
+
+void PrefetchServiceImpl::RemoveSuggestion(GURL url) {
+  DCHECK(suggestions_provider_);
+  prefetch_dispatcher_->RemoveSuggestion(std::move(url));
+}
 
 OfflineMetricsCollector* PrefetchServiceImpl::GetOfflineMetricsCollector() {
   return offline_metrics_collector_.get();
@@ -66,11 +117,16 @@ PrefetchServiceImpl::GetPrefetchNetworkRequestFactory() {
   return network_request_factory_.get();
 }
 
+OfflinePageModel* PrefetchServiceImpl::GetOfflinePageModel() {
+  return offline_page_model_;
+}
+
 PrefetchStore* PrefetchServiceImpl::GetPrefetchStore() {
   return prefetch_store_.get();
 }
 
-SuggestedArticlesObserver* PrefetchServiceImpl::GetSuggestedArticlesObserver() {
+SuggestedArticlesObserver*
+PrefetchServiceImpl::GetSuggestedArticlesObserverForTesting() {
   return suggested_articles_observer_.get();
 }
 
@@ -86,22 +142,22 @@ PrefetchImporter* PrefetchServiceImpl::GetPrefetchImporter() {
   return prefetch_importer_.get();
 }
 
+PrefetchBackgroundTaskHandler*
+PrefetchServiceImpl::GetPrefetchBackgroundTaskHandler() {
+  return prefetch_background_task_handler_.get();
+}
+
+ThumbnailFetcher* PrefetchServiceImpl::GetThumbnailFetcher() {
+  return thumbnail_fetcher_.get();
+}
+
+image_fetcher::ImageFetcher* PrefetchServiceImpl::GetThumbnailImageFetcher() {
+  return thumbnail_image_fetcher_.get();
+}
+
 void PrefetchServiceImpl::Shutdown() {
   suggested_articles_observer_.reset();
   prefetch_downloader_.reset();
-}
-
-void PrefetchServiceImpl::OnDownloadCompleted(
-    const PrefetchDownloadResult& result) {
-  logger_.RecordActivity("Download " + result.download_id +
-                         (result.success ? " succeeded" : " failed"));
-  if (!result.success)
-    return;
-
-  logger_.RecordActivity("Downloaded as " + result.file_path.MaybeAsASCII() +
-                         " with size " + std::to_string(result.file_size));
-
-  // TODO(jianli): To hook up with prefetch importer.
 }
 
 }  // namespace offline_pages

@@ -12,55 +12,89 @@
 #include "core/fxcodec/jbig2/JBig2_ArithIntDecoder.h"
 #include "core/fxcodec/jbig2/JBig2_GrrdProc.h"
 #include "core/fxcodec/jbig2/JBig2_HuffmanDecoder.h"
-#include "core/fxcrt/cfx_maybe_owned.h"
+#include "core/fxcrt/fx_safe_types.h"
+#include "core/fxcrt/maybe_owned.h"
+#include "third_party/base/optional.h"
 #include "third_party/base/ptr_util.h"
 
-CJBig2_TRDProc::CJBig2_TRDProc() {}
+namespace {
 
-CJBig2_TRDProc::~CJBig2_TRDProc() {}
+Optional<uint32_t> CheckTRDDimension(uint32_t dimension, int32_t delta) {
+  FX_SAFE_UINT32 result = dimension;
+  result += delta;
+  if (!result.IsValid())
+    return {};
+  return {result.ValueOrDie()};
+}
 
-std::unique_ptr<CJBig2_Image> CJBig2_TRDProc::decode_Huffman(
+Optional<int32_t> CheckTRDReferenceDimension(int32_t dimension,
+                                             uint32_t shift,
+                                             int32_t offset) {
+  FX_SAFE_INT32 result = offset;
+  result += dimension >> shift;
+  if (!result.IsValid())
+    return {};
+  return {result.ValueOrDie()};
+}
+
+}  // namespace
+
+JBig2IntDecoderState::JBig2IntDecoderState() = default;
+
+JBig2IntDecoderState::~JBig2IntDecoderState() = default;
+
+CJBig2_TRDProc::CJBig2_TRDProc() = default;
+
+CJBig2_TRDProc::~CJBig2_TRDProc() = default;
+
+std::unique_ptr<CJBig2_Image> CJBig2_TRDProc::DecodeHuffman(
     CJBig2_BitStream* pStream,
     JBig2ArithCtx* grContext) {
-  auto pHuffmanDecoder = pdfium::MakeUnique<CJBig2_HuffmanDecoder>(pStream);
   auto SBREG = pdfium::MakeUnique<CJBig2_Image>(SBW, SBH);
-  SBREG->fill(SBDEFPIXEL);
-  int32_t STRIPT;
-  if (pHuffmanDecoder->decodeAValue(SBHUFFDT, &STRIPT) != 0)
+  if (!SBREG->data())
     return nullptr;
 
+  SBREG->Fill(SBDEFPIXEL);
+  int32_t INITIAL_STRIPT;
+  auto pHuffmanDecoder = pdfium::MakeUnique<CJBig2_HuffmanDecoder>(pStream);
+  if (pHuffmanDecoder->DecodeAValue(SBHUFFDT.Get(), &INITIAL_STRIPT) != 0)
+    return nullptr;
+
+  FX_SAFE_INT32 STRIPT = INITIAL_STRIPT;
   STRIPT *= SBSTRIPS;
   STRIPT = -STRIPT;
-  int32_t FIRSTS = 0;
+  FX_SAFE_INT32 FIRSTS = 0;
   uint32_t NINSTANCES = 0;
   while (NINSTANCES < SBNUMINSTANCES) {
-    int32_t DT;
-    if (pHuffmanDecoder->decodeAValue(SBHUFFDT, &DT) != 0)
+    int32_t INITIAL_DT;
+    if (pHuffmanDecoder->DecodeAValue(SBHUFFDT.Get(), &INITIAL_DT) != 0)
       return nullptr;
 
+    FX_SAFE_INT32 DT = INITIAL_DT;
     DT *= SBSTRIPS;
-    STRIPT = STRIPT + DT;
+    STRIPT += DT;
     bool bFirst = true;
-    int32_t CURS = 0;
+    FX_SAFE_INT32 CURS = 0;
     for (;;) {
       if (bFirst) {
         int32_t DFS;
-        if (pHuffmanDecoder->decodeAValue(SBHUFFFS, &DFS) != 0)
+        if (pHuffmanDecoder->DecodeAValue(SBHUFFFS.Get(), &DFS) != 0)
           return nullptr;
 
-        FIRSTS = FIRSTS + DFS;
+        FIRSTS += DFS;
         CURS = FIRSTS;
         bFirst = false;
       } else {
         int32_t IDS;
-        int32_t nVal = pHuffmanDecoder->decodeAValue(SBHUFFDS, &IDS);
+        int32_t nVal = pHuffmanDecoder->DecodeAValue(SBHUFFDS.Get(), &IDS);
         if (nVal == JBIG2_OOB)
           break;
 
         if (nVal != 0)
           return nullptr;
 
-        CURS = CURS + IDS + SBDSOFFSET;
+        CURS += IDS;
+        CURS += SBDSOFFSET;
       }
       uint8_t CURT = 0;
       if (SBSTRIPS != 1) {
@@ -73,8 +107,12 @@ std::unique_ptr<CJBig2_Image> CJBig2_TRDProc::decode_Huffman(
 
         CURT = nVal;
       }
-      int32_t TI = STRIPT + CURT;
-      pdfium::base::CheckedNumeric<int32_t> nVal = 0;
+      FX_SAFE_INT32 SAFE_TI = STRIPT + CURT;
+      if (!SAFE_TI.IsValid())
+        return nullptr;
+
+      int32_t TI = SAFE_TI.ValueOrDie();
+      FX_SAFE_INT32 nSafeVal = 0;
       int32_t nBits = 0;
       uint32_t IDI;
       for (;;) {
@@ -82,17 +120,16 @@ std::unique_ptr<CJBig2_Image> CJBig2_TRDProc::decode_Huffman(
         if (pStream->read1Bit(&nTmp) != 0)
           return nullptr;
 
-        nVal <<= 1;
-        if (!nVal.IsValid())
+        nSafeVal <<= 1;
+        if (!nSafeVal.IsValid())
           return nullptr;
 
-        nVal |= nTmp;
+        nSafeVal |= nTmp;
         ++nBits;
+        const int32_t nVal = nSafeVal.ValueOrDie();
         for (IDI = 0; IDI < SBNUMSYMS; ++IDI) {
-          if ((nBits == SBSYMCODES[IDI].codelen) &&
-              (nVal.ValueOrDie() == SBSYMCODES[IDI].code)) {
+          if (nBits == SBSYMCODES[IDI].codelen && nVal == SBSYMCODES[IDI].code)
             break;
-          }
         }
         if (IDI < SBNUMSYMS)
           break;
@@ -101,7 +138,7 @@ std::unique_ptr<CJBig2_Image> CJBig2_TRDProc::decode_Huffman(
       if (SBREFINE != 0 && pStream->read1Bit(&RI) != 0)
         return nullptr;
 
-      CFX_MaybeOwned<CJBig2_Image> IBI;
+      MaybeOwned<CJBig2_Image> IBI;
       if (RI == 0) {
         IBI = SBSYMS[IDI];
       } else {
@@ -110,11 +147,12 @@ std::unique_ptr<CJBig2_Image> CJBig2_TRDProc::decode_Huffman(
         int32_t RDXI;
         int32_t RDYI;
         int32_t HUFFRSIZE;
-        if ((pHuffmanDecoder->decodeAValue(SBHUFFRDW, &RDWI) != 0) ||
-            (pHuffmanDecoder->decodeAValue(SBHUFFRDH, &RDHI) != 0) ||
-            (pHuffmanDecoder->decodeAValue(SBHUFFRDX, &RDXI) != 0) ||
-            (pHuffmanDecoder->decodeAValue(SBHUFFRDY, &RDYI) != 0) ||
-            (pHuffmanDecoder->decodeAValue(SBHUFFRSIZE, &HUFFRSIZE) != 0)) {
+        if ((pHuffmanDecoder->DecodeAValue(SBHUFFRDW.Get(), &RDWI) != 0) ||
+            (pHuffmanDecoder->DecodeAValue(SBHUFFRDH.Get(), &RDHI) != 0) ||
+            (pHuffmanDecoder->DecodeAValue(SBHUFFRDX.Get(), &RDXI) != 0) ||
+            (pHuffmanDecoder->DecodeAValue(SBHUFFRDY.Get(), &RDYI) != 0) ||
+            (pHuffmanDecoder->DecodeAValue(SBHUFFRSIZE.Get(), &HUFFRSIZE) !=
+             0)) {
           return nullptr;
         }
         pStream->alignByte();
@@ -123,20 +161,25 @@ std::unique_ptr<CJBig2_Image> CJBig2_TRDProc::decode_Huffman(
         if (!IBOI)
           return nullptr;
 
-        uint32_t WOI = IBOI->width();
-        uint32_t HOI = IBOI->height();
-        if (static_cast<int>(WOI + RDWI) < 0 ||
-            static_cast<int>(HOI + RDHI) < 0) {
+        Optional<uint32_t> WOI = CheckTRDDimension(IBOI->width(), RDWI);
+        Optional<uint32_t> HOI = CheckTRDDimension(IBOI->height(), RDHI);
+        if (!WOI || !HOI)
           return nullptr;
-        }
+
+        Optional<int32_t> GRREFERENCEDX =
+            CheckTRDReferenceDimension(RDWI, 2, RDXI);
+        Optional<int32_t> GRREFERENCEDY =
+            CheckTRDReferenceDimension(RDHI, 2, RDYI);
+        if (!GRREFERENCEDX || !GRREFERENCEDY)
+          return nullptr;
 
         auto pGRRD = pdfium::MakeUnique<CJBig2_GRRDProc>();
-        pGRRD->GRW = WOI + RDWI;
-        pGRRD->GRH = HOI + RDHI;
+        pGRRD->GRW = WOI.value();
+        pGRRD->GRH = HOI.value();
         pGRRD->GRTEMPLATE = SBRTEMPLATE;
         pGRRD->GRREFERENCE = IBOI;
-        pGRRD->GRREFERENCEDX = (RDWI >> 2) + RDXI;
-        pGRRD->GRREFERENCEDY = (RDHI >> 2) + RDYI;
+        pGRRD->GRREFERENCEDX = GRREFERENCEDX.value();
+        pGRRD->GRREFERENCEDY = GRREFERENCEDY.value();
         pGRRD->TPGRON = 0;
         pGRRD->GRAT[0] = SBRAT[0];
         pGRRD->GRAT[1] = SBRAT[1];
@@ -144,7 +187,7 @@ std::unique_ptr<CJBig2_Image> CJBig2_TRDProc::decode_Huffman(
         pGRRD->GRAT[3] = SBRAT[3];
 
         auto pArithDecoder = pdfium::MakeUnique<CJBig2_ArithDecoder>(pStream);
-        IBI = pGRRD->decode(pArithDecoder.get(), grContext);
+        IBI = pGRRD->Decode(pArithDecoder.get(), grContext);
         if (!IBI)
           return nullptr;
 
@@ -160,72 +203,52 @@ std::unique_ptr<CJBig2_Image> CJBig2_TRDProc::decode_Huffman(
       uint32_t HI = IBI->height();
       if (TRANSPOSED == 0 && ((REFCORNER == JBIG2_CORNER_TOPRIGHT) ||
                               (REFCORNER == JBIG2_CORNER_BOTTOMRIGHT))) {
-        CURS = CURS + WI - 1;
+        CURS += WI - 1;
       } else if (TRANSPOSED == 1 && ((REFCORNER == JBIG2_CORNER_BOTTOMLEFT) ||
                                      (REFCORNER == JBIG2_CORNER_BOTTOMRIGHT))) {
-        CURS = CURS + HI - 1;
+        CURS += HI - 1;
       }
-      int32_t SI = CURS;
-      if (TRANSPOSED == 0) {
-        switch (REFCORNER) {
-          case JBIG2_CORNER_TOPLEFT:
-            SBREG->composeFrom(SI, TI, IBI.Get(), SBCOMBOP);
-            break;
-          case JBIG2_CORNER_TOPRIGHT:
-            SBREG->composeFrom(SI - WI + 1, TI, IBI.Get(), SBCOMBOP);
-            break;
-          case JBIG2_CORNER_BOTTOMLEFT:
-            SBREG->composeFrom(SI, TI - HI + 1, IBI.Get(), SBCOMBOP);
-            break;
-          case JBIG2_CORNER_BOTTOMRIGHT:
-            SBREG->composeFrom(SI - WI + 1, TI - HI + 1, IBI.Get(), SBCOMBOP);
-            break;
-        }
-      } else {
-        switch (REFCORNER) {
-          case JBIG2_CORNER_TOPLEFT:
-            SBREG->composeFrom(TI, SI, IBI.Get(), SBCOMBOP);
-            break;
-          case JBIG2_CORNER_TOPRIGHT:
-            SBREG->composeFrom(TI - WI + 1, SI, IBI.Get(), SBCOMBOP);
-            break;
-          case JBIG2_CORNER_BOTTOMLEFT:
-            SBREG->composeFrom(TI, SI - HI + 1, IBI.Get(), SBCOMBOP);
-            break;
-          case JBIG2_CORNER_BOTTOMRIGHT:
-            SBREG->composeFrom(TI - WI + 1, SI - HI + 1, IBI.Get(), SBCOMBOP);
-            break;
-        }
-      }
-      if (TRANSPOSED == 0 && ((REFCORNER == JBIG2_CORNER_TOPLEFT) ||
-                              (REFCORNER == JBIG2_CORNER_BOTTOMLEFT))) {
-        CURS = CURS + WI - 1;
-      } else if (TRANSPOSED == 1 && ((REFCORNER == JBIG2_CORNER_TOPLEFT) ||
-                                     (REFCORNER == JBIG2_CORNER_TOPRIGHT))) {
-        CURS = CURS + HI - 1;
-      }
-      NINSTANCES = NINSTANCES + 1;
+      if (!CURS.IsValid())
+        return nullptr;
+
+      int32_t SI = CURS.ValueOrDie();
+      ComposeData compose = GetComposeData(SI, TI, WI, HI);
+      IBI.Get()->ComposeTo(SBREG.get(), compose.x, compose.y, SBCOMBOP);
+      if (compose.increment)
+        CURS += compose.increment;
+      ++NINSTANCES;
     }
   }
   return SBREG;
 }
 
-std::unique_ptr<CJBig2_Image> CJBig2_TRDProc::decode_Arith(
+std::unique_ptr<CJBig2_Image> CJBig2_TRDProc::DecodeArith(
     CJBig2_ArithDecoder* pArithDecoder,
     JBig2ArithCtx* grContext,
     JBig2IntDecoderState* pIDS) {
-  CFX_MaybeOwned<CJBig2_ArithIntDecoder> pIADT;
-  CFX_MaybeOwned<CJBig2_ArithIntDecoder> pIAFS;
-  CFX_MaybeOwned<CJBig2_ArithIntDecoder> pIADS;
-  CFX_MaybeOwned<CJBig2_ArithIntDecoder> pIAIT;
-  CFX_MaybeOwned<CJBig2_ArithIntDecoder> pIARI;
-  CFX_MaybeOwned<CJBig2_ArithIntDecoder> pIARDW;
-  CFX_MaybeOwned<CJBig2_ArithIntDecoder> pIARDH;
-  CFX_MaybeOwned<CJBig2_ArithIntDecoder> pIARDX;
-  CFX_MaybeOwned<CJBig2_ArithIntDecoder> pIARDY;
-  CFX_MaybeOwned<CJBig2_ArithIaidDecoder> pIAID;
-  if (pIDS) {
+  auto SBREG = pdfium::MakeUnique<CJBig2_Image>(SBW, SBH);
+  if (!SBREG->data())
+    return nullptr;
+
+  MaybeOwned<CJBig2_ArithIntDecoder> pIADT;
+  if (pIDS)
     pIADT = pIDS->IADT;
+  else
+    pIADT = pdfium::MakeUnique<CJBig2_ArithIntDecoder>();
+  int32_t INITIAL_STRIPT;
+  if (!pIADT->Decode(pArithDecoder, &INITIAL_STRIPT))
+    return nullptr;
+
+  MaybeOwned<CJBig2_ArithIntDecoder> pIAFS;
+  MaybeOwned<CJBig2_ArithIntDecoder> pIADS;
+  MaybeOwned<CJBig2_ArithIntDecoder> pIAIT;
+  MaybeOwned<CJBig2_ArithIntDecoder> pIARI;
+  MaybeOwned<CJBig2_ArithIntDecoder> pIARDW;
+  MaybeOwned<CJBig2_ArithIntDecoder> pIARDH;
+  MaybeOwned<CJBig2_ArithIntDecoder> pIARDX;
+  MaybeOwned<CJBig2_ArithIntDecoder> pIARDY;
+  MaybeOwned<CJBig2_ArithIaidDecoder> pIAID;
+  if (pIDS) {
     pIAFS = pIDS->IAFS;
     pIADS = pIDS->IADS;
     pIAIT = pIDS->IAIT;
@@ -236,7 +259,6 @@ std::unique_ptr<CJBig2_Image> CJBig2_TRDProc::decode_Arith(
     pIARDY = pIDS->IARDY;
     pIAID = pIDS->IAID;
   } else {
-    pIADT = pdfium::MakeUnique<CJBig2_ArithIntDecoder>();
     pIAFS = pdfium::MakeUnique<CJBig2_ArithIntDecoder>();
     pIADS = pdfium::MakeUnique<CJBig2_ArithIntDecoder>();
     pIAIT = pdfium::MakeUnique<CJBig2_ArithIntDecoder>();
@@ -247,49 +269,53 @@ std::unique_ptr<CJBig2_Image> CJBig2_TRDProc::decode_Arith(
     pIARDY = pdfium::MakeUnique<CJBig2_ArithIntDecoder>();
     pIAID = pdfium::MakeUnique<CJBig2_ArithIaidDecoder>(SBSYMCODELEN);
   }
-  auto SBREG = pdfium::MakeUnique<CJBig2_Image>(SBW, SBH);
-  SBREG->fill(SBDEFPIXEL);
-  int32_t STRIPT;
-  if (!pIADT->decode(pArithDecoder, &STRIPT))
-    return nullptr;
 
+  SBREG->Fill(SBDEFPIXEL);
+
+  FX_SAFE_INT32 STRIPT = INITIAL_STRIPT;
   STRIPT *= SBSTRIPS;
   STRIPT = -STRIPT;
-  int32_t FIRSTS = 0;
+  FX_SAFE_INT32 FIRSTS = 0;
   uint32_t NINSTANCES = 0;
   while (NINSTANCES < SBNUMINSTANCES) {
-    int32_t CURS = 0;
-    int32_t DT;
-    if (!pIADT->decode(pArithDecoder, &DT))
+    FX_SAFE_INT32 CURS = 0;
+    int32_t INITIAL_DT;
+    if (!pIADT->Decode(pArithDecoder, &INITIAL_DT))
       return nullptr;
 
+    FX_SAFE_INT32 DT = INITIAL_DT;
     DT *= SBSTRIPS;
     STRIPT += DT;
     bool bFirst = true;
     for (;;) {
       if (bFirst) {
         int32_t DFS;
-        pIAFS->decode(pArithDecoder, &DFS);
+        pIAFS->Decode(pArithDecoder, &DFS);
         FIRSTS += DFS;
         CURS = FIRSTS;
         bFirst = false;
       } else {
         int32_t IDS;
-        if (!pIADS->decode(pArithDecoder, &IDS))
+        if (!pIADS->Decode(pArithDecoder, &IDS))
           break;
 
-        CURS += IDS + SBDSOFFSET;
+        CURS += IDS;
+        CURS += SBDSOFFSET;
       }
       if (NINSTANCES >= SBNUMINSTANCES)
         break;
 
       int CURT = 0;
       if (SBSTRIPS != 1)
-        pIAIT->decode(pArithDecoder, &CURT);
+        pIAIT->Decode(pArithDecoder, &CURT);
 
-      int32_t TI = STRIPT + CURT;
+      FX_SAFE_INT32 SAFE_TI = STRIPT + CURT;
+      if (!SAFE_TI.IsValid())
+        return nullptr;
+
+      int32_t TI = SAFE_TI.ValueOrDie();
       uint32_t IDI;
-      pIAID->decode(pArithDecoder, &IDI);
+      pIAID->Decode(pArithDecoder, &IDI);
       if (IDI >= SBNUMSYMS)
         return nullptr;
 
@@ -297,9 +323,9 @@ std::unique_ptr<CJBig2_Image> CJBig2_TRDProc::decode_Arith(
       if (SBREFINE == 0)
         RI = 0;
       else
-        pIARI->decode(pArithDecoder, &RI);
+        pIARI->Decode(pArithDecoder, &RI);
 
-      CFX_MaybeOwned<CJBig2_Image> pIBI;
+      MaybeOwned<CJBig2_Image> pIBI;
       if (RI == 0) {
         pIBI = SBSYMS[IDI];
       } else {
@@ -307,34 +333,39 @@ std::unique_ptr<CJBig2_Image> CJBig2_TRDProc::decode_Arith(
         int32_t RDHI;
         int32_t RDXI;
         int32_t RDYI;
-        pIARDW->decode(pArithDecoder, &RDWI);
-        pIARDH->decode(pArithDecoder, &RDHI);
-        pIARDX->decode(pArithDecoder, &RDXI);
-        pIARDY->decode(pArithDecoder, &RDYI);
+        pIARDW->Decode(pArithDecoder, &RDWI);
+        pIARDH->Decode(pArithDecoder, &RDHI);
+        pIARDX->Decode(pArithDecoder, &RDXI);
+        pIARDY->Decode(pArithDecoder, &RDYI);
         CJBig2_Image* IBOI = SBSYMS[IDI];
         if (!IBOI)
           return nullptr;
 
-        uint32_t WOI = IBOI->width();
-        uint32_t HOI = IBOI->height();
-        if (static_cast<int>(WOI + RDWI) < 0 ||
-            static_cast<int>(HOI + RDHI) < 0) {
+        Optional<uint32_t> WOI = CheckTRDDimension(IBOI->width(), RDWI);
+        Optional<uint32_t> HOI = CheckTRDDimension(IBOI->height(), RDHI);
+        if (!WOI || !HOI)
           return nullptr;
-        }
+
+        Optional<int32_t> GRREFERENCEDX =
+            CheckTRDReferenceDimension(RDWI, 1, RDXI);
+        Optional<int32_t> GRREFERENCEDY =
+            CheckTRDReferenceDimension(RDHI, 1, RDYI);
+        if (!GRREFERENCEDX || !GRREFERENCEDY)
+          return nullptr;
 
         auto pGRRD = pdfium::MakeUnique<CJBig2_GRRDProc>();
-        pGRRD->GRW = WOI + RDWI;
-        pGRRD->GRH = HOI + RDHI;
+        pGRRD->GRW = WOI.value();
+        pGRRD->GRH = HOI.value();
         pGRRD->GRTEMPLATE = SBRTEMPLATE;
         pGRRD->GRREFERENCE = IBOI;
-        pGRRD->GRREFERENCEDX = (RDWI >> 1) + RDXI;
-        pGRRD->GRREFERENCEDY = (RDHI >> 1) + RDYI;
+        pGRRD->GRREFERENCEDX = GRREFERENCEDX.value();
+        pGRRD->GRREFERENCEDY = GRREFERENCEDY.value();
         pGRRD->TPGRON = 0;
         pGRRD->GRAT[0] = SBRAT[0];
         pGRRD->GRAT[1] = SBRAT[1];
         pGRRD->GRAT[2] = SBRAT[2];
         pGRRD->GRAT[3] = SBRAT[3];
-        pIBI = pGRRD->decode(pArithDecoder, grContext);
+        pIBI = pGRRD->Decode(pArithDecoder, grContext);
       }
       if (!pIBI)
         return nullptr;
@@ -348,47 +379,67 @@ std::unique_ptr<CJBig2_Image> CJBig2_TRDProc::decode_Arith(
                                      (REFCORNER == JBIG2_CORNER_BOTTOMRIGHT))) {
         CURS += HI - 1;
       }
-      int32_t SI = CURS;
-      if (TRANSPOSED == 0) {
-        switch (REFCORNER) {
-          case JBIG2_CORNER_TOPLEFT:
-            SBREG->composeFrom(SI, TI, pIBI.Get(), SBCOMBOP);
-            break;
-          case JBIG2_CORNER_TOPRIGHT:
-            SBREG->composeFrom(SI - WI + 1, TI, pIBI.Get(), SBCOMBOP);
-            break;
-          case JBIG2_CORNER_BOTTOMLEFT:
-            SBREG->composeFrom(SI, TI - HI + 1, pIBI.Get(), SBCOMBOP);
-            break;
-          case JBIG2_CORNER_BOTTOMRIGHT:
-            SBREG->composeFrom(SI - WI + 1, TI - HI + 1, pIBI.Get(), SBCOMBOP);
-            break;
-        }
-      } else {
-        switch (REFCORNER) {
-          case JBIG2_CORNER_TOPLEFT:
-            SBREG->composeFrom(TI, SI, pIBI.Get(), SBCOMBOP);
-            break;
-          case JBIG2_CORNER_TOPRIGHT:
-            SBREG->composeFrom(TI - WI + 1, SI, pIBI.Get(), SBCOMBOP);
-            break;
-          case JBIG2_CORNER_BOTTOMLEFT:
-            SBREG->composeFrom(TI, SI - HI + 1, pIBI.Get(), SBCOMBOP);
-            break;
-          case JBIG2_CORNER_BOTTOMRIGHT:
-            SBREG->composeFrom(TI - WI + 1, SI - HI + 1, pIBI.Get(), SBCOMBOP);
-            break;
-        }
-      }
-      if (TRANSPOSED == 0 && ((REFCORNER == JBIG2_CORNER_TOPLEFT) ||
-                              (REFCORNER == JBIG2_CORNER_BOTTOMLEFT))) {
-        CURS += WI - 1;
-      } else if (TRANSPOSED == 1 && ((REFCORNER == JBIG2_CORNER_TOPLEFT) ||
-                                     (REFCORNER == JBIG2_CORNER_TOPRIGHT))) {
-        CURS += HI - 1;
-      }
+      if (!CURS.IsValid())
+        return nullptr;
+
+      int32_t SI = CURS.ValueOrDie();
+      ComposeData compose = GetComposeData(SI, TI, WI, HI);
+      pIBI.Get()->ComposeTo(SBREG.get(), compose.x, compose.y, SBCOMBOP);
+      if (compose.increment)
+        CURS += compose.increment;
       ++NINSTANCES;
     }
   }
   return SBREG;
+}
+
+CJBig2_TRDProc::ComposeData CJBig2_TRDProc::GetComposeData(int32_t SI,
+                                                           int32_t TI,
+                                                           uint32_t WI,
+                                                           uint32_t HI) const {
+  ComposeData results;
+  if (TRANSPOSED == 0) {
+    switch (REFCORNER) {
+      case JBIG2_CORNER_TOPLEFT:
+        results.x = SI;
+        results.y = TI;
+        results.increment = WI - 1;
+        break;
+      case JBIG2_CORNER_TOPRIGHT:
+        results.x = SI - WI + 1;
+        results.y = TI;
+        break;
+      case JBIG2_CORNER_BOTTOMLEFT:
+        results.x = SI;
+        results.y = TI - HI + 1;
+        results.increment = WI - 1;
+        break;
+      case JBIG2_CORNER_BOTTOMRIGHT:
+        results.x = SI - WI + 1;
+        results.y = TI - HI + 1;
+        break;
+    }
+  } else {
+    switch (REFCORNER) {
+      case JBIG2_CORNER_TOPLEFT:
+        results.x = TI;
+        results.y = SI;
+        results.increment = HI - 1;
+        break;
+      case JBIG2_CORNER_TOPRIGHT:
+        results.x = TI - WI + 1;
+        results.y = SI;
+        results.increment = HI - 1;
+        break;
+      case JBIG2_CORNER_BOTTOMLEFT:
+        results.x = TI;
+        results.y = SI - HI + 1;
+        break;
+      case JBIG2_CORNER_BOTTOMRIGHT:
+        results.x = TI - WI + 1;
+        results.y = SI - HI + 1;
+        break;
+    }
+  }
+  return results;
 }

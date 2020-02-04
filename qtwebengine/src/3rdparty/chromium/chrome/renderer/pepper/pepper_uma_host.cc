@@ -6,9 +6,9 @@
 
 #include <stddef.h>
 
-#include "base/macros.h"
 #include "base/metrics/histogram.h"
 #include "base/sha1.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "chrome/common/chrome_content_client.h"
@@ -18,15 +18,14 @@
 #include "content/public/renderer/pepper_plugin_instance.h"
 #include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/renderer_ppapi_host.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
+#include "media/media_buildflags.h"
+#include "ppapi/buildflags/buildflags.h"
 #include "ppapi/c/pp_errors.h"
-#include "ppapi/features/features.h"
 #include "ppapi/host/dispatch_host_message.h"
 #include "ppapi/host/host_message_context.h"
 #include "ppapi/host/ppapi_host.h"
 #include "ppapi/proxy/ppapi_messages.h"
-
-#include "widevine_cdm_version.h"  // In SHARED_INTERMEDIATE_DIR.
 
 #if BUILDFLAG(ENABLE_EXTENSIONS)
 #include "extensions/common/constants.h"
@@ -52,11 +51,7 @@ const char* const kWhitelistedHistogramPrefixes[] = {
     "3FEA4650221C5E6C39CF5C5C9F464FF74EAB6CE1",  // see http://crbug.com/521189
 };
 
-const char* const kWhitelistedPluginBaseNames[] = {
-#if defined(WIDEVINE_CDM_AVAILABLE) && BUILDFLAG(ENABLE_PEPPER_CDMS)
-    kWidevineCdmAdapterFileName,  // see http://crbug.com/368743
-                                  // and http://crbug.com/410630
-#endif
+const base::FilePath::CharType* const kWhitelistedPluginBaseNames[] = {
     ChromeContentClient::kPDFPluginPath,
 };
 
@@ -80,11 +75,11 @@ PepperUMAHost::PepperUMAHost(content::RendererPpapiHost* host,
         host->GetPluginInstance(instance)->GetModulePath().BaseName();
   }
 
-  for (size_t i = 0; i < arraysize(kPredefinedAllowedUMAOrigins); ++i)
+  for (size_t i = 0; i < base::size(kPredefinedAllowedUMAOrigins); ++i)
     allowed_origins_.insert(kPredefinedAllowedUMAOrigins[i]);
-  for (size_t i = 0; i < arraysize(kWhitelistedHistogramPrefixes); ++i)
+  for (size_t i = 0; i < base::size(kWhitelistedHistogramPrefixes); ++i)
     allowed_histogram_prefixes_.insert(kWhitelistedHistogramPrefixes[i]);
-  for (size_t i = 0; i < arraysize(kWhitelistedPluginBaseNames); ++i)
+  for (size_t i = 0; i < base::size(kWhitelistedPluginBaseNames); ++i)
     allowed_plugin_base_names_.insert(kWhitelistedPluginBaseNames[i]);
 }
 
@@ -126,10 +121,8 @@ bool PepperUMAHost::IsHistogramAllowed(const std::string& histogram) {
     return true;
   }
 
-  if (base::ContainsKey(allowed_plugin_base_names_,
-                        plugin_base_name_.MaybeAsASCII())) {
+  if (base::ContainsKey(allowed_plugin_base_names_, plugin_base_name_.value()))
     return true;
-  }
 
   LOG(ERROR) << "Host or histogram name is not allowed to use the UMA API.";
   return false;

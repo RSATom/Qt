@@ -12,7 +12,8 @@ namespace content {
 
 namespace {
 // Used as an identifier for the down-casters.
-void* const kClassIdentifier = const_cast<void**>(&kClassIdentifier);
+void* const kPeerConnectionRemoteTrackIdentifier =
+    const_cast<void**>(&kPeerConnectionRemoteTrackIdentifier);
 }  // namespace
 
 PeerConnectionRemoteAudioTrack::PeerConnectionRemoteAudioTrack(
@@ -33,7 +34,8 @@ PeerConnectionRemoteAudioTrack::~PeerConnectionRemoteAudioTrack() {
 // static
 PeerConnectionRemoteAudioTrack* PeerConnectionRemoteAudioTrack::From(
     MediaStreamAudioTrack* track) {
-  if (track && track->GetClassIdentifier() == kClassIdentifier)
+  if (track &&
+      track->GetClassIdentifier() == kPeerConnectionRemoteTrackIdentifier)
     return static_cast<PeerConnectionRemoteAudioTrack*>(track);
   return nullptr;
 }
@@ -54,7 +56,7 @@ void PeerConnectionRemoteAudioTrack::SetEnabled(bool enabled) {
 }
 
 void* PeerConnectionRemoteAudioTrack::GetClassIdentifier() const {
-  return kClassIdentifier;
+  return kPeerConnectionRemoteTrackIdentifier;
 }
 
 PeerConnectionRemoteAudioSource::PeerConnectionRemoteAudioSource(
@@ -140,7 +142,7 @@ void PeerConnectionRemoteAudioSource::OnData(const void* audio_data,
     MediaStreamAudioSource::SetFormat(
         media::AudioParameters(media::AudioParameters::AUDIO_PCM_LOW_LATENCY,
                                media::GuessChannelLayout(number_of_channels),
-                               sample_rate, bits_per_sample, number_of_frames));
+                               sample_rate, number_of_frames));
   }
 
   MediaStreamAudioSource::DeliverDataToTracks(*audio_bus_, playout_time);

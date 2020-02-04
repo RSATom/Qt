@@ -15,7 +15,7 @@
 #include "base/time/time.h"
 #include "components/metrics/metrics_log_uploader.h"
 #include "components/metrics/metrics_reporting_default_state.h"
-#include "components/metrics/proto/system_profile.pb.h"
+#include "third_party/metrics_proto/system_profile.pb.h"
 
 namespace base {
 class FilePath;
@@ -77,11 +77,6 @@ class MetricsServiceClient {
   // Called by the metrics service to record a clean shutdown.
   virtual void OnLogCleanShutdown() {}
 
-  // Gathers metrics that will be filled into the system profile protobuf,
-  // calling |done_callback| when complete.
-  virtual void InitializeSystemProfileMetrics(
-      const base::Closure& done_callback) = 0;
-
   // Called prior to a metrics log being closed, allowing the client to collect
   // extra histograms that will go in that log. Asynchronous API - the client
   // implementation should call |done_callback| when complete.
@@ -91,10 +86,14 @@ class MetricsServiceClient {
   // Get the URL of the metrics server.
   virtual std::string GetMetricsServerUrl();
 
+  // Get the fallback HTTP URL of the metrics server.
+  virtual std::string GetInsecureMetricsServerUrl();
+
   // Creates a MetricsLogUploader with the specified parameters (see comments on
   // MetricsLogUploader for details).
   virtual std::unique_ptr<MetricsLogUploader> CreateUploader(
       base::StringPiece server_url,
+      base::StringPiece insecure_server_url,
       base::StringPiece mime_type,
       metrics::MetricsLogUploader::MetricServiceType service_type,
       const MetricsLogUploader::UploadCallback& on_upload_complete) = 0;
@@ -120,14 +119,33 @@ class MetricsServiceClient {
   // Returns whether cellular logic is enabled for metrics reporting.
   virtual bool IsUMACellularUploadLogicEnabled();
 
-  // Returns if history sync is enabled on all active profiles.
-  virtual bool IsHistorySyncEnabledOnAllProfiles();
+  // Returns true iff sync is in a state that allows UKM to be enabled.
+  // See //components/ukm/observers/sync_disable_observer.h for details.
+  virtual bool SyncStateAllowsUkm();
+
+  // Returns true iff sync is in a state that allows UKM to capture extensions.
+  // See //components/ukm/observers/sync_disable_observer.h for details.
+  virtual bool SyncStateAllowsExtensionUkm();
+
+  // Returns whether UKM notification listeners were attached to all profiles.
+  virtual bool AreNotificationListenersEnabledOnAllProfiles();
+
+  // Gets Chrome's package name in Android Chrome, or the host app's package
+  // name in Android WebView, or an empty string on other platforms.
+  virtual std::string GetAppPackageName();
+
+  // Gets the key used to sign metrics uploads. This will be used to compute an
+  // HMAC-SHA256 signature of an uploaded log.
+  virtual std::string GetUploadSigningKey();
 
   // Sets the callback to run MetricsServiceManager::UpdateRunningServices.
   void SetUpdateRunningServicesCallback(const base::Closure& callback);
 
   // Notify MetricsServiceManager to UpdateRunningServices using callback.
   void UpdateRunningServices();
+
+  // Checks if the user has forced metrics collection on via the override flag.
+  bool IsMetricsReportingForceEnabled();
 
  private:
   base::Closure update_running_services_;

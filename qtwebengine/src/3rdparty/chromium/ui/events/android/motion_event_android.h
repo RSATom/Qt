@@ -25,6 +25,11 @@ namespace ui {
 // while all *output* coordinates are in DIPs (as with WebTouchEvent).
 class EVENTS_EXPORT MotionEventAndroid : public MotionEvent {
  public:
+  // Returns the motion event action defined in Java layer for a given
+  // MotionEvent::Action.
+  static int GetAndroidAction(Action action);
+  static int GetAndroidToolType(ToolType tool_type);
+
   struct Pointer {
     Pointer(jint id,
             jfloat pos_x_pixels,
@@ -64,6 +69,7 @@ class EVENTS_EXPORT MotionEventAndroid : public MotionEvent {
                      jint meta_state,
                      jfloat raw_offset_x_pixels,
                      jfloat raw_offset_y_pixels,
+                     jboolean for_touch_handle,
                      const Pointer* const pointer0,
                      const Pointer* const pointer1);
   ~MotionEventAndroid() override;
@@ -74,6 +80,9 @@ class EVENTS_EXPORT MotionEventAndroid : public MotionEvent {
 
   // Convenience method returning the pointer at index 0.
   gfx::PointF GetPoint() const { return gfx::PointF(GetX(0), GetY(0)); }
+  gfx::PointF GetPointPix() const {
+    return gfx::PointF(GetXPix(0), GetYPix(0));
+  }
 
   // ui::MotionEvent methods.
   uint32_t GetUniqueEventId() const override;
@@ -91,6 +100,8 @@ class EVENTS_EXPORT MotionEventAndroid : public MotionEvent {
   float GetPressure(size_t pointer_index) const override;
   float GetTiltX(size_t pointer_index) const override;
   float GetTiltY(size_t pointer_index) const override;
+  float GetTwist(size_t pointer_index) const override;
+  float GetTangentialPressure(size_t pointer_index) const override;
   base::TimeTicks GetEventTime() const override;
   size_t GetHistorySize() const override;
   base::TimeTicks GetHistoricalEventTime(
@@ -110,8 +121,12 @@ class EVENTS_EXPORT MotionEventAndroid : public MotionEvent {
   float ticks_y() const { return ticks_y_; }
   float time_sec() const { return time_sec_; }
   float GetTickMultiplier() const;
+  bool for_touch_handle() const { return for_touch_handle_; }
 
   base::android::ScopedJavaLocalRef<jobject> GetJavaObject() const;
+
+  float GetXPix(size_t pointer_index) const;
+  float GetYPix(size_t pointer_index) const;
 
  private:
   struct CachedPointer;
@@ -138,6 +153,8 @@ class EVENTS_EXPORT MotionEventAndroid : public MotionEvent {
   const float ticks_y_;
   const float tick_multiplier_;
   const uint64_t time_sec_;
+
+  const bool for_touch_handle_;
 
   const base::TimeTicks cached_time_;
   const Action cached_action_;

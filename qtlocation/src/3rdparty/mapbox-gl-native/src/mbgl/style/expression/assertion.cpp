@@ -6,6 +6,14 @@ namespace style {
 namespace expression {
 
 using namespace mbgl::style::conversion;
+
+Assertion::Assertion(type::Type type_, std::vector<std::unique_ptr<Expression>> inputs_) :
+    Expression(Kind::Assertion, type_),
+    inputs(std::move(inputs_))
+{
+    assert(!inputs.empty());
+}
+
 ParseResult Assertion::parse(const Convertible& value, ParsingContext& ctx) {
     static std::unordered_map<std::string, type::Type> types {
         {"string", type::String},
@@ -35,6 +43,10 @@ ParseResult Assertion::parse(const Convertible& value, ParsingContext& ctx) {
     return ParseResult(std::make_unique<Assertion>(it->second, std::move(parsed)));
 }
 
+std::string Assertion::getOperator() const {
+    return type::toString(getType());
+}
+
 EvaluationResult Assertion::evaluate(const EvaluationContext& params) const {
     for (std::size_t i = 0; i < inputs.size(); i++) {
         EvaluationResult value = inputs[i]->evaluate(params);
@@ -60,10 +72,21 @@ void Assertion::eachChild(const std::function<void(const Expression&)>& visit) c
 };
 
 bool Assertion::operator==(const Expression& e) const {
-    if (auto rhs = dynamic_cast<const Assertion*>(&e)) {
+    if (e.getKind() == Kind::Assertion) {
+        auto rhs = static_cast<const Assertion*>(&e);
         return getType() == rhs->getType() && Expression::childrenEqual(inputs, rhs->inputs);
     }
     return false;
+}
+
+std::vector<optional<Value>> Assertion::possibleOutputs() const {
+    std::vector<optional<Value>> result;
+    for (const auto& input : inputs) {
+        for (auto& output : input->possibleOutputs()) {
+            result.push_back(std::move(output));
+        }
+    }
+    return result;
 }
 
 } // namespace expression

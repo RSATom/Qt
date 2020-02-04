@@ -13,7 +13,7 @@
 
 #include "core/fpdfapi/page/cpdf_shadingpattern.h"
 #include "core/fpdfapi/parser/cpdf_stream_acc.h"
-#include "core/fxcrt/fx_basic.h"
+#include "core/fxcrt/cfx_bitstream.h"
 #include "core/fxcrt/fx_system.h"
 
 class CPDF_MeshVertex {
@@ -37,8 +37,8 @@ class CPDF_MeshStream {
  public:
   CPDF_MeshStream(ShadingType type,
                   const std::vector<std::unique_ptr<CPDF_Function>>& funcs,
-                  CPDF_Stream* pShadingStream,
-                  CPDF_ColorSpace* pCS);
+                  const CPDF_Stream* pShadingStream,
+                  const CPDF_ColorSpace* pCS);
   ~CPDF_MeshStream();
 
   bool Load();
@@ -57,7 +57,7 @@ class CPDF_MeshStream {
   std::vector<CPDF_MeshVertex> ReadVertexRow(const CFX_Matrix& pObject2Bitmap,
                                              int count);
 
-  CFX_BitStream* BitStream() { return &m_BitStream; }
+  CFX_BitStream* BitStream() { return m_BitStream.get(); }
   uint32_t ComponentBits() const { return m_nComponentBits; }
   uint32_t Components() const { return m_nComponents; }
 
@@ -66,8 +66,8 @@ class CPDF_MeshStream {
 
   const ShadingType m_type;
   const std::vector<std::unique_ptr<CPDF_Function>>& m_funcs;
-  CFX_UnownedPtr<CPDF_Stream> const m_pShadingStream;
-  CFX_UnownedPtr<CPDF_ColorSpace> const m_pCS;
+  UnownedPtr<const CPDF_Stream> const m_pShadingStream;
+  UnownedPtr<const CPDF_ColorSpace> const m_pCS;
   uint32_t m_nCoordBits;
   uint32_t m_nComponentBits;
   uint32_t m_nFlagBits;
@@ -78,10 +78,10 @@ class CPDF_MeshStream {
   float m_xmax;
   float m_ymin;
   float m_ymax;
+  RetainPtr<CPDF_StreamAcc> m_pStream;
+  std::unique_ptr<CFX_BitStream> m_BitStream;
   float m_ColorMin[kMaxComponents];
   float m_ColorMax[kMaxComponents];
-  CFX_RetainPtr<CPDF_StreamAcc> m_pStream;
-  CFX_BitStream m_BitStream;
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_MESHSTREAM_H_

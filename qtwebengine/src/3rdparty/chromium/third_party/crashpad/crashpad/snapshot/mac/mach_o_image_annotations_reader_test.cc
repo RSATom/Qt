@@ -28,10 +28,12 @@
 
 #include "base/files/file_path.h"
 #include "base/macros.h"
+#include "client/annotation.h"
+#include "client/annotation_list.h"
 #include "client/crashpad_info.h"
 #include "client/simple_string_dictionary.h"
 #include "gtest/gtest.h"
-#include "snapshot/mac/process_reader.h"
+#include "snapshot/mac/process_reader_mac.h"
 #include "test/errors.h"
 #include "test/mac/mach_errors.h"
 #include "test/mac/mach_multiprocess.h"
@@ -49,13 +51,16 @@ namespace test {
 namespace {
 
 // \return The path to crashpad_snapshot_test_module_crashy_initializer.so
-std::string ModuleWithCrashyInitializer() {
-  return TestPaths::Executable().value() + "_module_crashy_initializer.so";
+base::FilePath ModuleWithCrashyInitializer() {
+  return TestPaths::BuildArtifact("snapshot",
+                                  "module_crashy_initializer",
+                                  TestPaths::FileType::kLoadableModule);
 }
 
 //! \return The path to the crashpad_snapshot_test_no_op executable.
 base::FilePath NoOpExecutable() {
-  return base::FilePath(TestPaths::Executable().value() + "_no_op");
+  return TestPaths::BuildArtifact(
+      "snapshot", "no_op", TestPaths::FileType::kExecutable);
 }
 
 class TestMachOImageAnnotationsReader final
@@ -96,6 +101,32 @@ class TestMachOImageAnnotationsReader final
       : MachMultiprocess(),
         UniversalMachExcServer::Interface(),
         test_type_(test_type) {
+    switch (test_type_) {
+      case kDontCrash:
+        // SetExpectedChildTermination(kTerminationNormal, EXIT_SUCCESS) is the
+        // default.
+        break;
+
+      case kCrashAbort:
+        SetExpectedChildTermination(kTerminationSignal, SIGABRT);
+        break;
+
+      case kCrashModuleInitialization:
+        // This crash is triggered by __builtin_trap(), which shows up as
+        // SIGILL.
+        SetExpectedChildTermination(kTerminationSignal, SIGILL);
+        break;
+
+      case kCrashDyld:
+        // Prior to 10.12, dyld fatal errors result in the execution of an
+        // int3 instruction on x86 and a trap instruction on ARM, both of
+        // which raise SIGTRAP. 10.9.5 dyld-239.4/src/dyldStartup.s
+        // _dyld_fatal_error. This changed in 10.12 to use
+        // abort_with_payload(), which appears as SIGABRT to a waiting parent.
+        SetExpectedChildTermination(
+            kTerminationSignal, MacOSXMinorVersion() < 12 ? SIGTRAP : SIGABRT);
+        break;
+    }
   }
 
   ~TestMachOImageAnnotationsReader() {}
@@ -130,15 +161,15 @@ class TestMachOImageAnnotationsReader final
     EXPECT_EQ(kr, KERN_SUCCESS) << MachErrorMessage(kr, "pid_for_task");
     EXPECT_EQ(task_pid, ChildPID());
 
-    ProcessReader process_reader;
+    ProcessReaderMac process_reader;
     bool rv = process_reader.Initialize(task);
     if (!rv) {
       ADD_FAILURE();
     } else {
-      const std::vector<ProcessReader::Module>& modules =
+      const std::vector<ProcessReaderMac::Module>& modules =
           process_reader.Modules();
       std::vector<std::string> all_annotations_vector;
-      for (const ProcessReader::Module& module : modules) {
+      for (const ProcessReaderMac::Module& module : modules) {
         if (module.reader) {
           MachOImageAnnotationsReader module_annotations_reader(
               &process_reader, module.reader, module.name);
@@ -181,7 +212,7 @@ class TestMachOImageAnnotationsReader final
           case kCrashModuleInitialization:
             // This message is set by dyld-353.2.1/src/ImageLoaderMachO.cpp
             // ImageLoaderMachO::doInitialization().
-            expected_annotation = ModuleWithCrashyInitializer();
+            expected_annotation = ModuleWithCrashyInitializer().value();
             break;
 
           case kCrashDyld:
@@ -212,7 +243,8 @@ class TestMachOImageAnnotationsReader final
 
       // dyld exposes its error_string at least as far back as Mac OS X 10.4.
       if (test_type_ == kCrashDyld) {
-        const char kExpectedAnnotation[] = "could not load inserted library";
+        static constexpr char kExpectedAnnotation[] =
+            "could not load inserted library";
         size_t expected_annotation_length = strlen(kExpectedAnnotation);
         bool found = false;
         for (const std::string& annotation : all_annotations_vector) {
@@ -239,7 +271,7 @@ class TestMachOImageAnnotationsReader final
   // MachMultiprocess:
 
   void MachMultiprocessParent() override {
-    ProcessReader process_reader;
+    ProcessReaderMac process_reader;
     ASSERT_TRUE(process_reader.Initialize(ChildTask()));
 
     // Wait for the child process to indicate that it’s done setting up its
@@ -247,17 +279,24 @@ class TestMachOImageAnnotationsReader final
     char c;
     CheckedReadFileExactly(ReadPipeHandle(), &c, sizeof(c));
 
-    // Verify the “simple map” annotations set via the CrashpadInfo interface.
-    const std::vector<ProcessReader::Module>& modules =
+    // Verify the “simple map” and object-based annotations set via the
+    // CrashpadInfo interface.
+    const std::vector<ProcessReaderMac::Module>& modules =
         process_reader.Modules();
     std::map<std::string, std::string> all_annotations_simple_map;
-    for (const ProcessReader::Module& module : modules) {
+    std::vector<AnnotationSnapshot> all_annotations;
+    for (const ProcessReaderMac::Module& module : modules) {
       MachOImageAnnotationsReader module_annotations_reader(
           &process_reader, module.reader, module.name);
       std::map<std::string, std::string> module_annotations_simple_map =
           module_annotations_reader.SimpleMap();
       all_annotations_simple_map.insert(module_annotations_simple_map.begin(),
                                         module_annotations_simple_map.end());
+
+      std::vector<AnnotationSnapshot> annotations =
+          module_annotations_reader.AnnotationsList();
+      all_annotations.insert(
+          all_annotations.end(), annotations.begin(), annotations.end());
     }
 
     EXPECT_GE(all_annotations_simple_map.size(), 5u);
@@ -266,6 +305,31 @@ class TestMachOImageAnnotationsReader final
     EXPECT_EQ(all_annotations_simple_map["#TEST# x"], "y");
     EXPECT_EQ(all_annotations_simple_map["#TEST# longer"], "shorter");
     EXPECT_EQ(all_annotations_simple_map["#TEST# empty_value"], "");
+
+    EXPECT_EQ(all_annotations.size(), 3u);
+    bool saw_same_name_3 = false, saw_same_name_4 = false;
+    for (const auto& annotation : all_annotations) {
+      EXPECT_EQ(annotation.type,
+                static_cast<uint16_t>(Annotation::Type::kString));
+      std::string value(reinterpret_cast<const char*>(annotation.value.data()),
+                        annotation.value.size());
+
+      if (annotation.name == "#TEST# one") {
+        EXPECT_EQ(value, "moocow");
+      } else if (annotation.name == "#TEST# same-name") {
+        if (value == "same-name 3") {
+          EXPECT_FALSE(saw_same_name_3);
+          saw_same_name_3 = true;
+        } else if (value == "same-name 4") {
+          EXPECT_FALSE(saw_same_name_4);
+          saw_same_name_4 = true;
+        } else {
+          ADD_FAILURE() << "unexpected annotation value " << value;
+        }
+      } else {
+        ADD_FAILURE() << "unexpected annotation " << annotation.name;
+      }
+    }
 
     // Tell the child process that it’s permitted to crash.
     CheckedWriteFile(WritePipeHandle(), &c, sizeof(c));
@@ -284,33 +348,6 @@ class TestMachOImageAnnotationsReader final
                                  kMachMessageTimeoutWaitIndefinitely);
       EXPECT_EQ(mr, MACH_MSG_SUCCESS)
           << MachErrorMessage(mr, "MachMessageServer::Run");
-
-      switch (test_type_) {
-        case kCrashAbort:
-          SetExpectedChildTermination(kTerminationSignal, SIGABRT);
-          break;
-
-        case kCrashModuleInitialization:
-          // This crash is triggered by __builtin_trap(), which shows up as
-          // SIGILL.
-          SetExpectedChildTermination(kTerminationSignal, SIGILL);
-          break;
-
-        case kCrashDyld:
-          // Prior to 10.12, dyld fatal errors result in the execution of an
-          // int3 instruction on x86 and a trap instruction on ARM, both of
-          // which raise SIGTRAP. 10.9.5 dyld-239.4/src/dyldStartup.s
-          // _dyld_fatal_error. This changed in 10.12 to use
-          // abort_with_payload(), which appears as SIGABRT to a waiting parent.
-          SetExpectedChildTermination(
-              kTerminationSignal,
-              MacOSXMinorVersion() < 12 ? SIGTRAP : SIGABRT);
-          break;
-
-        default:
-          FAIL();
-          break;
-      }
     }
   }
 
@@ -327,6 +364,19 @@ class TestMachOImageAnnotationsReader final
     simple_annotations->SetKeyValue("#TEST# empty_value", "");
 
     crashpad_info->set_simple_annotations(simple_annotations);
+
+    AnnotationList::Register();  // This is “leaked” to crashpad_info.
+
+    static StringAnnotation<32> test_annotation_one{"#TEST# one"};
+    static StringAnnotation<32> test_annotation_two{"#TEST# two"};
+    static StringAnnotation<32> test_annotation_three{"#TEST# same-name"};
+    static StringAnnotation<32> test_annotation_four{"#TEST# same-name"};
+
+    test_annotation_one.Set("moocow");
+    test_annotation_two.Set("this will be cleared");
+    test_annotation_three.Set("same-name 3");
+    test_annotation_four.Set("same-name 4");
+    test_annotation_two.Clear();
 
     // Tell the parent that the environment has been set up.
     char c = '\0';
@@ -354,7 +404,7 @@ class TestMachOImageAnnotationsReader final
 
       case kCrashModuleInitialization: {
         // Load a module that crashes while executing a module initializer.
-        void* dl_handle = dlopen(ModuleWithCrashyInitializer().c_str(),
+        void* dl_handle = dlopen(ModuleWithCrashyInitializer().value().c_str(),
                                  RTLD_LAZY | RTLD_LOCAL);
 
         // This should have crashed in the dlopen(). If dlopen() failed, the
@@ -411,7 +461,13 @@ TEST(MachOImageAnnotationsReader, CrashAbort) {
   test_mach_o_image_annotations_reader.Run();
 }
 
-TEST(MachOImageAnnotationsReader, CrashModuleInitialization) {
+#if defined(ADDRESS_SANITIZER)
+// https://crbug.com/844396
+#define MAYBE_CrashModuleInitialization DISABLED_CrashModuleInitialization
+#else
+#define MAYBE_CrashModuleInitialization CrashModuleInitialization
+#endif
+TEST(MachOImageAnnotationsReader, MAYBE_CrashModuleInitialization) {
   TestMachOImageAnnotationsReader test_mach_o_image_annotations_reader(
       TestMachOImageAnnotationsReader::kCrashModuleInitialization);
   test_mach_o_image_annotations_reader.Run();

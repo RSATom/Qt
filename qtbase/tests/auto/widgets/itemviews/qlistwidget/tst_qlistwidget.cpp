@@ -31,6 +31,7 @@
 #include <QtGui/QtGui>
 #include <QtWidgets/QtWidgets>
 #include <qlist.h>
+#include <QSignalSpy>
 
 #include <qlistwidget.h>
 #include <private/qlistwidget_p.h>
@@ -116,6 +117,14 @@ private slots:
     void QTBUG14363_completerWithAnyKeyPressedEditTriggers();
     void mimeData();
     void QTBUG50891_ensureSelectionModelSignalConnectionsAreSet();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    void clearItemData();
+#endif
+
+    void moveRows_data();
+    void moveRows();
+    void moveRowsInvalid_data();
+    void moveRowsInvalid();
 
 protected slots:
     void rowsAboutToBeInserted(const QModelIndex &parent, int first, int last)
@@ -148,6 +157,108 @@ private:
 };
 
 
+void tst_QListWidget::moveRowsInvalid_data()
+{
+    QTest::addColumn<QListWidget*>("baseWidget");
+    QTest::addColumn<QModelIndex>("startParent");
+    QTest::addColumn<int>("startRow");
+    QTest::addColumn<int>("count");
+    QTest::addColumn<QModelIndex>("destinationParent");
+    QTest::addColumn<int>("destination");
+
+    const auto createWidget = []() -> QListWidget* {
+        QListWidget* result = new QListWidget;
+        result->addItems(QStringList{"A", "B", "C", "D", "E", "F"});
+        return result;
+    };
+
+    QTest::addRow("destination_equal_source") << createWidget() << QModelIndex() << 0 << 1 << QModelIndex() << 1;
+    QTest::addRow("count_equal_0") << createWidget() << QModelIndex() << 0 << 0 << QModelIndex() << 2;
+    QListWidget* tempWidget = createWidget();
+    QTest::addRow("move_child") << tempWidget << tempWidget->model()->index(0, 0) << 0 << 1 << QModelIndex() << 2;
+    tempWidget = createWidget();
+    QTest::addRow("move_to_child") << tempWidget << QModelIndex() << 0 << 1 << tempWidget->model()->index(0, 0) << 2;
+    QTest::addRow("negative_count") << createWidget() << QModelIndex() << 0 << -1 << QModelIndex() << 2;
+    QTest::addRow("negative_source_row") << createWidget() << QModelIndex() << -1 << 1 << QModelIndex() << 2;
+    QTest::addRow("negative_destination_row") << createWidget() << QModelIndex() << 0 << 1 << QModelIndex() << -1;
+    QTest::addRow("source_row_equal_rowCount") << createWidget() << QModelIndex() << 6 << 1 << QModelIndex() << 1;
+    QTest::addRow("destination_row_greater_rowCount") << createWidget() << QModelIndex() << 0 << 1 << QModelIndex() << 6 + 1;
+    QTest::addRow("move_row_within_source_range") << createWidget() << QModelIndex() << 0 << 3 << QModelIndex() << 2;
+    QTest::addRow("destination_row_before_0") << createWidget() << QModelIndex() << 1 << 1 << QModelIndex() << 0;
+}
+
+void tst_QListWidget::moveRowsInvalid()
+{
+    QFETCH(QListWidget* const, baseWidget);
+    QFETCH(const QModelIndex, startParent);
+    QFETCH(const int, startRow);
+    QFETCH(const int, count);
+    QFETCH(const QModelIndex, destinationParent);
+    QFETCH(const int, destination);
+    QAbstractItemModel *baseModel = baseWidget->model();
+    QSignalSpy rowMovedSpy(baseModel, &QAbstractItemModel::rowsMoved);
+    QSignalSpy rowAboutMovedSpy(baseModel, &QAbstractItemModel::rowsAboutToBeMoved);
+    QVERIFY(rowMovedSpy.isValid());
+    QVERIFY(rowAboutMovedSpy.isValid());
+    QVERIFY(!baseModel->moveRows(startParent, startRow, count, destinationParent, destination));
+    QCOMPARE(rowMovedSpy.size(), 0);
+    QCOMPARE(rowAboutMovedSpy.size(), 0);
+    delete baseWidget;
+}
+
+void tst_QListWidget::moveRows_data()
+{
+    QTest::addColumn<int>("startRow");
+    QTest::addColumn<int>("count");
+    QTest::addColumn<int>("destination");
+    QTest::addColumn<QStringList>("expected");
+
+    QTest::newRow("1_Item_from_top_to_middle") << 0 << 1 << 3 << QStringList{"B", "C", "A", "D", "E", "F"};
+    QTest::newRow("1_Item_from_top_to_bottom") << 0 << 1 << 6 << QStringList{"B", "C", "D", "E", "F", "A"};
+    QTest::newRow("1_Item_from_middle_to_top") << 2 << 1 << 1 << QStringList{"C", "A", "B", "D", "E", "F"};
+    QTest::newRow("1_Item_from_bottom_to_middle") << 5 << 1 << 3 << QStringList{"A", "B", "F", "C", "D", "E"};
+    QTest::newRow("1_Item_from_bottom to_top") << 5 << 1 << 1 << QStringList{"F", "A", "B", "C", "D", "E"};
+    QTest::newRow("1_Item_from_middle_to_bottom") << 2 << 1 << 6 << QStringList{"A", "B", "D", "E", "F", "C"};
+    QTest::newRow("1_Item_from_middle_to_middle_before") << 2 << 1 << 1 << QStringList{"C", "A", "B", "D", "E", "F"};
+    QTest::newRow("1_Item_from_middle_to_middle_after") << 2 << 1 << 4 << QStringList{"A", "B", "D", "C", "E", "F"};
+
+    QTest::newRow("2_Items_from_top_to_middle") << 0 << 2 << 3 << QStringList{"C", "A", "B", "D", "E", "F"};
+    QTest::newRow("2_Items_from_top_to_bottom") << 0 << 2 << 6 << QStringList{"C", "D", "E", "F", "A", "B"};
+    QTest::newRow("2_Items_from_middle_to_top") << 2 << 2 << 1 << QStringList{"C", "D", "A", "B", "E", "F"};
+    QTest::newRow("2_Items_from_bottom_to_middle") << 4 << 2 << 3 << QStringList{"A", "B", "E", "F", "C", "D"};
+    QTest::newRow("2_Items_from_bottom_to_top") << 4 << 2 << 1 << QStringList{"E", "F", "A", "B", "C", "D"};
+    QTest::newRow("2_Items_from_middle_to_bottom") << 2 << 2 << 6 << QStringList{"A", "B", "E", "F", "C", "D"};
+    QTest::newRow("2_Items_from_middle_to_middle_before") << 3 << 2 << 2 << QStringList{"A", "D", "E", "B", "C", "F"};
+    QTest::newRow("2_Items_from_middle_to_middle_after") << 1 << 2 << 5 << QStringList{"A", "D", "E", "B", "C", "F"};
+}
+
+void tst_QListWidget::moveRows()
+{
+    QFETCH(const int, startRow);
+    QFETCH(const int, count);
+    QFETCH(const int, destination);
+    QFETCH(const QStringList, expected);
+    QListWidget baseWidget;
+    baseWidget.addItems(QStringList{"A", "B", "C", "D", "E", "F"});
+    QAbstractItemModel *baseModel = baseWidget.model();
+    QSignalSpy rowMovedSpy(baseModel, &QAbstractItemModel::rowsMoved);
+    QSignalSpy rowAboutMovedSpy(baseModel, &QAbstractItemModel::rowsAboutToBeMoved);
+    QVERIFY(baseModel->moveRows(QModelIndex(), startRow, count, QModelIndex(), destination));
+    QCOMPARE(baseModel->rowCount(), expected.size());
+    for (int i = 0; i < expected.size(); ++i)
+        QCOMPARE(baseModel->index(i, 0).data().toString(), expected.at(i));
+    QCOMPARE(rowMovedSpy.size(), 1);
+    QCOMPARE(rowAboutMovedSpy.size(), 1);
+    for (const QList<QVariant> &signalArgs : {rowMovedSpy.first(), rowAboutMovedSpy.first()}){
+        QVERIFY(!signalArgs.at(0).value<QModelIndex>().isValid());
+        QCOMPARE(signalArgs.at(1).toInt(), startRow);
+        QCOMPARE(signalArgs.at(2).toInt(), startRow + count - 1);
+        QVERIFY(!signalArgs.at(3).value<QModelIndex>().isValid());
+        QCOMPARE(signalArgs.at(4).toInt(), destination);
+    }
+}
+
+
 typedef QList<int> IntList;
 
 tst_QListWidget::tst_QListWidget(): testWidget(0), rcParent(8), rcFirst(8,0), rcLast(8,0)
@@ -156,6 +267,7 @@ tst_QListWidget::tst_QListWidget(): testWidget(0), rcParent(8), rcFirst(8,0), rc
 
 void tst_QListWidget::initTestCase()
 {
+    qRegisterMetaType<QListWidgetItem*>("QListWidgetItem*");
     testWidget = new QListWidget();
     testWidget->show();
 
@@ -233,7 +345,7 @@ void tst_QListWidget::addItem2()
     testWidget->addItem(item);
     QCOMPARE(testWidget->count(), ++count);
     QCOMPARE(testWidget->item(testWidget->count()-1), item);
-    QCOMPARE(testWidget->isItemHidden(item), false);
+    QCOMPARE(item->isHidden(), false);
 }
 
 void tst_QListWidget::addItems()
@@ -291,13 +403,18 @@ void tst_QListWidget::closePersistentEditor()
 
 void tst_QListWidget::setItemHidden()
 {
+#if QT_DEPRECATED_SINCE(5, 13)
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_DEPRECATED
     // Boundary checking
-    testWidget->setItemHidden(0, true);
-    testWidget->setItemHidden(0, false);
+    testWidget->setItemHidden(nullptr, true);
+    testWidget->setItemHidden(nullptr, false);
+QT_WARNING_POP
+#endif
 
     int totalHidden = 0;
     for (int i = 0; i < testWidget->model()->rowCount(); ++i)
-        if (testWidget->isItemHidden(testWidget->item(i)))
+        if (testWidget->item(i)->isHidden())
             totalHidden++;
 
     QListWidgetItem *item = new QListWidgetItem(QString::number(testWidget->count()));
@@ -306,31 +423,31 @@ void tst_QListWidget::setItemHidden()
     // Check that nothing else changed
     int newTotal = 0;
     for (int i = 0; i < testWidget->model()->rowCount(); ++i)
-        if (testWidget->isItemHidden(testWidget->item(i)))
+        if (testWidget->item(i)->isHidden())
             newTotal++;
     QCOMPARE(newTotal, totalHidden);
 
-    testWidget->setItemHidden(item, true);
-    QCOMPARE(testWidget->isItemHidden(item), true);
+    item->setHidden(true);
+    QCOMPARE(item->isHidden(), true);
 
     // Check that nothing else changed
     newTotal = 0;
     for (int i = 0; i < testWidget->model()->rowCount(); ++i)
-        if (testWidget->isItemHidden(testWidget->item(i)))
+        if (testWidget->item(i)->isHidden())
             newTotal++;
     QCOMPARE(newTotal, totalHidden + 1);
 
-    testWidget->setItemHidden(item, false);
-    QCOMPARE(testWidget->isItemHidden(item), false);
+    item->setHidden(false);
+    QCOMPARE(item->isHidden(), false);
 
     // Check that nothing else changed
     newTotal = 0;
     for (int i = 0; i < testWidget->model()->rowCount(); ++i)
-        if (testWidget->isItemHidden(testWidget->item(i)))
+        if (testWidget->item(i)->isHidden())
             newTotal++;
     QCOMPARE(newTotal, totalHidden);
 
-    testWidget->setItemHidden(item, true);
+    item->setHidden(true);
 }
 
 void tst_QListWidget::setCurrentItem_data()
@@ -547,6 +664,9 @@ void tst_QListWidget::insertItems()
     QFETCH(int, rowCount);
     QFETCH(int, insertType);
 
+    QSignalSpy itemChangedSpy(testWidget, &QListWidget::itemChanged);
+    QSignalSpy dataChangedSpy(testWidget->model(), &QAbstractItemModel::dataChanged);
+
     if (insertType == 3) {
         QStringList strings;
         for (int i=0; i<rowCount; ++i)
@@ -584,6 +704,9 @@ void tst_QListWidget::insertItems()
     // make sure all items have view set correctly
     for (int i=0; i<testWidget->count(); ++i)
         QCOMPARE(testWidget->item(i)->listWidget(), testWidget);
+
+    QCOMPARE(itemChangedSpy.count(), 0);
+    QCOMPARE(dataChangedSpy.count(), 0);
 }
 
 void tst_QListWidget::itemAssignment()
@@ -736,7 +859,7 @@ void tst_QListWidget::selectedItems()
     testWidget->setSelectionMode(QListWidget::SingleSelection);
     for (int i=0; i<itemCount; ++i) {
         QListWidgetItem *item = testWidget->item(i);
-        testWidget->setItemSelected(item, true);
+        item->setSelected(true);
         QVERIFY(item->isSelected());
         QCOMPARE(testWidget->selectedItems().count(), 1);
     }
@@ -749,10 +872,10 @@ void tst_QListWidget::selectedItems()
     QCOMPARE(testWidget->count(), itemCount);
     // hide items
     foreach (int row, hiddenRows)
-        testWidget->setItemHidden(testWidget->item(row), true);
+        testWidget->item(row)->setHidden(true);
     // select items
     foreach (int row, selectedRows)
-        testWidget->setItemSelected(testWidget->item(row), true);
+        testWidget->item(row)->setSelected(true);
 
     // check that the correct number of items and the expected items are there
     QList<QListWidgetItem *> selectedItems = testWidget->selectedItems();
@@ -763,7 +886,7 @@ void tst_QListWidget::selectedItems()
     //check that isSelected agrees with selectedItems
     for (int i=0; i<itemCount; ++i) {
         QListWidgetItem *item = testWidget->item(i);
-        if (testWidget->isItemSelected(item))
+        if (item->isSelected())
             QVERIFY(selectedItems.contains(item));
     }
 }
@@ -1141,7 +1264,6 @@ void tst_QListWidget::setData()
     QFETCH(IntList, roles);
     QFETCH(QVariantList, values);
     QFETCH(int, expectedSignalCount);
-    qRegisterMetaType<QListWidgetItem *>("QListWidgetItem*");
 
     QCOMPARE(roles.count(), values.count());
 
@@ -1381,20 +1503,38 @@ void tst_QListWidget::changeDataWithSorting_data()
         << false;
 }
 
+class QListWidgetDataChanged : public QListWidget
+{
+    Q_OBJECT
+public:
+    using QListWidget::QListWidget;
+
+    void dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight, const QVector<int> &roles) override
+    {
+        QListWidget::dataChanged(topLeft, bottomRight, roles);
+        currentRoles = roles;
+    }
+    QVector<int> currentRoles;
+};
+
 void tst_QListWidget::itemData()
 {
-    QListWidget widget;
+    QListWidgetDataChanged widget;
     QListWidgetItem item(&widget);
     item.setFlags(item.flags() | Qt::ItemIsEditable);
     item.setData(Qt::DisplayRole,  QString("0"));
+    QCOMPARE(widget.currentRoles, QVector<int>({Qt::DisplayRole, Qt::EditRole}));
     item.setData(Qt::CheckStateRole, Qt::PartiallyChecked);
-    item.setData(Qt::UserRole + 0, QString("1"));
-    item.setData(Qt::UserRole + 1, QString("2"));
-    item.setData(Qt::UserRole + 2, QString("3"));
-    item.setData(Qt::UserRole + 3, QString("4"));
+    QCOMPARE(widget.currentRoles, {Qt::CheckStateRole});
+    for (int i = 0; i < 4; ++i)
+    {
+        item.setData(Qt::UserRole + i, QString::number(i + 1));
+        QCOMPARE(widget.currentRoles, {Qt::UserRole + i});
+    }
     QMap<int, QVariant> flags = widget.model()->itemData(widget.model()->index(0, 0));
     QCOMPARE(flags.count(), 6);
-    QCOMPARE(flags[Qt::UserRole + 0].toString(), QString("1"));
+    for (int i = 0; i < 4; ++i)
+        QCOMPARE(flags[Qt::UserRole + i].toString(), QString::number(i + 1));
 }
 
 void tst_QListWidget::changeDataWithSorting()
@@ -1547,7 +1687,7 @@ void tst_QListWidget::task217070_scrollbarsAdjusted()
     v.setResizeMode(QListView::Adjust);
     v.setUniformItemSizes(true);
     v.resize(160,100);
-    QTest::qWait(50);
+    QVERIFY(QTest::qWaitForWindowActive(&v));
     QScrollBar *hbar = v.horizontalScrollBar();
     QScrollBar *vbar = v.verticalScrollBar();
     QVERIFY(hbar && vbar);
@@ -1581,7 +1721,6 @@ void tst_QListWidget::task258949_keypressHangup()
 
 void tst_QListWidget::QTBUG8086_currentItemChangedOnClick()
 {
-    qRegisterMetaType<QListWidgetItem*>("QListWidgetItem*");
     QWidget win;
     QHBoxLayout layout(&win);
     QListWidget list;
@@ -1703,7 +1842,6 @@ void tst_QListWidget::mimeData()
 
 void tst_QListWidget::QTBUG50891_ensureSelectionModelSignalConnectionsAreSet()
 {
-    qRegisterMetaType<QListWidgetItem*>("QListWidgetItem*");
     QListWidget list;
     for (int i = 0 ; i < 4; ++i)
         new QListWidgetItem(QString::number(i), &list);
@@ -1724,6 +1862,28 @@ void tst_QListWidget::QTBUG50891_ensureSelectionModelSignalConnectionsAreSet()
     QCOMPARE(itemSelectionChangedSpy.count(), 1);
 
 }
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+void tst_QListWidget::clearItemData()
+{
+    QListWidget list;
+    for (int i = 0 ; i < 4; ++i)
+        new QListWidgetItem(QString::number(i), &list);
+    QSignalSpy dataChangeSpy(list.model(), &QAbstractItemModel::dataChanged);
+    QVERIFY(dataChangeSpy.isValid());
+    QVERIFY(!list.model()->clearItemData(QModelIndex()));
+    QCOMPARE(dataChangeSpy.size(), 0);
+    QVERIFY(list.model()->clearItemData(list.model()->index(0, 0)));
+    QVERIFY(!list.model()->index(0, 0).data().isValid());
+    QCOMPARE(dataChangeSpy.size(), 1);
+    const QList<QVariant> dataChangeArgs = dataChangeSpy.takeFirst();
+    QCOMPARE(dataChangeArgs.at(0).value<QModelIndex>(), list.model()->index(0, 0));
+    QCOMPARE(dataChangeArgs.at(1).value<QModelIndex>(), list.model()->index(0, 0));
+    QVERIFY(dataChangeArgs.at(2).value<QVector<int>>().isEmpty());
+    QVERIFY(list.model()->clearItemData(list.model()->index(0, 0)));
+    QCOMPARE(dataChangeSpy.size(), 0);
+}
+#endif
 
 QTEST_MAIN(tst_QListWidget)
 #include "tst_qlistwidget.moc"

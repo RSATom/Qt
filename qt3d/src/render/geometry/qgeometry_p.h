@@ -53,12 +53,13 @@
 
 #include <Qt3DRender/private/qt3drender_global_p.h>
 #include <Qt3DCore/private/qnode_p.h>
+#include <QVector3D>
 
 QT_BEGIN_NAMESPACE
 
 namespace Qt3DRender {
 
-class QT3DRENDERSHARED_PRIVATE_EXPORT QGeometryPrivate : public Qt3DCore::QNodePrivate
+class Q_3DRENDERSHARED_PRIVATE_EXPORT QGeometryPrivate : public Qt3DCore::QNodePrivate
 {
 public:
     Q_DECLARE_PUBLIC(QGeometry)
@@ -68,6 +69,8 @@ public:
 
     QVector<QAttribute *> m_attributes;
     QAttribute *m_boundingVolumePositionAttribute;
+    QVector3D m_minExtent;
+    QVector3D m_maxExtent;
 };
 
 struct QGeometryData

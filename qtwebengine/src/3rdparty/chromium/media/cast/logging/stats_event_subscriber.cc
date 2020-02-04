@@ -6,11 +6,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <utility>
 
 #include "base/format_macros.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 
@@ -45,8 +45,7 @@ StatsEventSubscriber::SimpleHistogram::SimpleHistogram(int64_t min,
   CHECK_EQ(0, (max_ - min_) % width_);
 }
 
-StatsEventSubscriber::SimpleHistogram::~SimpleHistogram() {
-}
+StatsEventSubscriber::SimpleHistogram::~SimpleHistogram() = default;
 
 void StatsEventSubscriber::SimpleHistogram::Add(int64_t sample) {
   if (sample < min_) {
@@ -99,7 +98,7 @@ StatsEventSubscriber::SimpleHistogram::GetHistogram() const {
 
 StatsEventSubscriber::StatsEventSubscriber(
     EventMediaType event_media_type,
-    base::TickClock* clock,
+    const base::TickClock* clock,
     ReceiverTimeOffsetEstimator* offset_estimator)
     : event_media_type_(event_media_type),
       clock_(clock),
@@ -130,7 +129,7 @@ void StatsEventSubscriber::OnReceiveFrameEvent(const FrameEvent& frame_event) {
   if (frame_event.media_type != event_media_type_)
     return;
 
-  FrameStatsMap::iterator it = frame_stats_.find(type);
+  auto it = frame_stats_.find(type);
   if (it == frame_stats_.end()) {
     FrameLogStats stats;
     stats.event_counter = 1;
@@ -177,7 +176,7 @@ void StatsEventSubscriber::OnReceivePacketEvent(
   if (packet_event.media_type != event_media_type_)
     return;
 
-  PacketStatsMap::iterator it = packet_stats_.find(type);
+  auto it = packet_stats_.find(type);
   if (it == packet_stats_.end()) {
     PacketLogStats stats;
     stats.event_counter = 1;
@@ -228,9 +227,9 @@ void StatsEventSubscriber::UpdateFirstLastEventTime(base::TimeTicks timestamp,
 std::unique_ptr<base::DictionaryValue> StatsEventSubscriber::GetStats() const {
   StatsMap stats_map;
   GetStatsInternal(&stats_map);
-  auto ret = base::MakeUnique<base::DictionaryValue>();
+  auto ret = std::make_unique<base::DictionaryValue>();
 
-  auto stats = base::MakeUnique<base::DictionaryValue>();
+  auto stats = std::make_unique<base::DictionaryValue>();
   for (StatsMap::const_iterator it = stats_map.begin(); it != stats_map.end();
        ++it) {
     // Round to 3 digits after the decimal point.
@@ -239,9 +238,7 @@ std::unique_ptr<base::DictionaryValue> StatsEventSubscriber::GetStats() const {
   }
 
   // Populate all histograms.
-  for (HistogramMap::const_iterator it = histograms_.begin();
-       it != histograms_.end();
-       ++it) {
+  for (auto it = histograms_.begin(); it != histograms_.end(); ++it) {
     stats->Set(CastStatToString(it->first), it->second->GetHistogram());
   }
 
@@ -276,8 +273,7 @@ void StatsEventSubscriber::Reset() {
   packet_sent_times_.clear();
   start_time_ = clock_->NowTicks();
   last_response_received_time_ = base::TimeTicks();
-  for (HistogramMap::iterator it = histograms_.begin(); it != histograms_.end();
-       ++it) {
+  for (auto it = histograms_.begin(); it != histograms_.end(); ++it) {
     it->second->Reset();
   }
 
@@ -336,30 +332,22 @@ const int kLargeMaxLatencyBucketMs = 1200;
 const int kLargeBucketWidthMs = 50;
 
 void StatsEventSubscriber::InitHistograms() {
-  histograms_[E2E_LATENCY_MS_HISTO].reset(
-      new SimpleHistogram(0, kLargeMaxLatencyBucketMs,
-                          kLargeBucketWidthMs));
-  histograms_[QUEUEING_LATENCY_MS_HISTO].reset(
-      new SimpleHistogram(0, kDefaultMaxLatencyBucketMs,
-                          kDefaultBucketWidthMs));
-  histograms_[NETWORK_LATENCY_MS_HISTO].reset(
-      new SimpleHistogram(0, kDefaultMaxLatencyBucketMs,
-                          kDefaultBucketWidthMs));
-  histograms_[PACKET_LATENCY_MS_HISTO].reset(
-      new SimpleHistogram(0, kDefaultMaxLatencyBucketMs,
-                          kDefaultBucketWidthMs));
-  histograms_[FRAME_LATENCY_MS_HISTO].reset(
-      new SimpleHistogram(0, kDefaultMaxLatencyBucketMs,
-                          kDefaultBucketWidthMs));
-  histograms_[LATE_FRAME_MS_HISTO].reset(
-      new SimpleHistogram(0, kDefaultMaxLatencyBucketMs,
-                          kDefaultBucketWidthMs));
-  histograms_[CAPTURE_LATENCY_MS_HISTO].reset(
-      new SimpleHistogram(0, kSmallMaxLatencyBucketMs,
-                          kSmallBucketWidthMs));
-  histograms_[ENCODE_TIME_MS_HISTO].reset(
-      new SimpleHistogram(0, kSmallMaxLatencyBucketMs,
-                          kSmallBucketWidthMs));
+  histograms_[E2E_LATENCY_MS_HISTO] = std::make_unique<SimpleHistogram>(
+      0, kLargeMaxLatencyBucketMs, kLargeBucketWidthMs);
+  histograms_[QUEUEING_LATENCY_MS_HISTO] = std::make_unique<SimpleHistogram>(
+      0, kDefaultMaxLatencyBucketMs, kDefaultBucketWidthMs);
+  histograms_[NETWORK_LATENCY_MS_HISTO] = std::make_unique<SimpleHistogram>(
+      0, kDefaultMaxLatencyBucketMs, kDefaultBucketWidthMs);
+  histograms_[PACKET_LATENCY_MS_HISTO] = std::make_unique<SimpleHistogram>(
+      0, kDefaultMaxLatencyBucketMs, kDefaultBucketWidthMs);
+  histograms_[FRAME_LATENCY_MS_HISTO] = std::make_unique<SimpleHistogram>(
+      0, kDefaultMaxLatencyBucketMs, kDefaultBucketWidthMs);
+  histograms_[LATE_FRAME_MS_HISTO] = std::make_unique<SimpleHistogram>(
+      0, kDefaultMaxLatencyBucketMs, kDefaultBucketWidthMs);
+  histograms_[CAPTURE_LATENCY_MS_HISTO] = std::make_unique<SimpleHistogram>(
+      0, kSmallMaxLatencyBucketMs, kSmallBucketWidthMs);
+  histograms_[ENCODE_TIME_MS_HISTO] = std::make_unique<SimpleHistogram>(
+      0, kSmallMaxLatencyBucketMs, kSmallBucketWidthMs);
 }
 
 void StatsEventSubscriber::GetStatsInternal(StatsMap* stats_map) const {
@@ -497,7 +485,7 @@ void StatsEventSubscriber::MaybeInsertFrameInfo(RtpTimeTicks rtp_timestamp,
   recent_frame_infos_.insert(std::make_pair(rtp_timestamp, frame_info));
 
   if (recent_frame_infos_.size() >= kMaxFrameInfoMapSize) {
-    FrameInfoMap::iterator erase_it = recent_frame_infos_.begin();
+    auto erase_it = recent_frame_infos_.begin();
     if (erase_it->second.encode_end_time.is_null())
       num_frames_dropped_by_encoder_++;
     recent_frame_infos_.erase(erase_it);
@@ -512,8 +500,7 @@ void StatsEventSubscriber::RecordFrameCaptureTime(
 }
 
 void StatsEventSubscriber::RecordCaptureLatency(const FrameEvent& frame_event) {
-  FrameInfoMap::iterator it =
-      recent_frame_infos_.find(frame_event.rtp_timestamp);
+  auto it = recent_frame_infos_.find(frame_event.rtp_timestamp);
   if (it == recent_frame_infos_.end()) {
     return;
   }
@@ -529,8 +516,7 @@ void StatsEventSubscriber::RecordCaptureLatency(const FrameEvent& frame_event) {
 }
 
 void StatsEventSubscriber::RecordEncodeLatency(const FrameEvent& frame_event) {
-  FrameInfoMap::iterator it =
-      recent_frame_infos_.find(frame_event.rtp_timestamp);
+  auto it = recent_frame_infos_.find(frame_event.rtp_timestamp);
   if (it == recent_frame_infos_.end()) {
     FrameInfo frame_info;
     frame_info.encode_end_time = frame_event.timestamp;
@@ -550,8 +536,7 @@ void StatsEventSubscriber::RecordEncodeLatency(const FrameEvent& frame_event) {
 }
 
 void StatsEventSubscriber::RecordFrameTxLatency(const FrameEvent& frame_event) {
-  FrameInfoMap::iterator it =
-      recent_frame_infos_.find(frame_event.rtp_timestamp);
+  auto it = recent_frame_infos_.find(frame_event.rtp_timestamp);
   if (it == recent_frame_infos_.end())
     return;
 
@@ -574,8 +559,7 @@ void StatsEventSubscriber::RecordE2ELatency(const FrameEvent& frame_event) {
   if (!GetReceiverOffset(&receiver_offset))
     return;
 
-  FrameInfoMap::iterator it =
-      recent_frame_infos_.find(frame_event.rtp_timestamp);
+  auto it = recent_frame_infos_.find(frame_event.rtp_timestamp);
   if (it == recent_frame_infos_.end())
     return;
 
@@ -606,8 +590,7 @@ void StatsEventSubscriber::RecordPacketRelatedLatencies(
     const PacketEvent& packet_event) {
   // Log queueing latency.
   if (packet_event.type == PACKET_SENT_TO_NETWORK) {
-    FrameInfoMap::iterator it =
-        recent_frame_infos_.find(packet_event.rtp_timestamp);
+    auto it = recent_frame_infos_.find(packet_event.rtp_timestamp);
     if (it != recent_frame_infos_.end()) {
       base::TimeDelta latency =
           packet_event.timestamp - it->second.encode_end_time;
@@ -625,7 +608,7 @@ void StatsEventSubscriber::RecordPacketRelatedLatencies(
 
   std::pair<RtpTimeTicks, uint16_t> key(
       std::make_pair(packet_event.rtp_timestamp, packet_event.packet_id));
-  PacketEventTimeMap::iterator it = packet_sent_times_.find(key);
+  auto it = packet_sent_times_.find(key);
   if (it == packet_sent_times_.end()) {
     std::pair<base::TimeTicks, CastLoggingEvent> value =
         std::make_pair(packet_event.timestamp, packet_event.type);
@@ -662,8 +645,7 @@ void StatsEventSubscriber::RecordPacketRelatedLatencies(
           latency_delta.InMillisecondsF());
 
       // Log total network latency.
-      FrameInfoMap::iterator frame_it =
-          recent_frame_infos_.find(packet_event.rtp_timestamp);
+      auto frame_it = recent_frame_infos_.find(packet_event.rtp_timestamp);
       if (frame_it != recent_frame_infos_.end()) {
         base::TimeDelta latency =
             packet_received_time - frame_it->second.encode_end_time;
@@ -680,7 +662,7 @@ void StatsEventSubscriber::PopulateFpsStat(base::TimeTicks end_time,
                                            CastLoggingEvent event,
                                            CastStat stat,
                                            StatsMap* stats_map) const {
-  FrameStatsMap::const_iterator it = frame_stats_.find(event);
+  auto it = frame_stats_.find(event);
   if (it != frame_stats_.end()) {
     double fps = 0.0;
     base::TimeDelta duration = (end_time - start_time_);
@@ -694,7 +676,7 @@ void StatsEventSubscriber::PopulateFpsStat(base::TimeTicks end_time,
 void StatsEventSubscriber::PopulateFrameCountStat(CastLoggingEvent event,
                                                   CastStat stat,
                                                   StatsMap* stats_map) const {
-  FrameStatsMap::const_iterator it = frame_stats_.find(event);
+  auto it = frame_stats_.find(event);
   if (it != frame_stats_.end()) {
     stats_map->insert(std::make_pair(stat, it->second.event_counter));
   }
@@ -703,7 +685,7 @@ void StatsEventSubscriber::PopulateFrameCountStat(CastLoggingEvent event,
 void StatsEventSubscriber::PopulatePacketCountStat(CastLoggingEvent event,
                                                    CastStat stat,
                                                    StatsMap* stats_map) const {
-  PacketStatsMap::const_iterator it = packet_stats_.find(event);
+  auto it = packet_stats_.find(event);
   if (it != packet_stats_.end()) {
     stats_map->insert(std::make_pair(stat, it->second.event_counter));
   }
@@ -711,7 +693,7 @@ void StatsEventSubscriber::PopulatePacketCountStat(CastLoggingEvent event,
 
 void StatsEventSubscriber::PopulateFrameBitrateStat(base::TimeTicks end_time,
                                                     StatsMap* stats_map) const {
-  FrameStatsMap::const_iterator it = frame_stats_.find(FRAME_ENCODED);
+  auto it = frame_stats_.find(FRAME_ENCODED);
   if (it != frame_stats_.end()) {
     double kbps = 0.0;
     base::TimeDelta duration = end_time - start_time_;
@@ -728,7 +710,7 @@ void StatsEventSubscriber::PopulatePacketBitrateStat(
     CastLoggingEvent event,
     CastStat stat,
     StatsMap* stats_map) const {
-  PacketStatsMap::const_iterator it = packet_stats_.find(event);
+  auto it = packet_stats_.find(event);
   if (it != packet_stats_.end()) {
     double kbps = 0;
     base::TimeDelta duration = end_time - start_time_;
@@ -742,16 +724,15 @@ void StatsEventSubscriber::PopulatePacketBitrateStat(
 
 StatsEventSubscriber::FrameLogStats::FrameLogStats()
     : event_counter(0), sum_size(0) {}
-StatsEventSubscriber::FrameLogStats::~FrameLogStats() {}
+StatsEventSubscriber::FrameLogStats::~FrameLogStats() = default;
 
 StatsEventSubscriber::PacketLogStats::PacketLogStats()
     : event_counter(0), sum_size(0) {}
-StatsEventSubscriber::PacketLogStats::~PacketLogStats() {}
+StatsEventSubscriber::PacketLogStats::~PacketLogStats() = default;
 
 StatsEventSubscriber::FrameInfo::FrameInfo() : encoded(false) {
 }
-StatsEventSubscriber::FrameInfo::~FrameInfo() {
-}
+StatsEventSubscriber::FrameInfo::~FrameInfo() = default;
 
 }  // namespace cast
 }  // namespace media

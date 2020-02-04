@@ -2,10 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <Windows.h>
+#include <dbghelp.h>
 #include <dia2.h>
 #include <stdio.h>
 
 #include <string>
+
+static const size_t kMaxSymbolLength = 4096;
 
 // Create an IDiaData source and open a PDB file.
 static bool LoadDataFromPdb(const wchar_t* filename,
@@ -33,11 +37,23 @@ static bool LoadDataFromPdb(const wchar_t* filename,
   wchar_t ext[MAX_PATH];
   _wsplitpath_s(filename, NULL, 0, NULL, 0, NULL, 0, ext, MAX_PATH);
 
-  // Open and prepare the debug data associated with the executable.
-  hr = (*source)->loadDataForExe(filename, search_path, NULL);
-  if (FAILED(hr)) {
-    printf("loadDataForExe failed - HRESULT = %08lX\n", hr);
-    return false;
+  if (wcsicmp(ext, L".pdb") == 0) {
+    // Open and prepare the debug data specified.
+    hr = (*source)->loadDataFromPdb(filename);
+    if (FAILED(hr)) {
+      printf("loadDataFromPdb failed - HRESULT = %08lX\n", hr);
+      return false;
+    }
+  } else {
+    // Open and prepare the debug data associated with the executable.
+    hr = (*source)->loadDataForExe(filename, search_path, NULL);
+    if (FAILED(hr)) {
+      printf("loadDataForExe failed - HRESULT = %08lX\n", hr);
+      printf(
+          "Try copying the .pdb beside the PE file or passing the .pdb path "
+          "to this tool directly.");
+      return false;
+    }
   }
 
   // Open a session for querying symbols.
@@ -101,8 +117,31 @@ static void PrintIfDynamicInitializer(const std::wstring& module,
     if (wcsstr(bstr_name, L"`dynamic initializer for '") ||
         wcsstr(bstr_name, L"`dynamic atexit destructor for '")) {
       wprintf(L"%s: %s\n", module.c_str(), bstr_name);
-      SysFreeString(bstr_name);
     }
+    // If there are multiple dynamic initializers in one translation unit then
+    // a shared function is created and the individual initializers may be
+    // inlined into it. These functions start with a characteristic name that
+    // includes the source file. Finding the actual objects can be done through
+    // source inspection or by setting a breakpoint on the printed name. The
+    // "dynamic initializer" string is printed for consistent grepping.
+    if (wcsstr(bstr_name, L"_GLOBAL__sub_I")) {
+      wprintf(L"%s: %s (dynamic initializer)\n", module.c_str(), bstr_name);
+    }
+    // As of this writing, Clang does not undecorate the symbol names for
+    // dynamic initializers, so the debug info contains the decorated name,
+    // which starts with "??__E" or "??__F" for atexit destructors. Check for
+    // that, and print the undecorated name if it matches.
+    if (wcsncmp(bstr_name, L"??__E", 5) == 0 ||
+        wcsncmp(bstr_name, L"??__F", 5) == 0) {
+      wchar_t undecorated[kMaxSymbolLength];
+      if (UnDecorateSymbolNameW(bstr_name, undecorated, kMaxSymbolLength,
+                                UNDNAME_NAME_ONLY) == 0) {
+        printf("UnDecorateSymbolNameW failed, %d\n", GetLastError());
+        return;
+      }
+      wprintf(L"%s: %s\n", module.c_str(), undecorated);
+    }
+    SysFreeString(bstr_name);
   }
 }
 

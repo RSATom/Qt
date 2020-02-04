@@ -6,7 +6,7 @@
 
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
-#include "content/common/view_messages.h"
+#include "content/common/widget_messages.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/range/range.h"
 
@@ -35,7 +35,8 @@ bool ShouldUpdateTextInputState(const content::TextInputState& old_state,
 
 }  // namespace
 
-TextInputManager::TextInputManager() : active_view_(nullptr) {}
+TextInputManager::TextInputManager(bool should_do_learning)
+    : active_view_(nullptr), should_do_learning_(should_do_learning) {}
 
 TextInputManager::~TextInputManager() {
   // If there is an active view, we should unregister it first so that the
@@ -151,7 +152,7 @@ void TextInputManager::ImeCancelComposition(RenderWidgetHostViewBase* view) {
 
 void TextInputManager::SelectionBoundsChanged(
     RenderWidgetHostViewBase* view,
-    const ViewHostMsg_SelectionBounds_Params& params) {
+    const WidgetHostMsg_SelectionBounds_Params& params) {
   DCHECK(IsRegistered(view));
   // Converting the anchor point to root's coordinate space (for child frame
   // views).
@@ -208,6 +209,11 @@ void TextInputManager::SelectionBoundsChanged(
   selection_region_map_[view].first_selection_rect.set_size(
       params.anchor_rect.size());
 
+  NotifySelectionBoundsChanged(view);
+}
+
+void TextInputManager::NotifySelectionBoundsChanged(
+    RenderWidgetHostViewBase* view) {
   for (auto& observer : observer_list_)
     observer.OnSelectionBoundsChanged(this, view);
 }

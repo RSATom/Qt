@@ -12,10 +12,9 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner.h"
-#include "base/task_scheduler/post_task.h"
+#include "base/task/post_task.h"
 #include "base/values.h"
 #include "crypto/encryptor.h"
 #include "crypto/symmetric_key.h"
@@ -84,9 +83,9 @@ bool IsItemRegistered(ValueStore* store, const std::string& item_id) {
   ValueStore::ReadResult read = store->Get(kStoreKeyRegisteredItems);
 
   const base::DictionaryValue* registered_items = nullptr;
-  return read->status().ok() &&
-         read->settings().GetDictionary(kStoreKeyRegisteredItems,
-                                        &registered_items) &&
+  return read.status().ok() &&
+         read.settings().GetDictionary(kStoreKeyRegisteredItems,
+                                       &registered_items) &&
          registered_items->HasKey(item_id);
 }
 
@@ -103,15 +102,15 @@ void GetRegisteredItems(OperationResult* result,
   values->Clear();
 
   std::unique_ptr<base::Value> registered_items;
-  if (!read->status().ok()) {
+  if (!read.status().ok()) {
     *result = OperationResult::kFailed;
     return;
   }
 
   // Using remove to pass ownership of registered_item dict to
-  // |registered_items| (and avoid doing a copy |read->settings()|
+  // |registered_items| (and avoid doing a copy |read.settings()|
   // sub-dictionary).
-  if (!read->settings().Remove(kStoreKeyRegisteredItems, &registered_items)) {
+  if (!read.settings().Remove(kStoreKeyRegisteredItems, &registered_items)) {
     // If the registered items dictionary cannot be found, assume no items have
     // yet been registered, and return empty result.
     *result = OperationResult::kSuccess;
@@ -134,12 +133,12 @@ void RegisterItem(OperationResult* result,
   ValueStore::ReadResult read = store->Get(kStoreKeyRegisteredItems);
 
   std::unique_ptr<base::Value> registered_items;
-  if (!read->status().ok()) {
+  if (!read.status().ok()) {
     *result = OperationResult::kFailed;
     return;
   }
-  if (!read->settings().Remove(kStoreKeyRegisteredItems, &registered_items))
-    registered_items = base::MakeUnique<base::DictionaryValue>();
+  if (!read.settings().Remove(kStoreKeyRegisteredItems, &registered_items))
+    registered_items = std::make_unique<base::DictionaryValue>();
 
   std::unique_ptr<base::DictionaryValue> dict =
       base::DictionaryValue::From(std::move(registered_items));
@@ -153,12 +152,12 @@ void RegisterItem(OperationResult* result,
     return;
   }
 
-  dict->Set(item_id, base::MakeUnique<base::DictionaryValue>());
+  dict->Set(item_id, std::make_unique<base::DictionaryValue>());
 
   ValueStore::WriteResult write =
       store->Set(ValueStore::DEFAULTS, kStoreKeyRegisteredItems, *dict);
-  *result = write->status().ok() ? OperationResult::kSuccess
-                                 : OperationResult::kFailed;
+  *result = write.status().ok() ? OperationResult::kSuccess
+                                : OperationResult::kFailed;
 }
 
 // Encrypts |data| with AES key |encryption_key| and saved it as |item_id|
@@ -190,8 +189,8 @@ void WriteImpl(OperationResult* result,
   ValueStore::WriteResult write = store->Set(ValueStore::DEFAULTS, item_id,
                                              base::Value(std::move(encrypted)));
 
-  *result = write->status().ok() ? OperationResult::kSuccess
-                                 : OperationResult::kFailed;
+  *result = write.status().ok() ? OperationResult::kSuccess
+                                : OperationResult::kFailed;
 }
 
 // Gets content of the data item with ID |item_id| from value store |store|,
@@ -209,13 +208,13 @@ void ReadImpl(OperationResult* result,
   }
 
   ValueStore::ReadResult read = store->Get(item_id);
-  if (!read->status().ok()) {
+  if (!read.status().ok()) {
     *result = OperationResult::kNotFound;
     return;
   }
 
   const base::Value* item;
-  if (!read->settings().Get(item_id, &item)) {
+  if (!read.settings().Get(item_id, &item)) {
     *result = OperationResult::kSuccess;
     *data = std::vector<char>();
     return;
@@ -237,20 +236,20 @@ void DeleteImpl(OperationResult* result,
                 ValueStore* store) {
   ValueStore::WriteResult remove =
       store->Remove(std::vector<std::string>({item_id}));
-  if (!remove->status().ok()) {
+  if (!remove.status().ok()) {
     *result = OperationResult::kFailed;
     return;
   }
 
   ValueStore::ReadResult read = store->Get(kStoreKeyRegisteredItems);
-  if (!read->status().ok()) {
+  if (!read.status().ok()) {
     *result = OperationResult::kFailed;
     return;
   }
 
   base::DictionaryValue* registered_items = nullptr;
-  if (!read->settings().GetDictionary(kStoreKeyRegisteredItems,
-                                      &registered_items) ||
+  if (!read.settings().GetDictionary(kStoreKeyRegisteredItems,
+                                     &registered_items) ||
       !registered_items->Remove(item_id, nullptr)) {
     *result = OperationResult::kNotFound;
     return;
@@ -258,8 +257,8 @@ void DeleteImpl(OperationResult* result,
 
   ValueStore::WriteResult write = store->Set(
       ValueStore::DEFAULTS, kStoreKeyRegisteredItems, *registered_items);
-  *result = write->status().ok() ? OperationResult::kSuccess
-                                 : OperationResult::kFailed;
+  *result = write.status().ok() ? OperationResult::kSuccess
+                                : OperationResult::kFailed;
 }
 
 void OnGetRegisteredValues(const DataItem::RegisteredValuesCallback& callback,
@@ -286,10 +285,10 @@ void DataItem::GetRegisteredValuesForExtension(
   }
 
   std::unique_ptr<OperationResult> result =
-      base::MakeUnique<OperationResult>(OperationResult::kFailed);
+      std::make_unique<OperationResult>(OperationResult::kFailed);
   OperationResult* result_ptr = result.get();
   std::unique_ptr<base::DictionaryValue> values =
-      base::MakeUnique<base::DictionaryValue>();
+      std::make_unique<base::DictionaryValue>();
   base::DictionaryValue* values_ptr = values.get();
 
   task_runner->PostTaskAndReply(
@@ -342,7 +341,7 @@ void DataItem::Register(const WriteCallback& callback) {
   }
 
   std::unique_ptr<OperationResult> result =
-      base::MakeUnique<OperationResult>(OperationResult::kFailed);
+      std::make_unique<OperationResult>(OperationResult::kFailed);
   OperationResult* result_ptr = result.get();
 
   task_runner_->PostTaskAndReply(
@@ -365,7 +364,7 @@ void DataItem::Write(const std::vector<char>& data,
   }
 
   std::unique_ptr<OperationResult> result =
-      base::MakeUnique<OperationResult>(OperationResult::kFailed);
+      std::make_unique<OperationResult>(OperationResult::kFailed);
   OperationResult* result_ptr = result.get();
 
   task_runner_->PostTaskAndReply(
@@ -388,11 +387,11 @@ void DataItem::Read(const ReadCallback& callback) {
   }
 
   std::unique_ptr<OperationResult> result =
-      base::MakeUnique<OperationResult>(OperationResult::kFailed);
+      std::make_unique<OperationResult>(OperationResult::kFailed);
   OperationResult* result_ptr = result.get();
 
   std::unique_ptr<std::vector<char>> data =
-      base::MakeUnique<std::vector<char>>();
+      std::make_unique<std::vector<char>>();
   std::vector<char>* data_ptr = data.get();
 
   task_runner_->PostTaskAndReply(
@@ -415,7 +414,7 @@ void DataItem::Delete(const WriteCallback& callback) {
     return;
   }
   std::unique_ptr<OperationResult> result =
-      base::MakeUnique<OperationResult>(OperationResult::kFailed);
+      std::make_unique<OperationResult>(OperationResult::kFailed);
   OperationResult* result_ptr = result.get();
 
   task_runner_->PostTaskAndReply(

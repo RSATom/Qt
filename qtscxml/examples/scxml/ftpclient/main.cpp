@@ -48,11 +48,12 @@
 **
 ****************************************************************************/
 
-
-#include "simpleftp.h"
 #include "ftpcontrolchannel.h"
 #include "ftpdatachannel.h"
+#include "simpleftp.h"
+
 #include <QCoreApplication>
+
 #include <iostream>
 
 struct Command {
@@ -76,14 +77,16 @@ int main(int argc, char *argv[])
     FtpControlChannel controlChannel;
 
     // Print all data retrieved from the server on the console.
-    QObject::connect(&dataChannel, &FtpDataChannel::dataReceived, [](const QByteArray &data) {
+    QObject::connect(&dataChannel, &FtpDataChannel::dataReceived,
+                     [](const QByteArray &data) {
         std::cout << data.constData();
     });
 
     // Translate server replies into state machine events.
     QObject::connect(&controlChannel, &FtpControlChannel::reply, &ftpClient,
                      [&ftpClient](int code, const QString &parameters) {
-        ftpClient.submitEvent(QString("reply.%1xx").arg(code / 100), parameters);
+        ftpClient.submitEvent(QString("reply.%1xx")
+                              .arg(code / 100), parameters);
     });
 
     // Translate commands from the state machine into FTP control messages.
@@ -96,7 +99,8 @@ int main(int argc, char *argv[])
     // Commands to be sent
     QList<Command> commands({
         {"cmd.USER", "anonymous"},// login
-        {"cmd.PORT", ""},         // announce port for data connection, args added below.
+        {"cmd.PORT", ""},         // announce port for data connection,
+                                  // args added below.
         {"cmd.RETR", file}        // retrieve a file
     });
 

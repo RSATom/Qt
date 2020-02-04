@@ -5,14 +5,12 @@
 #include "content/child/webthemeengine_impl_android.h"
 
 #include "base/logging.h"
-#include "base/sys_info.h"
+#include "base/system/sys_info.h"
 #include "skia/ext/platform_canvas.h"
-#include "third_party/WebKit/public/platform/WebRect.h"
-#include "third_party/WebKit/public/platform/WebSize.h"
+#include "third_party/blink/public/platform/web_rect.h"
+#include "third_party/blink/public/platform/web_size.h"
 #include "ui/native_theme/native_theme.h"
 
-using blink::WebCanvas;
-using blink::WebColor;
 using blink::WebRect;
 using blink::WebThemeEngine;
 
@@ -170,8 +168,8 @@ static void GetNativeThemeExtraParams(
 
 blink::WebSize WebThemeEngineImpl::GetSize(WebThemeEngine::Part part) {
   switch (part) {
-    case ui::NativeTheme::kScrollbarHorizontalThumb:
-    case ui::NativeTheme::kScrollbarVerticalThumb: {
+    case WebThemeEngine::kPartScrollbarHorizontalThumb:
+    case WebThemeEngine::kPartScrollbarVerticalThumb: {
       // Minimum length for scrollbar thumb is the scrollbar thickness.
       ScrollbarStyle style;
       GetOverlayScrollbarStyle(&style);
@@ -191,8 +189,8 @@ void WebThemeEngineImpl::GetOverlayScrollbarStyle(ScrollbarStyle* style) {
   // currently fade out so the fadeOutDuration and Delay  Now that this has
   // been added into Blink for other platforms we should plumb that through for
   // Android as well.
-  style->fade_out_delay_seconds = 0;
-  style->fade_out_duration_seconds = 0;
+  style->fade_out_delay = base::TimeDelta();
+  style->fade_out_duration = base::TimeDelta();
   if (getMajorVersion() >= kVersionLollipop) {
     style->thumb_thickness = 4;
     style->scrollbar_margin = 0;
@@ -205,7 +203,7 @@ void WebThemeEngineImpl::GetOverlayScrollbarStyle(ScrollbarStyle* style) {
 }
 
 void WebThemeEngineImpl::Paint(
-    blink::WebCanvas* canvas,
+    cc::PaintCanvas* canvas,
     WebThemeEngine::Part part,
     WebThemeEngine::State state,
     const blink::WebRect& rect,

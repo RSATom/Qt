@@ -12,6 +12,9 @@
 #include <string>
 
 #include "base/compiler_specific.h"
+#include "base/component_export.h"
+#include "base/containers/queue.h"
+#include "base/containers/small_map.h"
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -21,12 +24,9 @@
 #include "base/sequenced_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "mojo/public/cpp/bindings/associated_group_controller.h"
-#include "mojo/public/cpp/bindings/bindings_export.h"
 #include "mojo/public/cpp/bindings/connector.h"
 #include "mojo/public/cpp/bindings/filter_chain.h"
 #include "mojo/public/cpp/bindings/interface_id.h"
-#include "mojo/public/cpp/bindings/lib/debug_util.h"
-#include "mojo/public/cpp/bindings/lib/deque.h"
 #include "mojo/public/cpp/bindings/message_header_validator.h"
 #include "mojo/public/cpp/bindings/pipe_control_message_handler.h"
 #include "mojo/public/cpp/bindings/pipe_control_message_handler_delegate.h"
@@ -45,19 +45,17 @@ namespace internal {
 // single message pipe.
 //
 // It is created on the sequence where the master interface of the message pipe
-// lives. Although it is ref-counted, it is guarateed to be destructed on the
-// same sequence.
+// lives.
 // Some public methods are only allowed to be called on the creating sequence;
 // while the others are safe to call from any sequence. Please see the method
 // comments for more details.
 //
 // NOTE: CloseMessagePipe() or PassMessagePipe() MUST be called on |runner|'s
 // sequence before this object is destroyed.
-class MOJO_CPP_BINDINGS_EXPORT MultiplexRouter
-    : NON_EXPORTED_BASE(public MessageReceiver),
+class COMPONENT_EXPORT(MOJO_CPP_BINDINGS) MultiplexRouter
+    : public MessageReceiver,
       public AssociatedGroupController,
-      NON_EXPORTED_BASE(public PipeControlMessageHandlerDelegate),
-      NON_EXPORTED_BASE(private LifeTimeTrackerForDebugging) {
+      public PipeControlMessageHandlerDelegate {
  public:
   enum Config {
     // There is only the master interface running on this router. Please note
@@ -79,6 +77,10 @@ class MOJO_CPP_BINDINGS_EXPORT MultiplexRouter
                   Config config,
                   bool set_interface_id_namespace_bit,
                   scoped_refptr<base::SequencedTaskRunner> runner);
+
+  // Adds a MessageReceiver which can filter a message after validation but
+  // before dispatch.
+  void AddIncomingMessageFilter(std::unique_ptr<MessageReceiver> filter);
 
   // Sets the master interface name for this router. Only used when reporting
   // message header or control message validation errors.
@@ -134,6 +136,9 @@ class MOJO_CPP_BINDINGS_EXPORT MultiplexRouter
   // Whether there are any associated interfaces running currently.
   bool HasAssociatedEndpoints() const;
 
+  // See comments on Binding::EnableBatchDispatch().
+  void EnableBatchDispatch();
+
   // Sets this object to testing mode.
   // In testing mode, the object doesn't disconnect the underlying message pipe
   // when it receives unexpected or invalid messages.
@@ -170,7 +175,7 @@ class MOJO_CPP_BINDINGS_EXPORT MultiplexRouter
       InterfaceId id,
       const base::Optional<DisconnectReason>& reason) override;
 
-  void OnPipeConnectionError();
+  void OnPipeConnectionError(bool force_async_dispatch);
 
   // Specifies whether we are allowed to directly call into
   // InterfaceEndpointClient (given that we are already on the same sequence as
@@ -209,7 +214,7 @@ class MOJO_CPP_BINDINGS_EXPORT MultiplexRouter
   bool ProcessNotifyErrorTask(Task* task,
                               ClientCallBehavior client_call_behavior,
                               base::SequencedTaskRunner* current_task_runner);
-  bool ProcessIncomingMessage(Message* message,
+  bool ProcessIncomingMessage(MessageWrapper* message_wrapper,
                               ClientCallBehavior client_call_behavior,
                               base::SequencedTaskRunner* current_task_runner);
 
@@ -228,6 +233,10 @@ class MOJO_CPP_BINDINGS_EXPORT MultiplexRouter
   InterfaceEndpoint* FindOrInsertEndpoint(InterfaceId id, bool* inserted);
   InterfaceEndpoint* FindEndpoint(InterfaceId id);
 
+  // Returns false if some interface IDs are invalid or have been used.
+  bool InsertEndpointsForMessage(const Message& message);
+  void CloseEndpointsForMessage(const Message& message);
+
   void AssertLockAcquired();
 
   // Whether to set the namespace bit when generating interface IDs. Please see
@@ -237,7 +246,7 @@ class MOJO_CPP_BINDINGS_EXPORT MultiplexRouter
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
 
   // Owned by |filters_| below.
-  MessageHeaderValidator* header_validator_;
+  MessageHeaderValidator* header_validator_ = nullptr;
 
   FilterChain filters_;
   Connector connector_;
@@ -252,21 +261,24 @@ class MOJO_CPP_BINDINGS_EXPORT MultiplexRouter
   // NOTE: It is unsafe to call into this object while holding |lock_|.
   PipeControlMessageProxy control_message_proxy_;
 
-  std::map<InterfaceId, scoped_refptr<InterfaceEndpoint>> endpoints_;
-  uint32_t next_interface_id_value_;
+  base::small_map<std::map<InterfaceId, scoped_refptr<InterfaceEndpoint>>, 1>
+      endpoints_;
+  uint32_t next_interface_id_value_ = 1;
 
-  deque<std::unique_ptr<Task>> tasks_;
+  base::circular_deque<std::unique_ptr<Task>> tasks_;
   // It refers to tasks in |tasks_| and doesn't own any of them.
-  std::map<InterfaceId, deque<Task*>> sync_message_tasks_;
+  std::map<InterfaceId, base::circular_deque<Task*>> sync_message_tasks_;
 
-  bool posted_to_process_tasks_;
+  bool posted_to_process_tasks_ = false;
   scoped_refptr<base::SequencedTaskRunner> posted_to_task_runner_;
 
-  bool encountered_error_;
+  bool encountered_error_ = false;
 
-  bool paused_;
+  bool paused_ = false;
 
-  bool testing_mode_;
+  bool testing_mode_ = false;
+
+  bool being_destructed_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(MultiplexRouter);
 };

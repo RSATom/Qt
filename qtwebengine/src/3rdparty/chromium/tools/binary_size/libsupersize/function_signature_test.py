@@ -12,11 +12,36 @@ import function_signature
 
 class AnalyzeTest(unittest.TestCase):
 
+  def testParseJavaFunctionSignature(self):
+    # Java method with no args
+    SIG = 'org.package.WebsitePreferenceBridge java.util.List getCameraInfo()'
+    got_full_name, got_template_name, got_name = (
+        function_signature.ParseJava(SIG))
+    self.assertEqual('WebsitePreferenceBridge#getCameraInfo', got_name)
+    self.assertEqual('WebsitePreferenceBridge#getCameraInfo', got_template_name)
+    self.assertEqual(SIG, got_full_name)
+
+    # Java method with args
+    SIG = 'jp.package.BaseGifImage int readShort(java.io.InputStream)'
+    got_full_name, got_template_name, got_name = (
+        function_signature.ParseJava(SIG))
+    self.assertEqual('BaseGifImage#readShort', got_name)
+    self.assertEqual('BaseGifImage#readShort', got_template_name)
+    self.assertEqual(SIG, got_full_name)
+
+    # Java <init> method
+    SIG = 'jp.package.BaseGifImage$GifHeaderStream <init>(byte[])'
+    got_full_name, got_template_name, got_name = (
+        function_signature.ParseJava(SIG))
+    self.assertEqual('BaseGifImage$GifHeaderStream#<init>', got_name)
+    self.assertEqual('BaseGifImage$GifHeaderStream#<init>', got_template_name)
+    self.assertEqual(SIG, got_full_name)
+
   def testParseFunctionSignature(self):
     def check(ret_part, name_part, params_part, after_part='',
               name_without_templates=None):
       if name_without_templates is None:
-        name_without_templates = re.sub(r'<.*?>', '', name_part) + after_part
+        name_without_templates = re.sub(r'<.*?>', '<>', name_part) + after_part
 
       signature = ''.join((name_part, params_part, after_part))
       got_full_name, got_template_name, got_name = (
@@ -60,7 +85,22 @@ class AnalyzeTest(unittest.TestCase):
     check('std::basic_ostream<char, std::char_traits<char> >& ',
           'std::operator<< <std::char_traits<char> >',
           '(std::basic_ostream<char, std::char_traits<char> >&, char)',
-          name_without_templates='std::operator<<')
+          name_without_templates='std::operator<< <>')
+    check('',
+          'std::basic_istream<char, std::char_traits<char> >'
+          '::operator>>',
+          '(unsigned int&)',
+          name_without_templates='std::basic_istream<>::operator>>')
+    check('',
+          'std::operator><std::allocator<char> >', '()',
+          name_without_templates='std::operator><>')
+    check('',
+          'std::operator>><std::allocator<char> >',
+          '(std::basic_istream<char, std::char_traits<char> >&)',
+          name_without_templates='std::operator>><>')
+    check('',
+          'std::basic_istream<char>::operator>', '(unsigned int&)',
+          name_without_templates='std::basic_istream<>::operator>')
     check('v8::internal::SlotCallbackResult ',
           'v8::internal::UpdateTypedSlotHelper::UpdateCodeTarget'
           '<v8::PointerUpdateJobTraits<(v8::Direction)1>::Foo(v8::Heap*, '
@@ -71,7 +111,7 @@ class AnalyzeTest(unittest.TestCase):
           '{lambda(v8::SlotType)#2}::operator()(v8::SlotType) const::'
           '{lambda(v8::Object**)#1})',
           name_without_templates=(
-              'v8::internal::UpdateTypedSlotHelper::UpdateCodeTarget'))
+              'v8::internal::UpdateTypedSlotHelper::UpdateCodeTarget<>'))
     check('',
           'WTF::StringAppend<WTF::String, WTF::String>::operator WTF::String',
           '()',
@@ -86,7 +126,7 @@ class AnalyzeTest(unittest.TestCase):
 
     # Test with multiple template args.
     check('int ', 'Foo<int()>::bar<a<b> >', '()',
-          name_without_templates='Foo::bar')
+          name_without_templates='Foo<>::bar<>')
 
     # SkArithmeticImageFilter.cpp has class within function body. e.g.:
     #   ArithmeticFP::onCreateGLSLInstance() looks like:
@@ -125,7 +165,7 @@ class AnalyzeTest(unittest.TestCase):
     check('', 'blink::CSSValueKeywordsHash::findValueImpl', '(char const*)',
           '::value_word_list')
     check('', 'foo::Bar<Z<Y> >::foo<bar>', '(abc)', '::var<baz>',
-          name_without_templates='foo::Bar::foo::var')
+          name_without_templates='foo::Bar<>::foo<>::var<>')
 
 if __name__ == '__main__':
   logging.basicConfig(level=logging.DEBUG,

@@ -14,9 +14,9 @@
 #include <vector>
 
 #include "core/fpdfapi/parser/cpdf_object.h"
-#include "core/fxcrt/cfx_string_pool_template.h"
-#include "core/fxcrt/cfx_weak_ptr.h"
 #include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/string_pool_template.h"
+#include "core/fxcrt/weak_ptr.h"
 #include "third_party/base/ptr_util.h"
 
 class CPDF_IndirectObjectHolder {
@@ -28,7 +28,7 @@ class CPDF_IndirectObjectHolder {
   virtual ~CPDF_IndirectObjectHolder();
 
   CPDF_Object* GetIndirectObject(uint32_t objnum) const;
-  CPDF_Object* GetOrParseIndirectObject(uint32_t objnum);
+  virtual CPDF_Object* GetOrParseIndirectObject(uint32_t objnum);
   void DeleteIndirectObject(uint32_t objnum);
 
   // Creates and adds a new object owned by the indirect object holder,
@@ -47,6 +47,15 @@ class CPDF_IndirectObjectHolder {
         pdfium::MakeUnique<T>(m_pByteStringPool, std::forward<Args>(args)...)));
   }
 
+  // Creates and adds a new object not owned by the indirect object holder,
+  // but which can intern strings from it.
+  template <typename T, typename... Args>
+  typename std::enable_if<CanInternStrings<T>::value, std::unique_ptr<T>>::type
+  New(Args&&... args) {
+    return pdfium::MakeUnique<T>(m_pByteStringPool,
+                                 std::forward<Args>(args)...);
+  }
+
   // Takes ownership of |pObj|, returns unowned pointer to it.
   CPDF_Object* AddIndirectObject(std::unique_ptr<CPDF_Object> pObj);
 
@@ -55,10 +64,15 @@ class CPDF_IndirectObjectHolder {
       uint32_t objnum,
       std::unique_ptr<CPDF_Object> pObj);
 
+  // Takes ownership of |pObj|, persist it for life of the indirect object
+  // holder (typically so that unowned pointers to it remain valid). No-op
+  // if |pObj| is NULL.
+  void AddOrphan(std::unique_ptr<CPDF_Object> pObj);
+
   uint32_t GetLastObjNum() const { return m_LastObjNum; }
   void SetLastObjNum(uint32_t objnum) { m_LastObjNum = objnum; }
 
-  CFX_WeakPtr<CFX_ByteStringPool> GetByteStringPool() const {
+  WeakPtr<ByteStringPool> GetByteStringPool() const {
     return m_pByteStringPool;
   }
 
@@ -72,7 +86,7 @@ class CPDF_IndirectObjectHolder {
   uint32_t m_LastObjNum;
   std::map<uint32_t, std::unique_ptr<CPDF_Object>> m_IndirectObjs;
   std::vector<std::unique_ptr<CPDF_Object>> m_OrphanObjs;
-  CFX_WeakPtr<CFX_ByteStringPool> m_pByteStringPool;
+  WeakPtr<ByteStringPool> m_pByteStringPool;
 };
 
 #endif  // CORE_FPDFAPI_PARSER_CPDF_INDIRECT_OBJECT_HOLDER_H_

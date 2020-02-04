@@ -4,7 +4,6 @@
 
 #include "content/browser/memory/memory_monitor_chromeos.h"
 
-#include "base/memory/ptr_util.h"
 #include "base/process/process_metrics.h"
 
 namespace content {
@@ -44,7 +43,7 @@ int MemoryMonitorChromeOS::GetFreeMemoryUntilCriticalMB() {
 // static
 std::unique_ptr<MemoryMonitorChromeOS> MemoryMonitorChromeOS::Create(
     MemoryMonitorDelegate* delegate) {
-  return base::MakeUnique<MemoryMonitorChromeOS>(delegate);
+  return std::make_unique<MemoryMonitorChromeOS>(delegate);
 }
 
 // Implementation of factory function defined in memory_monitor.h.

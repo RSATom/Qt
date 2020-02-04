@@ -56,7 +56,7 @@ Where rotation around an axis is used, the rotation shall be expressed as a Righ
 
 \image sensors-coordinates3.jpg
 
-In general, sensor data is oriented relative to \l QPlatformScreen::nativeOrientation,
+In general, sensor data is oriented relative to \l QScreen::nativeOrientation,
 that is to the top of the device when the device is held in its natural orientation
 (normally when the device logo appears the right side up). If values are to be
 displayed on the screen, the values may need to be transformed so that they match

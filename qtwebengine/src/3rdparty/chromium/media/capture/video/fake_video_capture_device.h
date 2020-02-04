@@ -9,6 +9,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "base/threading/thread_checker.h"
 #include "media/capture/video/video_capture_device.h"
@@ -51,6 +52,8 @@ class FakeVideoCaptureDevice : public VideoCaptureDevice {
     USE_DEVICE_INTERNAL_BUFFERS,
     USE_CLIENT_PROVIDED_BUFFERS
   };
+
+  enum class DisplayMediaType { ANY, MONITOR, WINDOW, BROWSER };
 
   FakeVideoCaptureDevice(
       const VideoCaptureFormats& supported_formats,
@@ -99,11 +102,26 @@ class FakeVideoCaptureDevice : public VideoCaptureDevice {
 // This is a separate struct because read-access to it is shared with several
 // collaborating classes.
 struct FakeDeviceState {
-  FakeDeviceState(float zoom, float frame_rate, VideoPixelFormat pixel_format)
+  FakeDeviceState(float zoom,
+                  float exposure_time,
+                  float focus_distance,
+                  float frame_rate,
+                  VideoPixelFormat pixel_format)
       : zoom(zoom),
-        format(gfx::Size(), frame_rate, pixel_format, PIXEL_STORAGE_CPU) {}
+        exposure_time(exposure_time),
+        focus_distance(focus_distance),
+        format(gfx::Size(), frame_rate, pixel_format) {
+    exposure_mode = (exposure_time >= 0.0f) ? mojom::MeteringMode::MANUAL
+                                            : mojom::MeteringMode::CONTINUOUS;
+    focus_mode = (focus_distance >= 0.0f) ? mojom::MeteringMode::MANUAL
+                                          : mojom::MeteringMode::CONTINUOUS;
+  }
 
   uint32_t zoom;
+  uint32_t exposure_time;
+  mojom::MeteringMode exposure_mode;
+  uint32_t focus_distance;
+  mojom::MeteringMode focus_mode;
   VideoCaptureFormat format;
 };
 

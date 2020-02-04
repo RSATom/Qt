@@ -6,25 +6,13 @@
 
 #include "xfa/fxfa/parser/cscript_logpseudomodel.h"
 
-#include "fxjs/cfxjse_arguments.h"
-#include "xfa/fxfa/parser/cxfa_document.h"
-#include "xfa/fxfa/parser/cxfa_localemgr.h"
-#include "xfa/fxfa/parser/xfa_utils.h"
+#include "fxjs/xfa/cjx_logpseudomodel.h"
+#include "third_party/base/ptr_util.h"
 
 CScript_LogPseudoModel::CScript_LogPseudoModel(CXFA_Document* pDocument)
     : CXFA_Object(pDocument,
                   XFA_ObjectType::Object,
                   XFA_Element::LogPseudoModel,
-                  CFX_WideStringC(L"logPseudoModel")) {}
+                  pdfium::MakeUnique<CJX_LogPseudoModel>(this)) {}
 
 CScript_LogPseudoModel::~CScript_LogPseudoModel() {}
-
-void CScript_LogPseudoModel::Message(CFXJSE_Arguments* pArguments) {}
-
-void CScript_LogPseudoModel::TraceEnabled(CFXJSE_Arguments* pArguments) {}
-
-void CScript_LogPseudoModel::TraceActivate(CFXJSE_Arguments* pArguments) {}
-
-void CScript_LogPseudoModel::TraceDeactivate(CFXJSE_Arguments* pArguments) {}
-
-void CScript_LogPseudoModel::Trace(CFXJSE_Arguments* pArguments) {}

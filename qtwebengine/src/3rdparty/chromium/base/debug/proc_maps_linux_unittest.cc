@@ -7,10 +7,9 @@
 
 #include "base/debug/proc_maps_linux.h"
 #include "base/files/file_path.h"
-#include "base/macros.h"
 #include "base/path_service.h"
+#include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
-#include "base/third_party/dynamic_annotations/dynamic_annotations.h"
 #include "base/threading/platform_thread.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -173,7 +172,7 @@ TEST(ProcMapsTest, Permissions) {
          MappedMemoryRegion::EXECUTE | MappedMemoryRegion::PRIVATE},
   };
 
-  for (size_t i = 0; i < arraysize(kTestCases); ++i) {
+  for (size_t i = 0; i < base::size(kTestCases); ++i) {
     SCOPED_TRACE(
         base::StringPrintf("kTestCases[%zu] = %s", i, kTestCases[i].input));
 
@@ -203,55 +202,37 @@ void CheckProcMapsRegions(const std::vector<MappedMemoryRegion> &regions) {
   bool found_stack = false;
   bool found_address = false;
 
-  for (size_t i = 0; i < regions.size(); ++i) {
-    if (regions[i].path == exe_path.value()) {
+  for (const auto& i : regions) {
+    if (i.path == exe_path.value()) {
       // It's OK to find the executable mapped multiple times as there'll be
       // multiple sections (e.g., text, data).
       found_exe = true;
     }
 
-    // Valgrind uses its own allocated stacks instead of the kernel-provided
-    // stack without letting the kernel know via prctl(PR_SET_MM_START_STACK).
-    // Depending on which kernel you're running it'll impact the output of
-    // /proc/self/maps.
-    //
-    // Prior to version 3.4, the kernel completely ignores other stacks and
-    // always prints out the vma lying within mm->start_stack as [stack] even
-    // if the program was currently executing on a different stack.
-    //
-    // Starting in 3.4, the kernel will print out the vma containing the current
-    // stack pointer as [stack:TID] as long as that vma does not lie within
-    // mm->start_stack.
-    //
-    // Because this has gotten too complicated and brittle of a test, completely
-    // ignore checking for the stack and address when running under Valgrind.
-    // See http://crbug.com/431702 for more details.
-    if (!RunningOnValgrind() && regions[i].path == "[stack]") {
+    if (i.path == "[stack]") {
 // On Android the test is run on a background thread, since [stack] is for
 // the main thread, we cannot test this.
 #if !defined(OS_ANDROID)
-      EXPECT_GE(address, regions[i].start);
-      EXPECT_LT(address, regions[i].end);
+      EXPECT_GE(address, i.start);
+      EXPECT_LT(address, i.end);
 #endif
-      EXPECT_TRUE(regions[i].permissions & MappedMemoryRegion::READ);
-      EXPECT_TRUE(regions[i].permissions & MappedMemoryRegion::WRITE);
-      EXPECT_FALSE(regions[i].permissions & MappedMemoryRegion::EXECUTE);
-      EXPECT_TRUE(regions[i].permissions & MappedMemoryRegion::PRIVATE);
+      EXPECT_TRUE(i.permissions & MappedMemoryRegion::READ);
+      EXPECT_TRUE(i.permissions & MappedMemoryRegion::WRITE);
+      EXPECT_FALSE(i.permissions & MappedMemoryRegion::EXECUTE);
+      EXPECT_TRUE(i.permissions & MappedMemoryRegion::PRIVATE);
       EXPECT_FALSE(found_stack) << "Found duplicate stacks";
       found_stack = true;
     }
 
-    if (address >= regions[i].start && address < regions[i].end) {
+    if (address >= i.start && address < i.end) {
       EXPECT_FALSE(found_address) << "Found same address in multiple regions";
       found_address = true;
     }
   }
 
   EXPECT_TRUE(found_exe);
-  if (!RunningOnValgrind()) {
-    EXPECT_TRUE(found_stack);
-    EXPECT_TRUE(found_address);
-  }
+  EXPECT_TRUE(found_stack);
+  EXPECT_TRUE(found_address);
 }
 
 TEST(ProcMapsTest, ReadProcMaps) {
@@ -287,7 +268,7 @@ TEST(ProcMapsTest, MissingFields) {
     "00400000-0040b000 r-xp 00000000 794418 /bin/cat\n",   // Missing device.
   };
 
-  for (size_t i = 0; i < arraysize(kTestCases); ++i) {
+  for (size_t i = 0; i < base::size(kTestCases); ++i) {
     SCOPED_TRACE(base::StringPrintf("kTestCases[%zu] = %s", i, kTestCases[i]));
     std::vector<MappedMemoryRegion> regions;
     EXPECT_FALSE(ParseProcMaps(kTestCases[i], &regions));
@@ -304,7 +285,7 @@ TEST(ProcMapsTest, InvalidInput) {
     "00400000-0040b000 rwxp 00000000 fc:00 parse! /bin/cat\n",
   };
 
-  for (size_t i = 0; i < arraysize(kTestCases); ++i) {
+  for (size_t i = 0; i < base::size(kTestCases); ++i) {
     SCOPED_TRACE(base::StringPrintf("kTestCases[%zu] = %s", i, kTestCases[i]));
     std::vector<MappedMemoryRegion> regions;
     EXPECT_FALSE(ParseProcMaps(kTestCases[i], &regions));

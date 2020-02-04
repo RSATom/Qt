@@ -46,9 +46,9 @@ QT_BEGIN_NAMESPACE
 DirectShowBaseFilter::DirectShowBaseFilter()
     : m_mutex(QMutex::Recursive)
     , m_state(State_Stopped)
-    , m_graph(NULL)
-    , m_clock(NULL)
-    , m_sink(NULL)
+    , m_graph(nullptr)
+    , m_clock(nullptr)
+    , m_sink(nullptr)
 {
 
 }
@@ -57,18 +57,7 @@ DirectShowBaseFilter::~DirectShowBaseFilter()
 {
     if (m_clock) {
         m_clock->Release();
-        m_clock = NULL;
-    }
-}
-
-HRESULT DirectShowBaseFilter::getInterface(REFIID riid, void **ppvObject)
-{
-    if (riid == IID_IPersist
-            || riid == IID_IMediaFilter
-            || riid == IID_IBaseFilter) {
-        return GetInterface(static_cast<IBaseFilter *>(this), ppvObject);
-    } else {
-        return DirectShowObject::getInterface(riid, ppvObject);
+        m_clock = nullptr;
     }
 }
 
@@ -183,51 +172,43 @@ HRESULT DirectShowBaseFilter::SetSyncSource(IReferenceClock *pClock)
 
 HRESULT DirectShowBaseFilter::GetSyncSource(IReferenceClock **ppClock)
 {
-    if (!ppClock) {
+    if (!ppClock)
         return E_POINTER;
-    } else {
-        if (!m_clock) {
-            *ppClock = 0;
 
-            return S_FALSE;
-        } else {
-            m_clock->AddRef();
-
-            *ppClock = m_clock;
-
-            return S_OK;
-        }
+    if (!m_clock) {
+        *ppClock = nullptr;
+        return S_FALSE;
     }
+    m_clock->AddRef();
+    *ppClock = m_clock;
+    return S_OK;
 }
 
 HRESULT DirectShowBaseFilter::EnumPins(IEnumPins **ppEnum)
 {
-    if (!ppEnum) {
+    if (!ppEnum)
         return E_POINTER;
-    } else {
-        *ppEnum = new DirectShowPinEnum(this);
-        return S_OK;
-    }
+    *ppEnum = new DirectShowPinEnum(this);
+    return S_OK;
 }
 
 HRESULT DirectShowBaseFilter::FindPin(LPCWSTR Id, IPin **ppPin)
 {
-    if (!ppPin || !Id) {
+    if (!ppPin || !Id)
         return E_POINTER;
-    } else {
-        QMutexLocker locker(&m_mutex);
-        const QList<DirectShowPin *> pinList = pins();
-        for (DirectShowPin *pin : pinList) {
-            if (QString::fromWCharArray(Id) == pin->name()) {
-                pin->AddRef();
-                *ppPin = pin;
-                return S_OK;
-            }
-        }
 
-        *ppPin = 0;
-        return VFW_E_NOT_FOUND;
+    QMutexLocker locker(&m_mutex);
+    const QList<DirectShowPin *> pinList = pins();
+    for (DirectShowPin *pin : pinList) {
+        if (pin->name() == QStringView(Id)) {
+            pin->AddRef();
+            *ppPin = pin;
+            return S_OK;
+        }
     }
+
+    *ppPin = 0;
+    return VFW_E_NOT_FOUND;
 }
 
 HRESULT DirectShowBaseFilter::JoinFilterGraph(IFilterGraph *pGraph, LPCWSTR pName)
@@ -236,7 +217,7 @@ HRESULT DirectShowBaseFilter::JoinFilterGraph(IFilterGraph *pGraph, LPCWSTR pNam
 
     m_filterName = QString::fromWCharArray(pName);
     m_graph = pGraph;
-    m_sink = NULL;
+    m_sink = nullptr;
 
     if (m_graph) {
         if (SUCCEEDED(m_graph->QueryInterface(IID_PPV_ARGS(&m_sink))))
@@ -248,24 +229,23 @@ HRESULT DirectShowBaseFilter::JoinFilterGraph(IFilterGraph *pGraph, LPCWSTR pNam
 
 HRESULT DirectShowBaseFilter::QueryFilterInfo(FILTER_INFO *pInfo)
 {
-    if (!pInfo) {
+    if (!pInfo)
         return E_POINTER;
-    } else {
-        QString name = m_filterName;
 
-        if (name.length() >= MAX_FILTER_NAME)
-            name.truncate(MAX_FILTER_NAME - 1);
+    QString name = m_filterName;
 
-        int length = name.toWCharArray(pInfo->achName);
-        pInfo->achName[length] = '\0';
+    if (name.length() >= MAX_FILTER_NAME)
+        name.truncate(MAX_FILTER_NAME - 1);
 
-        if (m_graph)
-            m_graph->AddRef();
+    int length = name.toWCharArray(pInfo->achName);
+    pInfo->achName[length] = '\0';
 
-        pInfo->pGraph = m_graph;
+    if (m_graph)
+        m_graph->AddRef();
 
-        return S_OK;
-    }
+    pInfo->pGraph = m_graph;
+
+    return S_OK;
 }
 
 HRESULT DirectShowBaseFilter::QueryVendorInfo(LPWSTR *pVendorInfo)

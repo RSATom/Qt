@@ -75,6 +75,7 @@
 #include <QtCore/qlist.h>
 #include <QtCore/qdebug.h>
 #include <QtCore/qelapsedtimer.h>
+#include <QtCore/qpointer.h>
 
 #if QT_CONFIG(quick_shadereffect)
 #include <QtQuick/private/qquickshadereffectsource_p.h>
@@ -93,23 +94,23 @@ class QQuickContents : public QQuickItemChangeListener
 {
 public:
     QQuickContents(QQuickItem *item);
-    ~QQuickContents();
+    ~QQuickContents() override;
 
     QRectF rectF() const { return m_contents; }
 
-    inline void calcGeometry(QQuickItem *changed = 0);
+    inline void calcGeometry(QQuickItem *changed = nullptr);
     void complete();
 
 protected:
-    void itemGeometryChanged(QQuickItem *item, QQuickGeometryChange change, const QRectF &) Q_DECL_OVERRIDE;
-    void itemDestroyed(QQuickItem *item) Q_DECL_OVERRIDE;
-    void itemChildAdded(QQuickItem *, QQuickItem *) Q_DECL_OVERRIDE;
-    void itemChildRemoved(QQuickItem *, QQuickItem *) Q_DECL_OVERRIDE;
+    void itemGeometryChanged(QQuickItem *item, QQuickGeometryChange change, const QRectF &) override;
+    void itemDestroyed(QQuickItem *item) override;
+    void itemChildAdded(QQuickItem *, QQuickItem *) override;
+    void itemChildRemoved(QQuickItem *, QQuickItem *) override;
     //void itemVisibilityChanged(QQuickItem *item)
 
 private:
-    bool calcHeight(QQuickItem *changed = 0);
-    bool calcWidth(QQuickItem *changed = 0);
+    bool calcHeight(QQuickItem *changed = nullptr);
+    bool calcWidth(QQuickItem *changed = nullptr);
     void updateRect();
 
     QQuickItem *m_item;
@@ -154,7 +155,7 @@ class QQuickItemLayer : public QObject, public QQuickItemChangeListener
 
 public:
     QQuickItemLayer(QQuickItem *item);
-    ~QQuickItemLayer();
+    ~QQuickItemLayer() override;
 
     void classBegin();
     void componentComplete();
@@ -194,11 +195,11 @@ public:
 
     QQuickShaderEffectSource *effectSource() const { return m_effectSource; }
 
-    void itemGeometryChanged(QQuickItem *, QQuickGeometryChange, const QRectF &) Q_DECL_OVERRIDE;
-    void itemOpacityChanged(QQuickItem *) Q_DECL_OVERRIDE;
-    void itemParentChanged(QQuickItem *, QQuickItem *) Q_DECL_OVERRIDE;
-    void itemSiblingOrderChanged(QQuickItem *) Q_DECL_OVERRIDE;
-    void itemVisibilityChanged(QQuickItem *) Q_DECL_OVERRIDE;
+    void itemGeometryChanged(QQuickItem *, QQuickGeometryChange, const QRectF &) override;
+    void itemOpacityChanged(QQuickItem *) override;
+    void itemParentChanged(QQuickItem *, QQuickItem *) override;
+    void itemSiblingOrderChanged(QQuickItem *) override;
+    void itemVisibilityChanged(QQuickItem *) override;
 
     void updateMatrix();
     void updateGeometry();
@@ -255,7 +256,7 @@ public:
     static const QQuickItemPrivate* get(const QQuickItem *item) { return item->d_func(); }
 
     QQuickItemPrivate();
-    ~QQuickItemPrivate();
+    ~QQuickItemPrivate() override;
     void init(QQuickItem *parent);
 
     QQmlListProperty<QObject> data();
@@ -280,6 +281,8 @@ public:
     QQuickItemLayer *layer() const;
 
     bool hasPointerHandlers() const;
+    bool hasHoverHandlers() const;
+    virtual void addPointerHandler(QQuickPointerHandler *h);
 
     // data property
     static void data_append(QQmlListProperty<QObject> *, QObject *);
@@ -330,12 +333,26 @@ public:
     Q_DECLARE_FLAGS(ChangeTypes, ChangeType)
 
     struct ChangeListener {
-        ChangeListener(QQuickItemChangeListener *l = nullptr, QQuickItemPrivate::ChangeTypes t = 0) : listener(l), types(t), gTypes(QQuickGeometryChange::All) {}
-        ChangeListener(QQuickItemChangeListener *l, QQuickGeometryChange gt) : listener(l), types(Geometry), gTypes(gt) {}
+        using ChangeTypes = QQuickItemPrivate::ChangeTypes;
+
+        ChangeListener(QQuickItemChangeListener *l = nullptr, ChangeTypes t = nullptr)
+            : listener(l)
+            , types(t)
+            , gTypes(QQuickGeometryChange::All)
+        {}
+
+        ChangeListener(QQuickItemChangeListener *l, QQuickGeometryChange gt)
+            : listener(l)
+            , types(Geometry)
+            , gTypes(gt)
+        {}
+
+        bool operator==(const ChangeListener &other) const
+        { return listener == other.listener && types == other.types; }
+
         QQuickItemChangeListener *listener;
-        QQuickItemPrivate::ChangeTypes types;
+        ChangeTypes types;
         QQuickGeometryChange gTypes;  //NOTE: not used for ==
-        bool operator==(const ChangeListener &other) const { return listener == other.listener && types == other.types; }
     };
 
     struct ExtraData {
@@ -370,6 +387,9 @@ public:
         QQuickDefaultClipNode *clipNode;
         QSGRootNode *rootNode;
 
+        // Mask contains() method
+        QMetaMethod maskContains;
+
         QObjectList resourcesList;
 
         // Although acceptedMouseButtons is inside ExtraData, we actually store
@@ -384,6 +404,10 @@ public:
         // 26 bits padding
     };
     QLazilyAllocated<ExtraData> extra;
+    // Contains mask
+    QPointer<QObject> mask;
+    // If the mask is an Item, inform it that it's being used as a mask (true) or is no longer being used (false)
+    virtual void registerAsContainmentMask(QQuickItem * /* maskedItem */, bool /* set */) { }
 
     QQuickAnchors *anchors() const;
     mutable QQuickAnchors *_anchors;
@@ -393,6 +417,7 @@ public:
     QVector<QQuickItemPrivate::ChangeListener> changeListeners;
 
     void addItemChangeListener(QQuickItemChangeListener *listener, ChangeTypes types);
+    void updateOrAddItemChangeListener(QQuickItemChangeListener *listener, ChangeTypes types);
     void removeItemChangeListener(QQuickItemChangeListener *, ChangeTypes types);
     void updateOrAddGeometryChangeListener(QQuickItemChangeListener *listener, QQuickGeometryChange types);
     void updateOrRemoveGeometryChangeListener(QQuickItemChangeListener *listener, QQuickGeometryChange types);
@@ -574,6 +599,7 @@ public:
 #endif
     void deliverShortcutOverrideEvent(QKeyEvent *);
 
+    bool anyPointerHandlerWants(QQuickEventPoint *point) const;
     virtual bool handlePointerEvent(QQuickPointerEvent *, bool avoidExclusiveGrabber = false);
 
     virtual void setVisible(bool visible);
@@ -598,9 +624,9 @@ public:
          - (rootNode) (shader effect source's root node)
      */
 
-    QSGOpacityNode *opacityNode() const { return extra.isAllocated()?extra->opacityNode:0; }
-    QQuickDefaultClipNode *clipNode() const { return extra.isAllocated()?extra->clipNode:0; }
-    QSGRootNode *rootNode() const { return extra.isAllocated()?extra->rootNode:0; }
+    QSGOpacityNode *opacityNode() const { return extra.isAllocated()?extra->opacityNode:nullptr; }
+    QQuickDefaultClipNode *clipNode() const { return extra.isAllocated()?extra->clipNode:nullptr; }
+    QSGRootNode *rootNode() const { return extra.isAllocated()?extra->rootNode:nullptr; }
 
     QSGTransformNode *itemNodeInstance;
     QSGNode *paintNode;
@@ -632,7 +658,7 @@ public:
 class QQuickItemKeyFilter
 {
 public:
-    QQuickItemKeyFilter(QQuickItem * = 0);
+    QQuickItemKeyFilter(QQuickItem * = nullptr);
     virtual ~QQuickItemKeyFilter();
 
     virtual void keyPressed(QKeyEvent *event, bool post);
@@ -654,17 +680,15 @@ class QQuickKeyNavigationAttachedPrivate : public QObjectPrivate
 {
 public:
     QQuickKeyNavigationAttachedPrivate()
-        : QObjectPrivate(),
-          left(0), right(0), up(0), down(0), tab(0), backtab(0),
-          leftSet(false), rightSet(false), upSet(false), downSet(false),
+        : leftSet(false), rightSet(false), upSet(false), downSet(false),
           tabSet(false), backtabSet(false) {}
 
-    QQuickItem *left;
-    QQuickItem *right;
-    QQuickItem *up;
-    QQuickItem *down;
-    QQuickItem *tab;
-    QQuickItem *backtab;
+    QPointer<QQuickItem> left;
+    QPointer<QQuickItem> right;
+    QPointer<QQuickItem> up;
+    QPointer<QQuickItem> down;
+    QPointer<QQuickItem> tab;
+    QPointer<QQuickItem> backtab;
     bool leftSet : 1;
     bool rightSet : 1;
     bool upSet : 1;
@@ -687,7 +711,7 @@ class Q_QUICK_PRIVATE_EXPORT QQuickKeyNavigationAttached : public QObject, publi
     Q_PROPERTY(Priority priority READ priority WRITE setPriority NOTIFY priorityChanged)
 
 public:
-    QQuickKeyNavigationAttached(QObject * = 0);
+    QQuickKeyNavigationAttached(QObject * = nullptr);
 
     QQuickItem *left() const;
     void setLeft(QQuickItem *);
@@ -719,8 +743,8 @@ Q_SIGNALS:
     void priorityChanged();
 
 private:
-    void keyPressed(QKeyEvent *event, bool post) Q_DECL_OVERRIDE;
-    void keyReleased(QKeyEvent *event, bool post) Q_DECL_OVERRIDE;
+    void keyPressed(QKeyEvent *event, bool post) override;
+    void keyReleased(QKeyEvent *event, bool post) override;
     void setFocusNavigation(QQuickItem *currentItem, const char *dir,
                             Qt::FocusReason reason = Qt::OtherFocusReason);
 };
@@ -732,7 +756,7 @@ class QQuickLayoutMirroringAttached : public QObject
     Q_PROPERTY(bool childrenInherit READ childrenInherit WRITE setChildrenInherit NOTIFY childrenInheritChanged)
 
 public:
-    explicit QQuickLayoutMirroringAttached(QObject *parent = 0);
+    explicit QQuickLayoutMirroringAttached(QObject *parent = nullptr);
 
     bool enabled() const;
     void setEnabled(bool);
@@ -756,7 +780,7 @@ class QQuickEnterKeyAttached : public QObject
     Q_PROPERTY(Qt::EnterKeyType type READ type WRITE setType NOTIFY typeChanged)
 
 public:
-    explicit QQuickEnterKeyAttached(QObject *parent = Q_NULLPTR);
+    explicit QQuickEnterKeyAttached(QObject *parent = nullptr);
 
     Qt::EnterKeyType type() const;
     void setType(Qt::EnterKeyType type);
@@ -775,8 +799,7 @@ class QQuickKeysAttachedPrivate : public QObjectPrivate
 {
 public:
     QQuickKeysAttachedPrivate()
-        : QObjectPrivate(), inPress(false), inRelease(false)
-        , inIM(false), enabled(true), imeItem(0), item(0)
+        : inPress(false), inRelease(false), inIM(false), enabled(true)
     {}
 
     //loop detection
@@ -786,9 +809,9 @@ public:
 
     bool enabled : 1;
 
-    QQuickItem *imeItem;
+    QQuickItem *imeItem = nullptr;
     QList<QQuickItem *> targets;
-    QQuickItem *item;
+    QQuickItem *item = nullptr;
     QQuickKeyEvent theKeyEvent;
 };
 
@@ -802,8 +825,8 @@ class QQuickKeysAttached : public QObject, public QQuickItemKeyFilter
     Q_PROPERTY(Priority priority READ priority WRITE setPriority NOTIFY priorityChanged)
 
 public:
-    QQuickKeysAttached(QObject *parent=0);
-    ~QQuickKeysAttached();
+    QQuickKeysAttached(QObject *parent=nullptr);
+    ~QQuickKeysAttached() override;
 
     bool enabled() const { Q_D(const QQuickKeysAttached); return d->enabled; }
     void setEnabled(bool enabled) {
@@ -824,7 +847,7 @@ public:
         return QQmlListProperty<QQuickItem>(this, d->targets);
     }
 
-    void componentComplete() Q_DECL_OVERRIDE;
+    void componentComplete() override;
 
     static QQuickKeysAttached *qmlAttachedProperties(QObject *);
 
@@ -876,11 +899,11 @@ Q_SIGNALS:
     void volumeDownPressed(QQuickKeyEvent *event);
 
 private:
-    void keyPressed(QKeyEvent *event, bool post) Q_DECL_OVERRIDE;
-    void keyReleased(QKeyEvent *event, bool post) Q_DECL_OVERRIDE;
+    void keyPressed(QKeyEvent *event, bool post) override;
+    void keyReleased(QKeyEvent *event, bool post) override;
 #if QT_CONFIG(im)
-    void inputMethodEvent(QInputMethodEvent *, bool post) Q_DECL_OVERRIDE;
-    QVariant inputMethodQuery(Qt::InputMethodQuery query) const Q_DECL_OVERRIDE;
+    void inputMethodEvent(QInputMethodEvent *, bool post) override;
+    QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
 #endif
     void shortcutOverride(QKeyEvent *event) override;
     static QByteArray keyToSignal(int key);
@@ -891,7 +914,7 @@ private:
 Qt::MouseButtons QQuickItemPrivate::acceptedMouseButtons() const
 {
     return ((extra.flag() ? Qt::LeftButton : Qt::MouseButton(0)) |
-            (extra.isAllocated() ? extra->acceptedMouseButtons : Qt::MouseButtons(0)));
+            (extra.isAllocated() ? extra->acceptedMouseButtons : Qt::MouseButtons(nullptr)));
 }
 
 QSGContext *QQuickItemPrivate::sceneGraphContext() const
@@ -913,7 +936,7 @@ void QQuickItemPrivate::markSortedChildrenDirty(QQuickItem *child)
     if (child->z() != 0. || sortedChildItems != &childItems) {
         if (sortedChildItems != &childItems)
             delete sortedChildItems;
-        sortedChildItems = 0;
+        sortedChildItems = nullptr;
     }
 }
 

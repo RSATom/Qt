@@ -6,7 +6,6 @@
 
 #include <stddef.h>
 
-#include "base/memory/ptr_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "cc/animation/animation_host.h"
 #include "cc/layers/append_quads_data.h"
@@ -61,7 +60,7 @@ TEST(PictureLayerTest, NoTilesIfEmptyBounds) {
       FakeLayerTreeFrameSink::CreateSoftware();
   FakeLayerTreeHostImpl host_impl(
       LayerTreeSettings(), &impl_task_runner_provider, &task_graph_runner);
-  host_impl.InitializeRenderer(layer_tree_frame_sink.get());
+  host_impl.InitializeFrameSink(layer_tree_frame_sink.get());
   host_impl.CreatePendingTree();
   std::unique_ptr<FakePictureLayerImpl> layer_impl =
       FakePictureLayerImpl::Create(host_impl.pending_tree(), 1);
@@ -102,7 +101,7 @@ TEST(PictureLayerTest, InvalidateRasterAfterUpdate) {
   FakeLayerTreeHostImpl host_impl(
       layer_tree_settings, &impl_task_runner_provider, &task_graph_runner);
   host_impl.SetVisible(true);
-  host_impl.InitializeRenderer(layer_tree_frame_sink.get());
+  host_impl.InitializeFrameSink(layer_tree_frame_sink.get());
   host_impl.CreatePendingTree();
   host_impl.pending_tree()->SetRootLayerForTesting(
       FakePictureLayerImpl::Create(host_impl.pending_tree(), 1));
@@ -143,7 +142,7 @@ TEST(PictureLayerTest, InvalidateRasterWithoutUpdate) {
   FakeLayerTreeHostImpl host_impl(
       layer_tree_settings, &impl_task_runner_provider, &task_graph_runner);
   host_impl.SetVisible(true);
-  host_impl.InitializeRenderer(layer_tree_frame_sink.get());
+  host_impl.InitializeFrameSink(layer_tree_frame_sink.get());
   host_impl.CreatePendingTree();
   host_impl.pending_tree()->SetRootLayerForTesting(
       FakePictureLayerImpl::Create(host_impl.pending_tree(), 1));
@@ -159,7 +158,7 @@ TEST(PictureLayerTest, ClearVisibleRectWhenNoTiling) {
   gfx::Size layer_size(50, 50);
   FakeContentLayerClient client;
   client.set_bounds(layer_size);
-  client.add_draw_image(CreateDiscardableImage(layer_size), gfx::Point(),
+  client.add_draw_image(CreateDiscardablePaintImage(layer_size), gfx::Point(),
                         PaintFlags());
   scoped_refptr<PictureLayer> layer = PictureLayer::Create(&client);
   layer->SetBounds(gfx::Size(10, 10));
@@ -188,7 +187,7 @@ TEST(PictureLayerTest, ClearVisibleRectWhenNoTiling) {
   FakeLayerTreeHostImpl host_impl(
       layer_tree_settings, &impl_task_runner_provider, &task_graph_runner);
   host_impl.SetVisible(true);
-  EXPECT_TRUE(host_impl.InitializeRenderer(layer_tree_frame_sink.get()));
+  EXPECT_TRUE(host_impl.InitializeFrameSink(layer_tree_frame_sink.get()));
 
   host_impl.CreatePendingTree();
   host_impl.pending_tree()->SetRootLayerForTesting(
@@ -223,7 +222,7 @@ TEST(PictureLayerTest, ClearVisibleRectWhenNoTiling) {
 
   host_impl.ActivateSyncTree();
 
-  std::unique_ptr<RenderPass> render_pass = RenderPass::Create();
+  std::unique_ptr<viz::RenderPass> render_pass = viz::RenderPass::Create();
   AppendQuadsData data;
   host_impl.active_tree()->root_layer_for_testing()->WillDraw(
       DRAW_MODE_SOFTWARE, nullptr);
@@ -328,8 +327,8 @@ TEST(PictureLayerTest, NonMonotonicSourceFrameNumber) {
   params.task_graph_runner = &task_graph_runner;
   params.main_task_runner = base::ThreadTaskRunnerHandle::Get();
   params.mutator_host = animation_host.get();
-  std::unique_ptr<LayerTreeHost> host1 =
-      LayerTreeHost::CreateSingleThreaded(&single_thread_client, &params);
+  std::unique_ptr<LayerTreeHost> host1 = LayerTreeHost::CreateSingleThreaded(
+      &single_thread_client, std::move(params));
   host1->SetVisible(true);
   host_client1.SetLayerTreeHost(host1.get());
 
@@ -342,8 +341,8 @@ TEST(PictureLayerTest, NonMonotonicSourceFrameNumber) {
   params2.main_task_runner = base::ThreadTaskRunnerHandle::Get();
   params2.client = &host_client2;
   params2.mutator_host = animation_host2.get();
-  std::unique_ptr<LayerTreeHost> host2 =
-      LayerTreeHost::CreateSingleThreaded(&single_thread_client, &params2);
+  std::unique_ptr<LayerTreeHost> host2 = LayerTreeHost::CreateSingleThreaded(
+      &single_thread_client, std::move(params2));
   host2->SetVisible(true);
   host_client2.SetLayerTreeHost(host2.get());
 
@@ -352,13 +351,13 @@ TEST(PictureLayerTest, NonMonotonicSourceFrameNumber) {
   // Do a main frame, record the picture layers.
   EXPECT_EQ(0, layer->update_count());
   layer->SetNeedsDisplay();
-  host1->Composite(base::TimeTicks::Now());
+  host1->Composite(base::TimeTicks::Now(), false);
   EXPECT_EQ(1, layer->update_count());
   EXPECT_EQ(1, host1->SourceFrameNumber());
 
   // The source frame number in |host1| is now higher than host2.
   layer->SetNeedsDisplay();
-  host1->Composite(base::TimeTicks::Now());
+  host1->Composite(base::TimeTicks::Now(), false);
   EXPECT_EQ(2, layer->update_count());
   EXPECT_EQ(2, host1->SourceFrameNumber());
 
@@ -369,7 +368,7 @@ TEST(PictureLayerTest, NonMonotonicSourceFrameNumber) {
   // Do a main frame, record the picture layers. The frame number has changed
   // non-monotonically.
   layer->SetNeedsDisplay();
-  host2->Composite(base::TimeTicks::Now());
+  host2->Composite(base::TimeTicks::Now(), false);
   EXPECT_EQ(3, layer->update_count());
   EXPECT_EQ(1, host2->SourceFrameNumber());
 
@@ -400,8 +399,8 @@ TEST(PictureLayerTest, ChangingHostsWithCollidingFrames) {
   params.task_graph_runner = &task_graph_runner;
   params.main_task_runner = base::ThreadTaskRunnerHandle::Get();
   params.mutator_host = animation_host.get();
-  std::unique_ptr<LayerTreeHost> host1 =
-      LayerTreeHost::CreateSingleThreaded(&single_thread_client, &params);
+  std::unique_ptr<LayerTreeHost> host1 = LayerTreeHost::CreateSingleThreaded(
+      &single_thread_client, std::move(params));
   host1->SetVisible(true);
   host_client1.SetLayerTreeHost(host1.get());
 
@@ -414,8 +413,8 @@ TEST(PictureLayerTest, ChangingHostsWithCollidingFrames) {
   params2.main_task_runner = base::ThreadTaskRunnerHandle::Get();
   params2.client = &host_client2;
   params2.mutator_host = animation_host2.get();
-  std::unique_ptr<LayerTreeHost> host2 =
-      LayerTreeHost::CreateSingleThreaded(&single_thread_client, &params2);
+  std::unique_ptr<LayerTreeHost> host2 = LayerTreeHost::CreateSingleThreaded(
+      &single_thread_client, std::move(params2));
   host2->SetVisible(true);
   host_client2.SetLayerTreeHost(host2.get());
 
@@ -424,7 +423,7 @@ TEST(PictureLayerTest, ChangingHostsWithCollidingFrames) {
   // Do a main frame, record the picture layers.
   EXPECT_EQ(0, layer->update_count());
   layer->SetBounds(gfx::Size(500, 500));
-  host1->Composite(base::TimeTicks::Now());
+  host1->Composite(base::TimeTicks::Now(), false);
   EXPECT_EQ(1, layer->update_count());
   EXPECT_EQ(1, host1->SourceFrameNumber());
   EXPECT_EQ(gfx::Size(500, 500), layer->bounds());
@@ -442,7 +441,7 @@ TEST(PictureLayerTest, ChangingHostsWithCollidingFrames) {
 
   // Change its bounds while it's in a state that can't update.
   layer->SetBounds(gfx::Size(600, 600));
-  host2->Composite(base::TimeTicks::Now());
+  host2->Composite(base::TimeTicks::Now(), false);
 
   // This layer should not have been updated because it is invisible.
   EXPECT_EQ(1, layer->update_count());
@@ -451,6 +450,62 @@ TEST(PictureLayerTest, ChangingHostsWithCollidingFrames) {
   // This layer should also drop its recording source because it was resized
   // and not recorded.
   EXPECT_EQ(gfx::Size(), layer->GetRecordingSourceForTesting()->GetSize());
+}
+
+TEST(PictureLayerTest, RecordingScaleIsCorrectlySet) {
+  gfx::Size layer_bounds(400, 400);
+  float recording_scale = 1.5f;
+
+  FakeContentLayerClient client;
+  client.set_bounds(layer_bounds);
+  // Fill layer with solid color.
+  PaintFlags solid_flags;
+  SkColor solid_color = SkColorSetARGB(255, 12, 23, 34);
+  solid_flags.setColor(solid_color);
+  client.add_draw_rect(
+      gfx::ScaleToEnclosingRect(gfx::Rect(layer_bounds), recording_scale),
+      solid_flags);
+
+  // Add 1 pixel of non solid color.
+  SkColor non_solid_color = SkColorSetARGB(128, 45, 56, 67);
+  PaintFlags non_solid_flags;
+  non_solid_flags.setColor(non_solid_color);
+  client.add_draw_rect(gfx::Rect(std::round(390 * recording_scale),
+                                 std::round(390 * recording_scale), 1, 1),
+                       non_solid_flags);
+
+  std::unique_ptr<FakeRecordingSource> recording_source_owned =
+      FakeRecordingSource::CreateFilledRecordingSource(layer_bounds);
+  FakeRecordingSource* recording_source = recording_source_owned.get();
+  scoped_refptr<FakePictureLayer> layer =
+      FakePictureLayer::CreateWithRecordingSource(
+          &client, std::move(recording_source_owned));
+  layer->SetBounds(layer_bounds);
+
+  FakeLayerTreeHostClient host_client;
+  TestTaskGraphRunner task_graph_runner;
+  auto animation_host = AnimationHost::CreateForTesting(ThreadInstance::MAIN);
+  std::unique_ptr<FakeLayerTreeHost> host = FakeLayerTreeHost::Create(
+      &host_client, &task_graph_runner, animation_host.get());
+  host->SetRootLayer(layer);
+
+  gfx::Rect invalidation_bounds(layer_bounds);
+  layer->SetIsDrawable(true);
+  layer->SetNeedsDisplayRect(invalidation_bounds);
+  layer->Update();
+
+  // Solid color analysis will return true since the layer tree host has the
+  // recording scale set to its default value of 1. The non solid pixel is
+  // out of bounds for the unscaled layer size in this particular case.
+  EXPECT_TRUE(recording_source->is_solid_color());
+
+  host->SetRecordingScaleFactor(recording_scale);
+  layer->SetNeedsDisplayRect(invalidation_bounds);
+  layer->Update();
+
+  // Once the recording scale is set and propogated to the recording source,
+  // the solid color analysis should work as expected and return false.
+  EXPECT_FALSE(recording_source->is_solid_color());
 }
 
 }  // namespace

@@ -102,30 +102,30 @@ public:
     QGeoFileTileCache(const QString &directory = QString(), QObject *parent = 0);
     ~QGeoFileTileCache();
 
-    void setMaxDiskUsage(int diskUsage) Q_DECL_OVERRIDE;
-    int maxDiskUsage() const Q_DECL_OVERRIDE;
-    int diskUsage() const Q_DECL_OVERRIDE;
+    void setMaxDiskUsage(int diskUsage) override;
+    int maxDiskUsage() const override;
+    int diskUsage() const override;
 
-    void setMaxMemoryUsage(int memoryUsage) Q_DECL_OVERRIDE;
-    int maxMemoryUsage() const Q_DECL_OVERRIDE;
-    int memoryUsage() const Q_DECL_OVERRIDE;
+    void setMaxMemoryUsage(int memoryUsage) override;
+    int maxMemoryUsage() const override;
+    int memoryUsage() const override;
 
-    void setMinTextureUsage(int textureUsage) Q_DECL_OVERRIDE;
-    void setExtraTextureUsage(int textureUsage) Q_DECL_OVERRIDE;
-    int maxTextureUsage() const Q_DECL_OVERRIDE;
-    int minTextureUsage() const Q_DECL_OVERRIDE;
-    int textureUsage() const Q_DECL_OVERRIDE;
-    void clearAll() Q_DECL_OVERRIDE;
+    void setMinTextureUsage(int textureUsage) override;
+    void setExtraTextureUsage(int textureUsage) override;
+    int maxTextureUsage() const override;
+    int minTextureUsage() const override;
+    int textureUsage() const override;
+    void clearAll() override;
     void clearMapId(const int mapId);
-    void setCostStrategyDisk(CostStrategy costStrategy) Q_DECL_OVERRIDE;
-    CostStrategy costStrategyDisk() const Q_DECL_OVERRIDE;
-    void setCostStrategyMemory(CostStrategy costStrategy) Q_DECL_OVERRIDE;
-    CostStrategy costStrategyMemory() const Q_DECL_OVERRIDE;
-    void setCostStrategyTexture(CostStrategy costStrategy) Q_DECL_OVERRIDE;
-    CostStrategy costStrategyTexture() const Q_DECL_OVERRIDE;
+    void setCostStrategyDisk(CostStrategy costStrategy) override;
+    CostStrategy costStrategyDisk() const override;
+    void setCostStrategyMemory(CostStrategy costStrategy) override;
+    CostStrategy costStrategyMemory() const override;
+    void setCostStrategyTexture(CostStrategy costStrategy) override;
+    CostStrategy costStrategyTexture() const override;
 
 
-    QSharedPointer<QGeoTileTexture> get(const QGeoTileSpec &spec) Q_DECL_OVERRIDE;
+    QSharedPointer<QGeoTileTexture> get(const QGeoTileSpec &spec) override;
 
     // can be called without a specific tileCache pointer
     static void evictFromDiskCache(QGeoCachedTileDisk *td);
@@ -134,14 +134,14 @@ public:
     void insert(const QGeoTileSpec &spec,
                 const QByteArray &bytes,
                 const QString &format,
-                QAbstractGeoTileCache::CacheAreas areas = QAbstractGeoTileCache::AllCaches) Q_DECL_OVERRIDE;
+                QAbstractGeoTileCache::CacheAreas areas = QAbstractGeoTileCache::AllCaches) override;
 
     static QString tileSpecToFilenameDefault(const QGeoTileSpec &spec, const QString &format, const QString &directory);
     static QGeoTileSpec filenameToTileSpecDefault(const QString &filename);
 
 protected:
-    void init() Q_DECL_OVERRIDE;
-    void printStats() Q_DECL_OVERRIDE;
+    void init() override;
+    void printStats() override;
     void loadTiles();
 
     QString directory() const;

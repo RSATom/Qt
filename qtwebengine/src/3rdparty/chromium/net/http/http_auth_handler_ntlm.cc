@@ -4,6 +4,8 @@
 
 #include "net/http/http_auth_handler_ntlm.h"
 
+#include <utility>
+
 #if !defined(NTLM_SSPI)
 #include "base/base64.h"
 #endif
@@ -38,24 +40,20 @@ bool HttpAuthHandlerNTLM::Init(HttpAuthChallengeTokenizer* tok,
 }
 
 int HttpAuthHandlerNTLM::GenerateAuthTokenImpl(
-    const AuthCredentials* credentials, const HttpRequestInfo* request,
-    const CompletionCallback& callback, std::string* auth_token) {
+    const AuthCredentials* credentials,
+    const HttpRequestInfo* request,
+    CompletionOnceCallback callback,
+    std::string* auth_token) {
 #if defined(NTLM_SSPI)
   return auth_sspi_.GenerateAuthToken(credentials, CreateSPN(origin_),
-                                      channel_bindings_, auth_token, callback);
+                                      channel_bindings_, auth_token,
+                                      std::move(callback));
 #else  // !defined(NTLM_SSPI)
   // TODO(cbentzel): Shouldn't be hitting this case.
   if (!credentials) {
     LOG(ERROR) << "Username and password are expected to be non-NULL.";
     return ERR_MISSING_AUTH_CREDENTIALS;
   }
-  // TODO(wtc): See if we can use char* instead of void* for in_buf and
-  // out_buf.  This change will need to propagate to GetNextToken,
-  // GenerateType1Msg, and GenerateType3Msg, and perhaps further.
-  const void* in_buf;
-  void* out_buf;
-  uint32_t in_buf_len, out_buf_len;
-  std::string decoded_auth_data;
 
   // The username may be in the form "DOMAIN\user".  Parse it into the two
   // components.
@@ -73,32 +71,32 @@ int HttpAuthHandlerNTLM::GenerateAuthTokenImpl(
   domain_ = domain;
   credentials_.Set(user, credentials->password());
 
-  // Initial challenge.
+  std::string decoded_auth_data;
   if (auth_data_.empty()) {
-    in_buf_len = 0;
-    in_buf = NULL;
+    // There is no |auth_data_| because the client sends the first message.
     int rv = InitializeBeforeFirstChallenge();
     if (rv != OK)
       return rv;
   } else {
+    // When |auth_data_| is present it contains the Challenge message.
     if (!base::Base64Decode(auth_data_, &decoded_auth_data)) {
       LOG(ERROR) << "Unexpected problem Base64 decoding.";
       return ERR_UNEXPECTED;
     }
-    in_buf_len = decoded_auth_data.length();
-    in_buf = decoded_auth_data.data();
   }
 
-  int rv = GetNextToken(in_buf, in_buf_len, &out_buf, &out_buf_len);
-  if (rv != OK)
-    return rv;
+  std::vector<uint8_t> next_token =
+      GetNextToken(base::as_bytes(base::make_span(decoded_auth_data)));
+  if (next_token.empty())
+    return ERR_UNEXPECTED;
 
   // Base64 encode data in output buffer and prepend "NTLM ".
-  std::string encode_input(static_cast<char*>(out_buf), out_buf_len);
   std::string encode_output;
-  base::Base64Encode(encode_input, &encode_output);
-  // OK, we are done with |out_buf|
-  free(out_buf);
+  base::Base64Encode(
+      base::StringPiece(reinterpret_cast<const char*>(next_token.data()),
+                        next_token.size()),
+      &encode_output);
+
   *auth_token = std::string("NTLM ") + encode_output;
   return OK;
 #endif
@@ -143,7 +141,7 @@ std::string HttpAuthHandlerNTLM::CreateSPN(const GURL& origin) {
   // The service principal name of the destination server.  See
   // http://msdn.microsoft.com/en-us/library/ms677949%28VS.85%29.aspx
   std::string target("HTTP/");
-  target.append(GetHostAndPort(origin));
+  target.append(GetHostAndOptionalPort(origin));
   return target;
 }
 

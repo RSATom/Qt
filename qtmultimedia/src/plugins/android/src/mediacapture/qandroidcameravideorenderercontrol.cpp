@@ -56,13 +56,13 @@ class QAndroidCameraDataVideoOutput : public QAndroidVideoOutput
     Q_OBJECT
 public:
     explicit QAndroidCameraDataVideoOutput(QAndroidCameraVideoRendererControl *control);
-    ~QAndroidCameraDataVideoOutput() Q_DECL_OVERRIDE;
+    ~QAndroidCameraDataVideoOutput() override;
 
-    AndroidSurfaceHolder *surfaceHolder() Q_DECL_OVERRIDE;
+    AndroidSurfaceHolder *surfaceHolder() override;
 
-    bool isReady() Q_DECL_OVERRIDE;
+    bool isReady() override;
 
-    void stop() Q_DECL_OVERRIDE;
+    void stop() override;
 
 private Q_SLOTS:
     void onSurfaceCreated();
@@ -108,7 +108,7 @@ QAndroidCameraDataVideoOutput::QAndroidCameraDataVideoOutput(QAndroidCameraVideo
 
 QAndroidCameraDataVideoOutput::~QAndroidCameraDataVideoOutput()
 {
-    m_control->cameraSession()->setPreviewCallback(Q_NULLPTR);
+    m_control->cameraSession()->setPreviewCallback(nullptr);
     delete m_surfaceView;
 }
 
@@ -146,7 +146,7 @@ void QAndroidCameraDataVideoOutput::configureFormat()
     }
 
     if (m_pixelFormat == QVideoFrame::Format_Invalid) {
-        m_control->cameraSession()->setPreviewCallback(Q_NULLPTR);
+        m_control->cameraSession()->setPreviewCallback(nullptr);
         qWarning("The video surface is not compatible with any format supported by the camera");
     } else {
         m_control->cameraSession()->setPreviewCallback(this);

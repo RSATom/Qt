@@ -7,6 +7,7 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/callback_helpers.h"
+#include "base/containers/circular_deque.h"
 #include "base/logging.h"
 #include "media/base/decoder_buffer.h"
 #include "media/base/video_rotation.h"
@@ -39,7 +40,6 @@ class MediaStream final : public DemuxerStream {
   DemuxerStream::Type type() const override;
   Liveness liveness() const override;
   bool SupportsConfigChanges() override;
-  VideoRotation video_rotation() override;
 
   void Initialize(const base::Closure& init_done_cb);
   void FlushUntil(int count);
@@ -93,7 +93,7 @@ class MediaStream final : public DemuxerStream {
 
   base::Closure error_callback_;  // Called only once when first error occurs.
 
-  std::deque<scoped_refptr<DecoderBuffer>> buffers_;
+  base::circular_deque<scoped_refptr<DecoderBuffer>> buffers_;
 
   // Current audio/video config.
   AudioDecoderConfig audio_decoder_config_;
@@ -129,7 +129,7 @@ MediaStream::~MediaStream() {
 }
 
 void MediaStream::Initialize(const base::Closure& init_done_cb) {
-  DCHECK(!init_done_cb.is_null());
+  DCHECK(init_done_cb);
   if (!init_done_callback_.is_null()) {
     OnError("Duplicate initialization");
     return;
@@ -196,7 +196,7 @@ void MediaStream::OnInitializeCallback(
     OnError("config missing");
     return;
   }
-  base::ResetAndReturn(&init_done_callback_).Run();
+  std::move(init_done_callback_).Run();
 }
 
 void MediaStream::OnReadUntilCallback(std::unique_ptr<pb::RpcMessage> message) {
@@ -299,7 +299,7 @@ void MediaStream::FlushUntil(int count) {
 
 void MediaStream::Read(const ReadCB& read_cb) {
   DCHECK(read_complete_callback_.is_null());
-  DCHECK(!read_cb.is_null());
+  DCHECK(read_cb);
   read_complete_callback_ = read_cb;
   if (buffers_.empty() && config_changed_) {
     CompleteRead(DemuxerStream::kConfigChanged);
@@ -333,16 +333,17 @@ void MediaStream::CompleteRead(DemuxerStream::Status status) {
 #endif  // DCHECK_IS_ON()
       }
       config_changed_ = false;
-      base::ResetAndReturn(&read_complete_callback_).Run(status, nullptr);
+      std::move(read_complete_callback_).Run(status, nullptr);
       return;
     case DemuxerStream::kAborted:
-      base::ResetAndReturn(&read_complete_callback_).Run(status, nullptr);
+    case DemuxerStream::kError:
+      std::move(read_complete_callback_).Run(status, nullptr);
       return;
     case DemuxerStream::kOk:
       DCHECK(!buffers_.empty());
       scoped_refptr<DecoderBuffer> frame_data = buffers_.front();
       buffers_.pop_front();
-      base::ResetAndReturn(&read_complete_callback_).Run(status, frame_data);
+      std::move(read_complete_callback_).Run(status, frame_data);
       return;
   }
 }
@@ -371,10 +372,6 @@ bool MediaStream::SupportsConfigChanges() {
   return true;
 }
 
-VideoRotation MediaStream::video_rotation() {
-  return VideoRotation::VIDEO_ROTATION_0;
-}
-
 void MediaStream::AppendBuffer(scoped_refptr<DecoderBuffer> buffer) {
   DVLOG(3) << __func__;
   buffers_.push_back(buffer);
@@ -386,7 +383,7 @@ void MediaStream::OnError(const std::string& error) {
   VLOG(1) << __func__ << ": " << error;
   if (error_callback_.is_null())
     return;
-  base::ResetAndReturn(&error_callback_).Run();
+  std::move(error_callback_).Run();
 }
 
 StreamProvider::StreamProvider(RpcBroker* rpc_broker,
@@ -395,7 +392,7 @@ StreamProvider::StreamProvider(RpcBroker* rpc_broker,
       error_callback_(error_callback),
       weak_factory_(this) {}
 
-StreamProvider::~StreamProvider() {}
+StreamProvider::~StreamProvider() = default;
 
 void StreamProvider::Initialize(int remote_audio_handle,
                                 int remote_video_handle,
@@ -435,21 +432,21 @@ void StreamProvider::OnError(const std::string& error) {
   VLOG(1) << __func__ << ": " << error;
   if (error_callback_.is_null())
     return;
-  base::ResetAndReturn(&error_callback_).Run();
+  std::move(error_callback_).Run();
 }
 
 void StreamProvider::AudioStreamInitialized() {
   DCHECK(!init_done_callback_.is_null());
   audio_stream_initialized_ = true;
   if (video_stream_initialized_ || !video_stream_)
-    base::ResetAndReturn(&init_done_callback_).Run();
+    std::move(init_done_callback_).Run();
 }
 
 void StreamProvider::VideoStreamInitialized() {
   DCHECK(!init_done_callback_.is_null());
   video_stream_initialized_ = true;
   if (audio_stream_initialized_ || !audio_stream_)
-    base::ResetAndReturn(&init_done_callback_).Run();
+    std::move(init_done_callback_).Run();
 }
 
 std::vector<DemuxerStream*> StreamProvider::GetAllStreams() {

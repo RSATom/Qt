@@ -9,10 +9,15 @@
 
 #include "base/callback.h"
 #include "build/build_config.h"
+#include "content/common/buildflags.h"
 #include "content/common/content_export.h"
 #include "content/common/drag_event_source_info.h"
-#include "content/common/features.h"
-#include "third_party/WebKit/public/platform/WebDragOperation.h"
+#include "content/public/common/input_event_ack_state.h"
+#include "third_party/blink/public/platform/web_drag_operation.h"
+
+namespace blink {
+class WebGestureEvent;
+}
 
 namespace gfx {
 class ImageSkia;
@@ -68,6 +73,19 @@ class CONTENT_EXPORT RenderViewHostDelegateView {
   // the browser's chrome. If reverse is true, it means the focus was
   // retrieved by doing a Shift-Tab.
   virtual void TakeFocus(bool reverse) {}
+
+  // Returns the height of the top controls in DIP.
+  virtual int GetTopControlsHeight() const;
+
+  // Returns the height of the bottom controls in DIP.
+  virtual int GetBottomControlsHeight() const;
+
+  // Returns true if the browser controls resize the renderer's view size.
+  virtual bool DoBrowserControlsShrinkRendererSize() const;
+
+  // Do post-event tasks for gesture events.
+  virtual void GestureEventAck(const blink::WebGestureEvent& event,
+                               InputEventAckState ack_result);
 
 #if BUILDFLAG(USE_EXTERNAL_POPUP_MENU)
   // Shows a popup menu with the specified items.

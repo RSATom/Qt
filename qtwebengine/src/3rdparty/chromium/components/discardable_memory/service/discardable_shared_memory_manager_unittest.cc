@@ -7,7 +7,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "base/message_loop/message_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/threading/simple_thread.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -20,8 +20,8 @@ class TestDiscardableSharedMemory : public base::DiscardableSharedMemory {
  public:
   TestDiscardableSharedMemory() {}
 
-  explicit TestDiscardableSharedMemory(base::SharedMemoryHandle handle)
-      : DiscardableSharedMemory(handle) {}
+  explicit TestDiscardableSharedMemory(base::UnsafeSharedMemoryRegion region)
+      : DiscardableSharedMemory(std::move(region)) {}
 
   void SetNow(base::Time now) { now_ = now; }
 
@@ -66,7 +66,7 @@ class DiscardableSharedMemoryManagerTest : public testing::Test {
   }
 
   // DiscardableSharedMemoryManager requires a message loop.
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment task_environment_;
   std::unique_ptr<TestDiscardableSharedMemoryManager> manager_;
 };
 
@@ -75,12 +75,12 @@ TEST_F(DiscardableSharedMemoryManagerTest, AllocateForClient) {
   uint8_t data[kDataSize];
   memset(data, 0x80, kDataSize);
 
-  base::SharedMemoryHandle shared_handle;
+  base::UnsafeSharedMemoryRegion shared_region;
   manager_->AllocateLockedDiscardableSharedMemoryForClient(
-      kInvalidUniqueID, kDataSize, 0, &shared_handle);
-  ASSERT_TRUE(base::SharedMemory::IsHandleValid(shared_handle));
+      kInvalidUniqueID, kDataSize, 0, &shared_region);
+  ASSERT_TRUE(shared_region.IsValid());
 
-  TestDiscardableSharedMemory memory(shared_handle);
+  TestDiscardableSharedMemory memory(std::move(shared_region));
   bool rv = memory.Map(kDataSize);
   ASSERT_TRUE(rv);
 
@@ -96,21 +96,21 @@ TEST_F(DiscardableSharedMemoryManagerTest, AllocateForClient) {
 TEST_F(DiscardableSharedMemoryManagerTest, Purge) {
   const int kDataSize = 1024;
 
-  base::SharedMemoryHandle shared_handle1;
+  base::UnsafeSharedMemoryRegion shared_region1;
   manager_->AllocateLockedDiscardableSharedMemoryForClient(
-      kInvalidUniqueID, kDataSize, 1, &shared_handle1);
-  ASSERT_TRUE(base::SharedMemory::IsHandleValid(shared_handle1));
+      kInvalidUniqueID, kDataSize, 1, &shared_region1);
+  ASSERT_TRUE(shared_region1.IsValid());
 
-  TestDiscardableSharedMemory memory1(shared_handle1);
+  TestDiscardableSharedMemory memory1(std::move(shared_region1));
   bool rv = memory1.Map(kDataSize);
   ASSERT_TRUE(rv);
 
-  base::SharedMemoryHandle shared_handle2;
+  base::UnsafeSharedMemoryRegion shared_region2;
   manager_->AllocateLockedDiscardableSharedMemoryForClient(
-      kInvalidUniqueID, kDataSize, 2, &shared_handle2);
-  ASSERT_TRUE(base::SharedMemory::IsHandleValid(shared_handle2));
+      kInvalidUniqueID, kDataSize, 2, &shared_region2);
+  ASSERT_TRUE(shared_region2.IsValid());
 
-  TestDiscardableSharedMemory memory2(shared_handle2);
+  TestDiscardableSharedMemory memory2(std::move(shared_region2));
   rv = memory2.Map(kDataSize);
   ASSERT_TRUE(rv);
 
@@ -160,12 +160,12 @@ TEST_F(DiscardableSharedMemoryManagerTest, Purge) {
 TEST_F(DiscardableSharedMemoryManagerTest, EnforceMemoryPolicy) {
   const int kDataSize = 1024;
 
-  base::SharedMemoryHandle shared_handle;
+  base::UnsafeSharedMemoryRegion shared_region;
   manager_->AllocateLockedDiscardableSharedMemoryForClient(
-      kInvalidUniqueID, kDataSize, 0, &shared_handle);
-  ASSERT_TRUE(base::SharedMemory::IsHandleValid(shared_handle));
+      kInvalidUniqueID, kDataSize, 0, &shared_region);
+  ASSERT_TRUE(shared_region.IsValid());
 
-  TestDiscardableSharedMemory memory(shared_handle);
+  TestDiscardableSharedMemory memory(std::move(shared_region));
   bool rv = memory.Map(kDataSize);
   ASSERT_TRUE(rv);
 
@@ -198,21 +198,21 @@ TEST_F(DiscardableSharedMemoryManagerTest,
        ReduceMemoryAfterSegmentHasBeenDeleted) {
   const int kDataSize = 1024;
 
-  base::SharedMemoryHandle shared_handle1;
+  base::UnsafeSharedMemoryRegion shared_region1;
   manager_->AllocateLockedDiscardableSharedMemoryForClient(
-      kInvalidUniqueID, kDataSize, 1, &shared_handle1);
-  ASSERT_TRUE(base::SharedMemory::IsHandleValid(shared_handle1));
+      kInvalidUniqueID, kDataSize, 1, &shared_region1);
+  ASSERT_TRUE(shared_region1.IsValid());
 
-  TestDiscardableSharedMemory memory1(shared_handle1);
+  TestDiscardableSharedMemory memory1(std::move(shared_region1));
   bool rv = memory1.Map(kDataSize);
   ASSERT_TRUE(rv);
 
-  base::SharedMemoryHandle shared_handle2;
+  base::UnsafeSharedMemoryRegion shared_region2;
   manager_->AllocateLockedDiscardableSharedMemoryForClient(
-      kInvalidUniqueID, kDataSize, 2, &shared_handle2);
-  ASSERT_TRUE(base::SharedMemory::IsHandleValid(shared_handle2));
+      kInvalidUniqueID, kDataSize, 2, &shared_region2);
+  ASSERT_TRUE(shared_region2.IsValid());
 
-  TestDiscardableSharedMemory memory2(shared_handle2);
+  TestDiscardableSharedMemory memory2(std::move(shared_region2));
   rv = memory2.Map(kDataSize);
   ASSERT_TRUE(rv);
 
@@ -240,7 +240,7 @@ class DiscardableSharedMemoryManagerScheduleEnforceMemoryPolicyTest
   void SetUp() override { manager_.reset(new DiscardableSharedMemoryManager); }
 
   // DiscardableSharedMemoryManager requires a message loop.
-  base::MessageLoop message_loop_;
+  base::test::ScopedTaskEnvironment task_environment_;
   std::unique_ptr<DiscardableSharedMemoryManager> manager_;
 };
 
@@ -261,10 +261,10 @@ TEST_F(DiscardableSharedMemoryManagerScheduleEnforceMemoryPolicyTest,
        SetMemoryLimitOnSimpleThread) {
   const int kDataSize = 1024;
 
-  base::SharedMemoryHandle shared_handle;
+  base::UnsafeSharedMemoryRegion shared_region;
   manager_->AllocateLockedDiscardableSharedMemoryForClient(
-      kInvalidUniqueID, kDataSize, 0, &shared_handle);
-  ASSERT_TRUE(base::SharedMemory::IsHandleValid(shared_handle));
+      kInvalidUniqueID, kDataSize, 0, &shared_region);
+  ASSERT_TRUE(shared_region.IsValid());
 
   // Set the memory limit to a value that will require EnforceMemoryPolicy()
   // to be schedule on a thread without a message loop.

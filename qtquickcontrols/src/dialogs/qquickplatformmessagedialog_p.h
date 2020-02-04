@@ -55,22 +55,22 @@
 
 QT_BEGIN_NAMESPACE
 
-class QQuickPlatformMessageDialog : public QQuickAbstractMessageDialog
+class QQuickPlatformMessageDialog1 : public QQuickAbstractMessageDialog
 {
     Q_OBJECT
 
 public:
-    QQuickPlatformMessageDialog(QObject *parent = 0);
-    virtual ~QQuickPlatformMessageDialog();
+    QQuickPlatformMessageDialog1(QObject *parent = 0);
+    virtual ~QQuickPlatformMessageDialog1();
 
 protected:
     QPlatformMessageDialogHelper *helper();
 
-    Q_DISABLE_COPY(QQuickPlatformMessageDialog)
+    Q_DISABLE_COPY(QQuickPlatformMessageDialog1)
 };
 
 QT_END_NAMESPACE
 
-QML_DECLARE_TYPE(QQuickPlatformMessageDialog *)
+QML_DECLARE_TYPE(QQuickPlatformMessageDialog1 *)
 
 #endif // QQUICKPLATFORMMESSAGEDIALOG_P_H

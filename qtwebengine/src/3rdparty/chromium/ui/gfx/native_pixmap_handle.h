@@ -22,8 +22,16 @@ namespace gfx {
 // NativePixmapPlane is used to carry the plane related information for GBM
 // buffer. More fields can be added if they are plane specific.
 struct GFX_EXPORT NativePixmapPlane {
+  // This is the same value as DRM_FORMAT_MOD_INVALID, which is not a valid
+  // modifier. We use this to indicate that layout information
+  // (tiling/compression) if any will be communicated out of band.
+  static constexpr uint64_t kNoModifier = 0x00ffffffffffffffULL;
+
   NativePixmapPlane();
-  NativePixmapPlane(int stride, int offset, uint64_t size, uint64_t modifier);
+  NativePixmapPlane(int stride,
+                    int offset,
+                    uint64_t size,
+                    uint64_t modifier = kNoModifier);
   NativePixmapPlane(const NativePixmapPlane& other);
   ~NativePixmapPlane();
 
@@ -57,7 +65,8 @@ struct GFX_EXPORT NativePixmapHandle {
 // Returns an instance of |handle| which can be sent over IPC. This duplicates
 // the file-handles, so that the IPC code take ownership of them, without
 // invalidating |handle|.
-NativePixmapHandle CloneHandleForIPC(const NativePixmapHandle& handle);
+GFX_EXPORT NativePixmapHandle
+CloneHandleForIPC(const NativePixmapHandle& handle);
 #endif
 
 }  // namespace gfx

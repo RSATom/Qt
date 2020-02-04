@@ -47,7 +47,10 @@ class VIEWS_EXPORT BoundsAnimator : public gfx::AnimationDelegate,
   // already an animation running for the view it's stopped and a new one
   // started. If an AnimationDelegate has been set for |view| it is removed
   // (after being notified that the animation was canceled).
-  void AnimateViewTo(View* view, const gfx::Rect& target);
+  void AnimateViewTo(
+      View* view,
+      const gfx::Rect& target,
+      std::unique_ptr<gfx::AnimationDelegate> delegate = nullptr);
 
   // Similar to |AnimateViewTo|, but does not reset the animation, only the
   // target bounds. If |view| is not being animated this is the same as
@@ -56,11 +59,11 @@ class VIEWS_EXPORT BoundsAnimator : public gfx::AnimationDelegate,
 
   // Returns the target bounds for the specified view. If |view| is not
   // animating its current bounds is returned.
-  gfx::Rect GetTargetBounds(View* view);
+  gfx::Rect GetTargetBounds(const View* view) const;
 
-  // Sets the animation for the specified view. BoundsAnimator takes ownership
-  // of the specified animation.
-  void SetAnimationForView(View* view, gfx::SlideAnimation* animation);
+  // Sets the animation for the specified view.
+  void SetAnimationForView(View* view,
+                           std::unique_ptr<gfx::SlideAnimation> animation);
 
   // Returns the animation for the specified view. BoundsAnimator owns the
   // returned Animation.
@@ -98,12 +101,15 @@ class VIEWS_EXPORT BoundsAnimator : public gfx::AnimationDelegate,
 
  protected:
   // Creates the animation to use for animating views.
-  virtual gfx::SlideAnimation* CreateAnimation();
+  virtual std::unique_ptr<gfx::SlideAnimation> CreateAnimation();
 
  private:
   // Tracks data about the view being animated.
   struct Data {
-    Data() : animation(NULL), delegate(NULL) {}
+    Data();
+    Data(Data&&);
+    Data& operator=(Data&&);
+    ~Data();
 
     // The initial bounds.
     gfx::Rect start_bounds;
@@ -111,11 +117,11 @@ class VIEWS_EXPORT BoundsAnimator : public gfx::AnimationDelegate,
     // Target bounds.
     gfx::Rect target_bounds;
 
-    // The animation. We own this.
-    gfx::SlideAnimation* animation;
+    // The animation.
+    std::unique_ptr<gfx::SlideAnimation> animation;
 
-    // Delegate for the animation, may be null. We own this.
-    gfx::AnimationDelegate* delegate;
+    // Delegate for the animation, may be nullptr.
+    std::unique_ptr<gfx::AnimationDelegate> delegate;
   };
 
   // Used by AnimationEndedOrCanceled.
@@ -124,22 +130,22 @@ class VIEWS_EXPORT BoundsAnimator : public gfx::AnimationDelegate,
     ANIMATION_CANCELED
   };
 
-  typedef std::map<View*, Data> ViewToDataMap;
+  typedef std::map<const View*, Data> ViewToDataMap;
 
   typedef std::map<const gfx::Animation*, View*> AnimationToViewMap;
 
-  // Removes references to |view| and its animation. This does NOT delete the
-  // animation or delegate.
-  void RemoveFromMaps(View* view);
+  // Removes references to |view| and its animation. Returns the data for the
+  // caller to handle cleanup.
+  Data RemoveFromMaps(View* view);
 
   // Does the necessary cleanup for |data|. If |send_cancel| is true and a
   // delegate has been installed on |data| AnimationCanceled is invoked on it.
-  void CleanupData(bool send_cancel, Data* data, View* view);
+  void CleanupData(bool send_cancel, Data* data);
 
   // Used when changing the animation for a view. This resets the maps for
   // the animation used by view and returns the current animation. Ownership
   // of the returned animation passes to the caller.
-  gfx::Animation* ResetAnimationForView(View* view);
+  std::unique_ptr<gfx::Animation> ResetAnimationForView(View* view);
 
   // Invoked from AnimationEnded and AnimationCanceled.
   void AnimationEndedOrCanceled(const gfx::Animation* animation,
@@ -158,7 +164,7 @@ class VIEWS_EXPORT BoundsAnimator : public gfx::AnimationDelegate,
   // Parent of all views being animated.
   View* parent_;
 
-  base::ObserverList<BoundsAnimatorObserver> observers_;
+  base::ObserverList<BoundsAnimatorObserver>::Unchecked observers_;
 
   // All animations we create up with the same container.
   scoped_refptr<gfx::AnimationContainer> container_;
@@ -175,9 +181,9 @@ class VIEWS_EXPORT BoundsAnimator : public gfx::AnimationDelegate,
   // to repaint these bounds.
   gfx::Rect repaint_bounds_;
 
-  int animation_duration_ms_;
+  int animation_duration_ms_ = 200;
 
-  gfx::Tween::Type tween_type_;
+  gfx::Tween::Type tween_type_ = gfx::Tween::EASE_OUT;
 
   DISALLOW_COPY_AND_ASSIGN(BoundsAnimator);
 };

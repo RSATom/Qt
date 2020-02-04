@@ -45,19 +45,21 @@ class PlatformSensorProviderBase {
 
   // Method that must be implemented by platform specific classes.
   virtual void CreateSensorInternal(mojom::SensorType type,
-                                    mojo::ScopedSharedBufferMapping mapping,
+                                    SensorReadingSharedBuffer* reading_buffer,
                                     const CreateSensorCallback& callback) = 0;
 
   // Implementations might override this method to free resources when there
   // are no sensors left.
-  virtual void AllSensorsRemoved() {}
+  virtual void FreeResources() {}
 
   void NotifySensorCreated(mojom::SensorType type,
                            scoped_refptr<PlatformSensor> sensor);
 
   std::vector<mojom::SensorType> GetPendingRequestTypes();
 
-  mojo::ScopedSharedBufferMapping MapSharedBufferForType(
+  bool CreateSharedBufferIfNeeded();
+
+  SensorReadingSharedBuffer* GetSensorReadingSharedBufferForType(
       mojom::SensorType type);
 
   THREAD_CHECKER(thread_checker_);
@@ -65,8 +67,8 @@ class PlatformSensorProviderBase {
  private:
   friend class PlatformSensor;  // To call RemoveSensor();
 
-  bool CreateSharedBufferIfNeeded();
-  void RemoveSensor(mojom::SensorType type);
+  void FreeResourcesIfNeeded();
+  void RemoveSensor(mojom::SensorType type, PlatformSensor* sensor);
 
  private:
   using CallbackQueue = std::vector<CreateSensorCallback>;
@@ -74,6 +76,7 @@ class PlatformSensorProviderBase {
   std::map<mojom::SensorType, PlatformSensor*> sensor_map_;
   std::map<mojom::SensorType, CallbackQueue> requests_map_;
   mojo::ScopedSharedBufferHandle shared_buffer_handle_;
+  mojo::ScopedSharedBufferMapping shared_buffer_mapping_;
 
   DISALLOW_COPY_AND_ASSIGN(PlatformSensorProviderBase);
 };

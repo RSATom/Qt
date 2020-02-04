@@ -50,7 +50,7 @@
 #include <QtQuickTemplates2/private/qquickpopup_p.h>
 #include <QtQuickTemplates2/private/qquicktextarea_p.h>
 #include <QtQuickTemplates2/private/qquicktextfield_p.h>
-#include <QtQuickControls2/private/qquickproxytheme_p.h>
+#include <QtQuickTemplates2/private/qquicktheme_p_p.h>
 #include "../shared/util.h"
 #include "../shared/visualtestutil.h"
 
@@ -492,11 +492,6 @@ void tst_QQuickApplicationWindow::attachedProperties()
     QVERIFY(!childItem->property("attached_footer").value<QQuickItem *>());
     QVERIFY(!childItem->property("attached_overlay").value<QQuickItem *>());
     childWindow->close();
-
-    // ### A temporary workaround to unblock the CI until the crash caused
-    // by https://codereview.qt-project.org/#/c/108517/ has been fixed...
-    window->hide();
-    qApp->processEvents();
 }
 
 void tst_QQuickApplicationWindow::font()
@@ -555,24 +550,18 @@ void tst_QQuickApplicationWindow::font()
     QCOMPARE(item6->font(), font);
 }
 
-class TestTheme : public QQuickProxyTheme
+class TestTheme : public QQuickTheme
 {
 public:
-    TestTheme(QPlatformTheme *theme) : QQuickProxyTheme(theme), m_font("Courier")
-    { QGuiApplicationPrivate::platform_theme = this; }
-
-    const QFont *font(Font type = SystemFont) const override
+    TestTheme()
     {
-        Q_UNUSED(type);
-        return &m_font;
+        setFont(System, QFont("Courier"));
     }
-
-    QFont m_font;
 };
 
 void tst_QQuickApplicationWindow::defaultFont()
 {
-    TestTheme theme(QGuiApplicationPrivate::platform_theme);
+    QQuickThemePrivate::instance.reset(new TestTheme);
 
     QQmlEngine engine;
     QQmlComponent component(&engine);
@@ -581,7 +570,7 @@ void tst_QQuickApplicationWindow::defaultFont()
     QScopedPointer<QQuickApplicationWindow> window;
     window.reset(static_cast<QQuickApplicationWindow *>(component.create()));
     QVERIFY(!window.isNull());
-    QCOMPARE(window->font(), *theme.font());
+    QCOMPARE(window->font(), QQuickTheme::font(QQuickTheme::System));
 }
 
 void tst_QQuickApplicationWindow::locale()

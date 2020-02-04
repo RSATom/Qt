@@ -35,7 +35,7 @@ FakeBluetoothGattServiceClient::Properties::Properties(
           bluetooth_gatt_service::kBluetoothGattServiceInterface,
           callback) {}
 
-FakeBluetoothGattServiceClient::Properties::~Properties() {}
+FakeBluetoothGattServiceClient::Properties::~Properties() = default;
 
 void FakeBluetoothGattServiceClient::Properties::Get(
     dbus::PropertyBase* property,
@@ -58,9 +58,11 @@ void FakeBluetoothGattServiceClient::Properties::Set(
 FakeBluetoothGattServiceClient::FakeBluetoothGattServiceClient()
     : weak_ptr_factory_(this) {}
 
-FakeBluetoothGattServiceClient::~FakeBluetoothGattServiceClient() {}
+FakeBluetoothGattServiceClient::~FakeBluetoothGattServiceClient() = default;
 
-void FakeBluetoothGattServiceClient::Init(dbus::Bus* bus) {}
+void FakeBluetoothGattServiceClient::Init(
+    dbus::Bus* bus,
+    const std::string& bluetooth_service_name) {}
 
 void FakeBluetoothGattServiceClient::AddObserver(Observer* observer) {
   observers_.AddObserver(observer);
@@ -114,7 +116,7 @@ void FakeBluetoothGattServiceClient::ExposeHeartRateService(
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::Bind(
+      base::BindOnce(
           &FakeBluetoothGattServiceClient::ExposeHeartRateCharacteristics,
           weak_ptr_factory_.GetWeakPtr()));
 }

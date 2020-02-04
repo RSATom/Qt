@@ -13,14 +13,19 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
 #include "base/power_monitor/power_observer.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/load_states.h"
 #include "net/base/net_error_details.h"
 #include "net/base/net_export.h"
+#include "net/base/privacy_mode.h"
 #include "net/base/request_priority.h"
 #include "net/cookies/canonical_cookie.h"
 #include "net/filter/source_stream.h"
+#include "net/http/http_raw_request_headers.h"
+#include "net/http/http_response_headers.h"
 #include "net/socket/connection_attempts.h"
 #include "net/url_request/redirect_info.h"
 #include "net/url_request/url_request.h"
@@ -144,13 +149,18 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
   // is a redirect, and fills in the location param with the URL of the
   // redirect.  The HTTP status code (e.g., 302) is filled into
   // |*http_status_code| to signify the type of redirect.
+  // |*insecure_scheme_was_upgraded| is set to true if the scheme of this
+  // request was upgraded to HTTPS due to an 'upgrade-insecure-requests'
+  // policy.
   //
   // The caller is responsible for following the redirect by setting up an
   // appropriate replacement Job. Note that the redirected location may be
   // invalid, the caller should be sure it can handle this.
   //
   // The default implementation inspects the response_info_.
-  virtual bool IsRedirectResponse(GURL* location, int* http_status_code);
+  virtual bool IsRedirectResponse(GURL* location,
+                                  int* http_status_code,
+                                  bool* insecure_scheme_was_upgraded);
 
   // Called to determine if it is okay to copy the reference fragment from the
   // original URL (if existent) to the redirection target when the redirection
@@ -187,7 +197,9 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
   // Continue processing the request ignoring the last error.
   virtual void ContinueDespiteLastError();
 
-  void FollowDeferredRedirect();
+  void FollowDeferredRedirect(
+      const base::Optional<std::vector<std::string>>& removed_headers,
+      const base::Optional<net::HttpRequestHeaders>& modified_headers);
 
   // Returns true if the Job is done producing response data and has called
   // NotifyDone on the request.
@@ -204,7 +216,9 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
 
   // The number of bytes read before passing to the filter. This value reflects
   // bytes read even when there is no filter.
-  int64_t prefilter_bytes_read() const { return prefilter_bytes_read_; }
+  // TODO(caseq): this is only virtual because of StreamURLRequestJob.
+  // Consider removing virtual when StreamURLRequestJob is gone.
+  virtual int64_t prefilter_bytes_read() const;
 
   // These methods are not applicable to all connections.
   virtual bool GetMimeType(std::string* mime_type) const;
@@ -229,6 +243,16 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
   // has failed or the response headers have been received.
   virtual void GetConnectionAttempts(ConnectionAttempts* out) const;
 
+  // Sets a callback that will be invoked each time the request is about to
+  // be actually sent and will receive actual request headers that are about
+  // to hit the wire, including SPDY/QUIC internal headers and any additional
+  // request headers set via BeforeSendHeaders hooks.
+  virtual void SetRequestHeadersCallback(RequestHeadersCallback callback) {}
+
+  // Sets a callback that will be invoked each time the response is received
+  // from the remote party with the actual response headers recieved.
+  virtual void SetResponseHeadersCallback(ResponseHeadersCallback callback) {}
+
   // Given |policy|, |referrer|, and |destination|, returns the
   // referrer URL mandated by |request|'s referrer policy.
   static GURL ComputeReferrerForPolicy(URLRequest::ReferrerPolicy policy,
@@ -242,15 +266,15 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
   // Notifies the job about an SSL certificate error.
   void NotifySSLCertificateError(const SSLInfo& ssl_info, bool fatal);
 
-  // Delegates to URLRequest::Delegate.
+  // Delegates to URLRequest.
   bool CanGetCookies(const CookieList& cookie_list) const;
 
-  // Delegates to URLRequest::Delegate.
-  bool CanSetCookie(const std::string& cookie_line,
+  // Delegates to URLRequest.
+  bool CanSetCookie(const net::CanonicalCookie& cookie,
                     CookieOptions* options) const;
 
-  // Delegates to URLRequest::Delegate.
-  bool CanEnablePrivacyMode() const;
+  // Delegates to URLRequest.
+  PrivacyMode privacy_mode() const;
 
   // Notifies the job that headers have been received.
   void NotifyHeadersComplete();
@@ -267,7 +291,7 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
   void NotifyRestartRequired();
 
   // See corresponding functions in url_request.h.
-  void OnCallToDelegate();
+  void OnCallToDelegate(NetLogEventType type);
   void OnCallToDelegateComplete();
 
   // Called to read raw (pre-filtered) data from this Job. Reads at most
@@ -297,12 +321,6 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
   // Subclasses should return the appropriate last SourceStream of the chain,
   // or nullptr on error.
   virtual std::unique_ptr<SourceStream> SetUpSourceStream();
-
-  // At or near destruction time, a derived class may request that the filters
-  // be destroyed so that statistics can be gathered while the derived class is
-  // still present to assist in calculations. This is used by URLRequestHttpJob
-  // to get SDCH to emit stats.
-  void DestroySourceStream();
 
   // Provides derived classes with access to the request's network delegate.
   NetworkDelegate* network_delegate() { return network_delegate_; }
@@ -344,7 +362,7 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
   // synchronously.
   int ReadRawDataHelper(IOBuffer* buf,
                         int buf_size,
-                        const CompletionCallback& callback);
+                        CompletionOnceCallback callback);
 
   // Returns OK if |new_url| is a valid redirect target and an error code
   // otherwise.
@@ -353,7 +371,10 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
   // Called in response to a redirect that was not canceled to follow the
   // redirect. The current job will be replaced with a new job loading the
   // given redirect destination.
-  void FollowRedirect(const RedirectInfo& redirect_info);
+  void FollowRedirect(
+      const RedirectInfo& redirect_info,
+      const base::Optional<std::vector<std::string>>& removed_headers,
+      const base::Optional<net::HttpRequestHeaders>& modified_headers);
 
   // Called after every raw read. If |bytes_read| is > 0, this indicates
   // a successful read of |bytes_read| unfiltered bytes. If |bytes_read|
@@ -384,9 +405,6 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
   // read since the last invocation.
   virtual void UpdatePacketReadTimes();
 
-  // Computes a new RedirectInfo based on receiving a redirect response of
-  // |location| and |http_status_code|.
-  RedirectInfo ComputeRedirectInfo(const GURL& location, int http_status_code);
 
   // Notify the network delegate that more bytes have been received or sent over
   // the network, if bytes have been received or sent since the previous
@@ -424,7 +442,7 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
 
   // Set when a redirect is deferred. Redirects are deferred after validity
   // checks are performed, so this field must not be modified.
-  RedirectInfo deferred_redirect_info_;
+  base::Optional<RedirectInfo> deferred_redirect_info_;
 
   // The network delegate to use with this request, if any.
   NetworkDelegate* network_delegate_;
@@ -441,7 +459,7 @@ class NET_EXPORT URLRequestJob : public base::PowerObserver {
 
   // Non-null if ReadRawData() returned ERR_IO_PENDING, and the read has not
   // completed.
-  CompletionCallback read_raw_callback_;
+  CompletionOnceCallback read_raw_callback_;
 
   base::WeakPtrFactory<URLRequestJob> weak_factory_;
 

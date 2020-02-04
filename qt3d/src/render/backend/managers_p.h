@@ -52,6 +52,7 @@
 //
 
 #include <Qt3DCore/private/qresourcemanager_p.h>
+#include <Qt3DCore/private/matrix4x4_p.h>
 #include <Qt3DRender/private/rendertargetoutput_p.h>
 #include <Qt3DRender/private/cameralens_p.h>
 #include <Qt3DRender/private/filterkey_p.h>
@@ -71,10 +72,12 @@
 #include <Qt3DRender/private/shaderdata_p.h>
 #include <Qt3DRender/private/handle_types_p.h>
 #include <Qt3DRender/private/glbuffer_p.h>
+#include <Qt3DRender/private/glfence_p.h>
 #include <Qt3DRender/private/textureimage_p.h>
 #include <Qt3DRender/private/attribute_p.h>
 #include <Qt3DRender/private/geometry_p.h>
 #include <Qt3DRender/private/objectpicker_p.h>
+#include <Qt3DRender/private/raycaster_p.h>
 #include <Qt3DRender/private/boundingvolumedebug_p.h>
 #include <Qt3DRender/private/openglvertexarrayobject_p.h>
 #include <Qt3DRender/private/light_p.h>
@@ -188,7 +191,7 @@ public:
 };
 
 class MatrixManager : public Qt3DCore::QResourceManager<
-        QMatrix4x4,
+        Matrix4x4,
         Qt3DCore::QNodeId,
         Qt3DCore::NonLockingPolicy>
 {
@@ -228,11 +231,26 @@ public:
         m_textureIdsToCleanup.push_back(id);
     }
 
+    // Called in AspectThread by Texture node functor create
+    void removeTextureIdToCleanup(Qt3DCore::QNodeId id)
+    {
+        m_textureIdsToCleanup.removeAll(id);
+    }
+
     // Called by RenderThread in updateGLResources (locked)
     QVector<Qt3DCore::QNodeId> takeTexturesIdsToCleanup()
     {
         return std::move(m_textureIdsToCleanup);
     }
+
+#ifdef QT_BUILD_INTERNAL
+    // For unit testing purposes only
+    QVector<Qt3DCore::QNodeId> textureIdsToCleanup() const
+    {
+        return m_textureIdsToCleanup;
+    }
+
+#endif
 
 private:
     QVector<Qt3DCore::QNodeId> m_textureIdsToCleanup;
@@ -300,6 +318,10 @@ class GLBufferManager : public Qt3DCore::QResourceManager<
 {
 };
 
+class GLFenceManager : public QHash<Qt3DCore::QNodeId, GLFence>
+{
+};
+
 class TextureImageManager : public Qt3DCore::QResourceManager<
         TextureImage,
         Qt3DCore::QNodeId,
@@ -323,6 +345,13 @@ class GeometryManager : public Qt3DCore::QResourceManager<
 
 class ObjectPickerManager : public Qt3DCore::QResourceManager<
         ObjectPicker,
+        Qt3DCore::QNodeId,
+        Qt3DCore::NonLockingPolicy>
+{
+};
+
+class RayCasterManager : public Qt3DCore::QResourceManager<
+        RayCaster,
         Qt3DCore::QNodeId,
         Qt3DCore::NonLockingPolicy>
 {
@@ -390,7 +419,7 @@ public:
     };
 
     void addDirtySkeleton(DirtyFlag dirtyFlag, HSkeleton skeletonHandle);
-    QVector<HSkeleton> dirtySkeletons(DirtyFlag dirtyFlag);
+    QVector<HSkeleton> takeDirtySkeletons(DirtyFlag dirtyFlag);
 
 private:
     QVector<HSkeleton> m_dirtyDataSkeletons;
@@ -404,6 +433,7 @@ class JointManager : public Qt3DCore::QResourceManager<
 {
 public:
     void addDirtyJoint(Qt3DCore::QNodeId jointId);
+    void removeDirtyJoint(Qt3DCore::QNodeId jointId);
     QVector<HJoint> dirtyJoints();
 
 private:
@@ -426,6 +456,7 @@ Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::TextureImage, Q_REQUIRES_CLEANUP)
 Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::Attribute, Q_REQUIRES_CLEANUP)
 Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::Geometry, Q_REQUIRES_CLEANUP)
 Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::ObjectPicker, Q_REQUIRES_CLEANUP)
+Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::RayCaster, Q_REQUIRES_CLEANUP)
 Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::BoundingVolumeDebug, Q_REQUIRES_CLEANUP)
 Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::ComputeCommand, Q_REQUIRES_CLEANUP)
 Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::Parameter, Q_REQUIRES_CLEANUP)
@@ -434,6 +465,7 @@ Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::OpenGLVertexArrayObject, Q_REQUIRES_
 Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::Armature, Q_REQUIRES_CLEANUP)
 Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::Skeleton, Q_REQUIRES_CLEANUP)
 Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::Joint, Q_REQUIRES_CLEANUP)
+Q_DECLARE_RESOURCE_INFO(Qt3DRender::Render::ShaderBuilder, Q_REQUIRES_CLEANUP)
 
 QT_END_NAMESPACE
 

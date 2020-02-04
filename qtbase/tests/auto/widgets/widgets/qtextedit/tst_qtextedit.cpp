@@ -199,6 +199,12 @@ private slots:
     void findWithRegExpReturnsFalseIfNoMoreResults();
 #endif
 
+#if QT_CONFIG(regularexpression)
+    void findWithRegularExpression();
+    void findBackwardWithRegularExpression();
+    void findWithRegularExpressionReturnsFalseIfNoMoreResults();
+#endif
+
 #if QT_CONFIG(wheelevent)
     void wheelEvent();
 #endif
@@ -276,12 +282,12 @@ void tst_QTextEdit::getSetCheck()
 
     // int QTextEdit::tabStopWidth()
     // void QTextEdit::setTabStopWidth(int)
-    obj1.setTabStopWidth(0);
-    QCOMPARE(0, obj1.tabStopWidth());
-    obj1.setTabStopWidth(INT_MIN);
-    QCOMPARE(0, obj1.tabStopWidth()); // Makes no sense to set a negative tabstop value
-    obj1.setTabStopWidth(INT_MAX);
-    QCOMPARE(INT_MAX, obj1.tabStopWidth());
+    obj1.setTabStopDistance(0);
+    QCOMPARE(0, obj1.tabStopDistance());
+    obj1.setTabStopDistance(-1);
+    QCOMPARE(0, obj1.tabStopDistance()); // Makes no sense to set a negative tabstop value
+    obj1.setTabStopDistance(std::numeric_limits<qreal>::max());
+    QCOMPARE(std::numeric_limits<qreal>::max(), obj1.tabStopDistance());
 
     // bool QTextEdit::acceptRichText()
     // void QTextEdit::setAcceptRichText(bool)
@@ -1702,6 +1708,9 @@ void tst_QTextEdit::adjustScrollbars()
     QLatin1String txt("\nabc def ghi jkl mno pqr stu vwx");
     ed->setText(txt + txt + txt + txt);
 
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "setMinimum/MaximumSize does not work on WinRT", Abort);
+#endif
     QVERIFY(ed->verticalScrollBar()->maximum() > 0);
 
     ed->moveCursor(QTextCursor::End);
@@ -1882,6 +1891,9 @@ void tst_QTextEdit::copyPasteBackgroundImage()
     QBrush ba = a->cellAt(0, 0).format().background();
     QBrush bb = b->cellAt(0, 0).format().background();
 
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Fails on WinRT - QTBUG-68297", Abort);
+#endif
     QCOMPARE(ba.style(), Qt::TexturePattern);
     QCOMPARE(ba.style(), bb.style());
 
@@ -2557,6 +2569,45 @@ void tst_QTextEdit::findWithRegExpReturnsFalseIfNoMoreResults()
 {
     ed->setPlainText(QStringLiteral("arbitrary text"));
     QRegExp rx("t.xt");
+    ed->find(rx);
+
+    bool found = ed->find(rx);
+
+    QVERIFY(!found);
+    QCOMPARE(ed->textCursor().selectedText(), QStringLiteral("text"));
+}
+#endif
+
+#if QT_CONFIG(regularexpression)
+void tst_QTextEdit::findWithRegularExpression()
+{
+    ed->setHtml(QStringLiteral("arbitrary te<span style=\"color:#ff0000\">xt</span>"));
+    QRegularExpression rx("\\w{2}xt");
+
+    bool found = ed->find(rx);
+
+    QVERIFY(found);
+    QCOMPARE(ed->textCursor().selectedText(), QStringLiteral("text"));
+}
+
+void tst_QTextEdit::findBackwardWithRegularExpression()
+{
+    ed->setPlainText(QStringLiteral("arbitrary text"));
+    QTextCursor cursor = ed->textCursor();
+    cursor.movePosition(QTextCursor::End);
+    ed->setTextCursor(cursor);
+    QRegularExpression rx("a\\w*t");
+
+    bool found = ed->find(rx, QTextDocument::FindBackward);
+
+    QVERIFY(found);
+    QCOMPARE(ed->textCursor().selectedText(), QStringLiteral("arbit"));
+}
+
+void tst_QTextEdit::findWithRegularExpressionReturnsFalseIfNoMoreResults()
+{
+    ed->setPlainText(QStringLiteral("arbitrary text"));
+    QRegularExpression rx("t.xt");
     ed->find(rx);
 
     bool found = ed->find(rx);

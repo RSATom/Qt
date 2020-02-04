@@ -41,13 +41,13 @@
 #include "qwindowswindow.h"
 #include "qwindowscontext.h"
 
-#include <QtGui/QWindow>
-#include <QtGui/QPainter>
+#include <QtGui/qwindow.h>
+#include <QtGui/qpainter.h>
 #include <QtFontDatabaseSupport/private/qwindowsnativeimage_p.h>
 #include <private/qhighdpiscaling_p.h>
 #include <private/qimage_p.h>
 
-#include <QtCore/QDebug>
+#include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -93,7 +93,7 @@ void QWindowsBackingStore::flush(QWindow *window, const QRegion &region,
         // Windows with alpha: Use blend function to update.
         QRect r = QHighDpi::toNativePixels(window->frameGeometry(), window);
         QPoint frameOffset(QHighDpi::toNativePixels(QPoint(window->frameMargins().left(), window->frameMargins().top()),
-                                                    static_cast<const QWindow *>(Q_NULLPTR)));
+                                                    static_cast<const QWindow *>(nullptr)));
         QRect dirtyRect = br.translated(offset + frameOffset);
 
         SIZE size = {r.width(), r.height()};
@@ -102,7 +102,8 @@ void QWindowsBackingStore::flush(QWindow *window, const QRegion &region,
         BLENDFUNCTION blend = {AC_SRC_OVER, 0, BYTE(qRound(255.0 * rw->opacity())), AC_SRC_ALPHA};
         RECT dirty = {dirtyRect.x(), dirtyRect.y(),
                       dirtyRect.x() + dirtyRect.width(), dirtyRect.y() + dirtyRect.height()};
-        UPDATELAYEREDWINDOWINFO info = {sizeof(info), NULL, &ptDst, &size, m_image->hdc(), &ptSrc, 0, &blend, ULW_ALPHA, &dirty};
+        UPDATELAYEREDWINDOWINFO info = {sizeof(info), nullptr, &ptDst, &size,
+                                        m_image->hdc(), &ptSrc, 0, &blend, ULW_ALPHA, &dirty};
         const BOOL result = UpdateLayeredWindowIndirect(rw->handle(), &info);
         if (!result)
             qErrnoWarning("UpdateLayeredWindowIndirect failed for ptDst=(%d, %d),"
@@ -207,7 +208,7 @@ HDC QWindowsBackingStore::getDC() const
 {
     if (!m_image.isNull())
         return m_image->hdc();
-    return 0;
+    return nullptr;
 }
 
 QImage QWindowsBackingStore::toImage() const

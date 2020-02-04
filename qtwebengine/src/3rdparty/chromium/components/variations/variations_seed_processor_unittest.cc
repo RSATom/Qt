@@ -17,7 +17,7 @@
 #include "base/feature_list.h"
 #include "base/format_macros.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -27,7 +27,11 @@
 #include "components/variations/processed_study.h"
 #include "components/variations/study_filtering.h"
 #include "components/variations/variations_associated_data.h"
+#include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+using testing::ElementsAre;
+using testing::IsEmpty;
 
 namespace variations {
 namespace {
@@ -327,8 +331,7 @@ TEST_F(VariationsSeedProcessorTest, OverrideUIStrings) {
   EXPECT_TRUE(CreateTrialFromStudy(study));
 
   EXPECT_EQ(1u, overrides.size());
-  TestOverrideStringCallback::OverrideMap::const_iterator it =
-      overrides.find(1234);
+  auto it = overrides.find(1234);
   EXPECT_EQ(base::ASCIIToUTF16("test"), it->second);
 }
 
@@ -350,8 +353,7 @@ TEST_F(VariationsSeedProcessorTest, OverrideUIStringsWithForcingFlag) {
   const TestOverrideStringCallback::OverrideMap& overrides =
       override_callback_.overrides();
   EXPECT_EQ(1u, overrides.size());
-  TestOverrideStringCallback::OverrideMap::const_iterator it =
-      overrides.find(1234);
+  auto it = overrides.find(1234);
   EXPECT_EQ(base::ASCIIToUTF16("test"), it->second);
 }
 
@@ -401,7 +403,7 @@ TEST_F(VariationsSeedProcessorTest, ValidateStudy) {
   EXPECT_FALSE(processed_study.Init(&study, false));
 }
 
-TEST_F(VariationsSeedProcessorTest, ValidateStudySingleFeature) {
+TEST_F(VariationsSeedProcessorTest, ValidateStudyWithAssociatedFeatures) {
   Study study;
   study.set_default_experiment_name("def");
   Study_Experiment* exp1 = AddExperiment("exp1", 100, &study);
@@ -413,35 +415,45 @@ TEST_F(VariationsSeedProcessorTest, ValidateStudySingleFeature) {
   EXPECT_TRUE(processed_study.Init(&study, false));
   EXPECT_EQ(400, processed_study.total_probability());
 
-  EXPECT_EQ(std::string(), processed_study.single_feature_name());
+  EXPECT_THAT(processed_study.associated_features(), IsEmpty());
 
   const char kFeature1Name[] = "Feature1";
   const char kFeature2Name[] = "Feature2";
 
   exp1->mutable_feature_association()->add_enable_feature(kFeature1Name);
   EXPECT_TRUE(processed_study.Init(&study, false));
-  EXPECT_EQ(kFeature1Name, processed_study.single_feature_name());
+  EXPECT_THAT(processed_study.associated_features(),
+              ElementsAre(kFeature1Name));
 
   exp1->clear_feature_association();
   exp1->mutable_feature_association()->add_enable_feature(kFeature1Name);
   exp1->mutable_feature_association()->add_enable_feature(kFeature2Name);
   EXPECT_TRUE(processed_study.Init(&study, false));
-  // Since there's multiple different features, |single_feature_name| should be
-  // unset.
-  EXPECT_EQ(std::string(), processed_study.single_feature_name());
+  // Since there's multiple different features, |associated_features| should now
+  // contain them all.
+  EXPECT_THAT(processed_study.associated_features(),
+              ElementsAre(kFeature1Name, kFeature2Name));
 
   exp1->clear_feature_association();
   exp1->mutable_feature_association()->add_enable_feature(kFeature1Name);
   exp2->mutable_feature_association()->add_enable_feature(kFeature1Name);
   exp3->mutable_feature_association()->add_disable_feature(kFeature1Name);
   EXPECT_TRUE(processed_study.Init(&study, false));
-  EXPECT_EQ(kFeature1Name, processed_study.single_feature_name());
+  EXPECT_THAT(processed_study.associated_features(),
+              ElementsAre(kFeature1Name));
 
-  // Setting a different feature name on exp2 should cause |single_feature_name|
-  // to be not set.
+  // Setting a different feature name on exp2 should cause |associated_features|
+  // to contain both feature names.
   exp2->mutable_feature_association()->set_enable_feature(0, kFeature2Name);
   EXPECT_TRUE(processed_study.Init(&study, false));
-  EXPECT_EQ(std::string(), processed_study.single_feature_name());
+  EXPECT_THAT(processed_study.associated_features(),
+              ElementsAre(kFeature1Name, kFeature2Name));
+
+  // Setting a different activation type should result in empty
+  // |associated_features|.
+  study.set_activation_type(Study_ActivationType_ACTIVATION_AUTO);
+  EXPECT_TRUE(processed_study.Init(&study, false));
+  EXPECT_THAT(processed_study.associated_features(), IsEmpty());
 }
 
 TEST_F(VariationsSeedProcessorTest, ProcessedStudyAllAssignmentsToOneGroup) {
@@ -628,7 +640,7 @@ TEST_F(VariationsSeedProcessorTest, FeatureEnabledOrDisableByTrial) {
       {nullptr, kFeatureOffByDefault.name, false, true},
   };
 
-  for (size_t i = 0; i < arraysize(test_cases); i++) {
+  for (size_t i = 0; i < base::size(test_cases); i++) {
     const auto& test_case = test_cases[i];
     SCOPED_TRACE(base::StringPrintf("Test[%" PRIuS "]", i));
 
@@ -747,7 +759,7 @@ TEST_F(VariationsSeedProcessorTest, FeatureAssociationAndForcing) {
        kForcedOffGroup, false, true},
   };
 
-  for (size_t i = 0; i < arraysize(test_cases); i++) {
+  for (size_t i = 0; i < base::size(test_cases); i++) {
     const auto& test_case = test_cases[i];
     const int group = test_case.one_hundred_percent_group;
     SCOPED_TRACE(base::StringPrintf(
@@ -820,7 +832,7 @@ TEST_F(VariationsSeedProcessorTest, FeaturesInExpiredStudies) {
       {kEnabledFeature, false, year_later, false},
   };
 
-  for (size_t i = 0; i < arraysize(test_cases); i++) {
+  for (size_t i = 0; i < base::size(test_cases); i++) {
     const auto& test_case = test_cases[i];
     SCOPED_TRACE(
         base::StringPrintf("Test[%" PRIuS "]: %s", i, test_case.feature.name));
@@ -923,6 +935,7 @@ TEST_F(VariationsSeedProcessorTest, ExpiredStudy_NoDefaultGroup) {
   auto* exp1 = AddExperiment("A", 1, &study);
   exp1->mutable_feature_association()->add_enable_feature(kFeature.name);
 
+  EXPECT_FALSE(study.has_default_experiment_name());
   EXPECT_TRUE(CreateTrialFromStudy(study));
   EXPECT_EQ("VariationsDefaultExperiment",
             base::FieldTrialList::FindFullName("Study1"));
@@ -952,7 +965,7 @@ TEST_F(VariationsSeedProcessorTest, LowEntropyStudyTest) {
   // An entorpy value of 0.1 will cause the AA group to be chosen, since AA is
   // the only non-default group, and has a probability percent above 0.1.
   base::FieldTrialList field_trial_list(
-      base::MakeUnique<base::MockEntropyProvider>(0.1));
+      std::make_unique<base::MockEntropyProvider>(0.1));
 
   // Use a stack instance, since nothing takes ownership of this provider.
   // This entropy value will cause the default group to be chosen since it's a

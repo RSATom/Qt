@@ -47,7 +47,7 @@ class ExceptionPointers {
 
   EXCEPTION_POINTERS* exception_ptrs() { return &exception_ptrs_; }
   std::string AsString() {
-    return base::Uint64ToString(reinterpret_cast<uintptr_t>(exception_ptrs()));
+    return base::NumberToString(reinterpret_cast<uintptr_t>(exception_ptrs()));
   }
 
  private:
@@ -169,12 +169,12 @@ TEST_F(FallbackCrashHandlerWinTest, GenerateCrashDump) {
   cmd_line.AppendSwitchPath("directory", database_dir_.GetPath());
   base::LaunchOptions options;
   options.start_hidden = true;
-  base::SpawnChildResult spawn_child = base::SpawnMultiProcessTestChild(
+  base::Process test_child = base::SpawnMultiProcessTestChild(
       "FallbackCrashHandlerWinMain", cmd_line, options);
 
-  ASSERT_TRUE(spawn_child.process.IsValid());
+  ASSERT_TRUE(test_child.IsValid());
   int exit_code = -1;
-  ASSERT_TRUE(spawn_child.process.WaitForExit(&exit_code));
+  ASSERT_TRUE(test_child.WaitForExit(&exit_code));
   ASSERT_EQ(0, exit_code);
 
   // Validate that the database contains one valid crash dump.

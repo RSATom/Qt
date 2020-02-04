@@ -8,6 +8,7 @@
 
 #include <vector>
 
+#include "constants/stream_dict_common.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/parser/cpdf_name.h"
 #include "core/fpdfapi/parser/cpdf_object.h"
@@ -18,13 +19,13 @@
 
 namespace {
 
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_ || \
-    _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
-CFX_WideString ChangeSlashToPlatform(const wchar_t* str) {
-  CFX_WideString result;
+#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_ || \
+    _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+WideString ChangeSlashToPlatform(const wchar_t* str) {
+  WideString result;
   while (*str) {
     if (*str == '/') {
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_
+#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
       result += L':';
 #else
       result += L'\\';
@@ -37,8 +38,8 @@ CFX_WideString ChangeSlashToPlatform(const wchar_t* str) {
   return result;
 }
 
-CFX_WideString ChangeSlashToPDF(const wchar_t* str) {
-  CFX_WideString result;
+WideString ChangeSlashToPDF(const wchar_t* str) {
+  WideString result;
   while (*str) {
     if (*str == '\\' || *str == ':')
       result += L'/';
@@ -49,53 +50,58 @@ CFX_WideString ChangeSlashToPDF(const wchar_t* str) {
   }
   return result;
 }
-#endif  // _FXM_PLATFORM_APPLE_ || _FXM_PLATFORM_WINDOWS_
+#endif  // _FX_PLATFORM_APPLE_ || _FX_PLATFORM_WINDOWS_
 
 }  // namespace
 
-CPDF_FileSpec::CPDF_FileSpec(CPDF_Object* pObj) : m_pObj(pObj) {
+CPDF_FileSpec::CPDF_FileSpec(const CPDF_Object* pObj) : m_pObj(pObj) {
+  ASSERT(m_pObj);
+}
+
+CPDF_FileSpec::CPDF_FileSpec(CPDF_Object* pObj)
+    : m_pObj(pObj), m_pWritableObj(pObj) {
   ASSERT(m_pObj);
 }
 
 CPDF_FileSpec::~CPDF_FileSpec() {}
 
-CFX_WideString CPDF_FileSpec::DecodeFileName(const CFX_WideString& filepath) {
+WideString CPDF_FileSpec::DecodeFileName(const WideString& filepath) {
   if (filepath.GetLength() <= 1)
-    return CFX_WideString();
+    return WideString();
 
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_
-  if (filepath.Left(sizeof("/Mac") - 1) == CFX_WideStringC(L"/Mac"))
+#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
+  if (filepath.Left(sizeof("/Mac") - 1) == WideStringView(L"/Mac"))
     return ChangeSlashToPlatform(filepath.c_str() + 1);
   return ChangeSlashToPlatform(filepath.c_str());
-#elif _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
+#elif _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 
-  if (filepath.GetAt(0) != L'/')
+  if (filepath[0] != L'/')
     return ChangeSlashToPlatform(filepath.c_str());
-  if (filepath.GetAt(1) == L'/')
+  if (filepath[1] == L'/')
     return ChangeSlashToPlatform(filepath.c_str() + 1);
-  if (filepath.GetAt(2) == L'/') {
-    CFX_WideString result;
-    result += filepath.GetAt(1);
+  if (filepath[2] == L'/') {
+    WideString result;
+    result += filepath[1];
     result += L':';
     result += ChangeSlashToPlatform(filepath.c_str() + 2);
     return result;
   }
-  CFX_WideString result;
+  WideString result;
   result += L'\\';
   result += ChangeSlashToPlatform(filepath.c_str());
   return result;
 #else
-  return CFX_WideString(filepath);
+  return WideString(filepath);
 #endif
 }
 
-CFX_WideString CPDF_FileSpec::GetFileName() const {
-  CFX_WideString csFileName;
-  if (CPDF_Dictionary* pDict = m_pObj->AsDictionary()) {
+WideString CPDF_FileSpec::GetFileName() const {
+  WideString csFileName;
+  if (const CPDF_Dictionary* pDict = m_pObj->AsDictionary()) {
     csFileName = pDict->GetUnicodeTextFor("UF");
     if (csFileName.IsEmpty()) {
-      csFileName =
-          CFX_WideString::FromLocal(pDict->GetStringFor("F").AsStringC());
+      csFileName = WideString::FromDefANSI(
+          pDict->GetStringFor(pdfium::stream::kF).AsStringView());
     }
     if (pDict->GetStringFor("FS") == "URL")
       return csFileName;
@@ -105,35 +111,35 @@ CFX_WideString CPDF_FileSpec::GetFileName() const {
       for (const auto* key : keys) {
         if (pDict->KeyExist(key)) {
           csFileName =
-              CFX_WideString::FromLocal(pDict->GetStringFor(key).AsStringC());
+              WideString::FromDefANSI(pDict->GetStringFor(key).AsStringView());
           break;
         }
       }
     }
   } else if (m_pObj->IsString()) {
-    csFileName = CFX_WideString::FromLocal(m_pObj->GetString().AsStringC());
+    csFileName = WideString::FromDefANSI(m_pObj->GetString().AsStringView());
   }
   return DecodeFileName(csFileName);
 }
 
-CPDF_Stream* CPDF_FileSpec::GetFileStream() const {
-  CPDF_Dictionary* pDict = m_pObj->AsDictionary();
+const CPDF_Stream* CPDF_FileSpec::GetFileStream() const {
+  const CPDF_Dictionary* pDict = m_pObj->AsDictionary();
   if (!pDict)
     return nullptr;
 
   // Get the embedded files dictionary.
-  CPDF_Dictionary* pFiles = pDict->GetDictFor("EF");
+  const CPDF_Dictionary* pFiles = pDict->GetDictFor("EF");
   if (!pFiles)
     return nullptr;
 
-  // Get the file stream of the highest precedence with its file specification
-  // string available. Follows the same precedence order as GetFileName().
-  constexpr const char* keys[] = {"UF", "F", "DOS", "Mac", "Unix"};
-  size_t end = pDict->GetStringFor("FS") == "URL" ? 2 : FX_ArraySize(keys);
+  // List of keys to check for the file specification string.
+  // Follows the same precedence order as GetFileName().
+  constexpr const char* kKeys[] = {"UF", "F", "DOS", "Mac", "Unix"};
+  size_t end = pDict->GetStringFor("FS") == "URL" ? 2 : FX_ArraySize(kKeys);
   for (size_t i = 0; i < end; ++i) {
-    const CFX_ByteString& key = keys[i];
+    ByteString key = kKeys[i];
     if (!pDict->GetUnicodeTextFor(key).IsEmpty()) {
-      CPDF_Stream* pStream = pFiles->GetStreamFor(key);
+      const CPDF_Stream* pStream = pFiles->GetStreamFor(key);
       if (pStream)
         return pStream;
     }
@@ -141,54 +147,65 @@ CPDF_Stream* CPDF_FileSpec::GetFileStream() const {
   return nullptr;
 }
 
-CPDF_Dictionary* CPDF_FileSpec::GetParamsDict() const {
-  CPDF_Stream* pStream = GetFileStream();
+CPDF_Stream* CPDF_FileSpec::GetFileStream() {
+  return const_cast<CPDF_Stream*>(
+      static_cast<const CPDF_FileSpec*>(this)->GetFileStream());
+}
+
+const CPDF_Dictionary* CPDF_FileSpec::GetParamsDict() const {
+  const CPDF_Stream* pStream = GetFileStream();
   if (!pStream)
     return nullptr;
 
-  CPDF_Dictionary* pDict = pStream->GetDict();
-  if (!pDict)
-    return nullptr;
-
-  return pDict->GetDictFor("Params");
+  const CPDF_Dictionary* pDict = pStream->GetDict();
+  return pDict ? pDict->GetDictFor("Params") : nullptr;
 }
 
-CFX_WideString CPDF_FileSpec::EncodeFileName(const CFX_WideString& filepath) {
-  if (filepath.GetLength() <= 1)
-    return CFX_WideString();
+CPDF_Dictionary* CPDF_FileSpec::GetParamsDict() {
+  return const_cast<CPDF_Dictionary*>(
+      static_cast<const CPDF_FileSpec*>(this)->GetParamsDict());
+}
 
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
-  if (filepath.GetAt(1) == L':') {
-    CFX_WideString result(L'/');
-    result += filepath.GetAt(0);
-    if (filepath.GetAt(2) != L'\\')
+WideString CPDF_FileSpec::EncodeFileName(const WideString& filepath) {
+  if (filepath.GetLength() <= 1)
+    return WideString();
+
+#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+  if (filepath[1] == L':') {
+    WideString result(L'/');
+    result += filepath[0];
+    if (filepath[2] != L'\\')
       result += L'/';
 
     result += ChangeSlashToPDF(filepath.c_str() + 2);
     return result;
   }
-  if (filepath.GetAt(0) == L'\\' && filepath.GetAt(1) == L'\\')
+  if (filepath[0] == L'\\' && filepath[1] == L'\\')
     return ChangeSlashToPDF(filepath.c_str() + 1);
 
-  if (filepath.GetAt(0) == L'\\')
+  if (filepath[0] == L'\\')
     return L'/' + ChangeSlashToPDF(filepath.c_str());
   return ChangeSlashToPDF(filepath.c_str());
-#elif _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_
-  if (filepath.Left(sizeof("Mac") - 1) == L"Mac")
+#elif _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
+  if (filepath.Left(sizeof("Mac") - 1).EqualsASCII("Mac"))
     return L'/' + ChangeSlashToPDF(filepath.c_str());
   return ChangeSlashToPDF(filepath.c_str());
 #else
-  return CFX_WideString(filepath);
+  return WideString(filepath);
 #endif
 }
 
-void CPDF_FileSpec::SetFileName(const CFX_WideString& wsFileName) {
-  CFX_WideString wsStr = EncodeFileName(wsFileName);
+void CPDF_FileSpec::SetFileName(const WideString& wsFileName) {
+  if (!m_pWritableObj) {
+    NOTREACHED();
+    return;
+  }
+
+  WideString wsStr = EncodeFileName(wsFileName);
   if (m_pObj->IsString()) {
-    m_pObj->SetString(CFX_ByteString::FromUnicode(wsStr));
-  } else if (CPDF_Dictionary* pDict = m_pObj->AsDictionary()) {
-    pDict->SetNewFor<CPDF_String>("F", CFX_ByteString::FromUnicode(wsStr),
-                                  false);
-    pDict->SetNewFor<CPDF_String>("UF", PDF_EncodeText(wsStr), false);
+    m_pWritableObj->SetString(wsStr.ToDefANSI());
+  } else if (CPDF_Dictionary* pDict = m_pWritableObj->AsDictionary()) {
+    pDict->SetNewFor<CPDF_String>(pdfium::stream::kF, wsStr.ToDefANSI(), false);
+    pDict->SetNewFor<CPDF_String>("UF", wsStr);
   }
 }

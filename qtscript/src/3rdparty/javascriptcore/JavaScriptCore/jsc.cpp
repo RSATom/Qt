@@ -61,8 +61,8 @@
 #endif
 
 #if PLATFORM(QT)
-#include <QCoreApplication>
-#include <QDateTime>
+#include <QtCore/qcoreapplication.h>
+#include <QtCore/qdatetime.h>
 #endif
 
 using namespace JSC;

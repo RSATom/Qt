@@ -8,13 +8,14 @@
 #include <utility>
 
 #include "base/macros.h"
+#include "base/rand_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "content/common/child.mojom.h"
 #include "content/public/common/service_manager_connection.h"
-#include "mojo/edk/embedder/embedder.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "services/service_manager/public/cpp/identity.h"
-#include "services/service_manager/public/interfaces/service.mojom.h"
+#include "services/service_manager/public/mojom/service.mojom.h"
 
 namespace content {
 
@@ -34,25 +35,23 @@ class ChildConnection::IOThreadContext
       connector_ = connector->Clone();
     child_identity_ = child_identity;
     io_task_runner_->PostTask(
-        FROM_HERE,
-        base::Bind(&IOThreadContext::InitializeOnIOThread, this,
-                   child_identity,
-                   base::Passed(&service_pipe)));
+        FROM_HERE, base::BindOnce(&IOThreadContext::InitializeOnIOThread, this,
+                                  child_identity, std::move(service_pipe)));
   }
 
   void BindInterface(const std::string& interface_name,
                      mojo::ScopedMessagePipeHandle interface_pipe) {
     io_task_runner_->PostTask(
-        FROM_HERE, base::Bind(&IOThreadContext::BindInterfaceOnIOThread, this,
-                              interface_name, base::Passed(&interface_pipe)));
+        FROM_HERE,
+        base::BindOnce(&IOThreadContext::BindInterfaceOnIOThread, this,
+                       interface_name, std::move(interface_pipe)));
   }
 
   void ShutDown() {
     if (!io_task_runner_)
       return;
     bool posted = io_task_runner_->PostTask(
-        FROM_HERE,
-        base::Bind(&IOThreadContext::ShutDownOnIOThread, this));
+        FROM_HERE, base::BindOnce(&IOThreadContext::ShutDownOnIOThread, this));
     DCHECK(posted);
   }
 
@@ -67,8 +66,15 @@ class ChildConnection::IOThreadContext
   void SetProcessHandle(base::ProcessHandle handle) {
     DCHECK(io_task_runner_);
     io_task_runner_->PostTask(
+        FROM_HERE, base::BindOnce(&IOThreadContext::SetProcessHandleOnIOThread,
+                                  this, handle));
+  }
+
+  void ForceCrash() {
+    DCHECK(io_task_runner_);
+    io_task_runner_->PostTask(
         FROM_HERE,
-        base::Bind(&IOThreadContext::SetProcessHandleOnIOThread, this, handle));
+        base::BindOnce(&IOThreadContext::ForceCrashOnIOThread, this));
   }
 
  private:
@@ -85,8 +91,8 @@ class ChildConnection::IOThreadContext
     auto pid_receiver_request = mojo::MakeRequest(&pid_receiver_);
 
     if (connector_) {
-      connector_->StartService(child_identity, std::move(service),
-                               std::move(pid_receiver_request));
+      connector_->RegisterServiceInstance(child_identity, std::move(service),
+                                          std::move(pid_receiver_request));
       connector_->BindInterface(child_identity, &child_);
     }
   }
@@ -102,6 +108,8 @@ class ChildConnection::IOThreadContext
     pid_receiver_.reset();
   }
 
+  void ForceCrashOnIOThread() { child_->Crash(); }
+
   scoped_refptr<base::SequencedTaskRunner> io_task_runner_;
   // Usable from the IO thread only.
   std::unique_ptr<service_manager::Connector> connector_;
@@ -115,15 +123,13 @@ class ChildConnection::IOThreadContext
 
 ChildConnection::ChildConnection(
     const service_manager::Identity& child_identity,
-    mojo::edk::OutgoingBrokerClientInvitation* invitation,
+    mojo::OutgoingInvitation* invitation,
     service_manager::Connector* connector,
     scoped_refptr<base::SequencedTaskRunner> io_task_runner)
     : context_(new IOThreadContext),
       child_identity_(child_identity),
       weak_factory_(this) {
-  // TODO(rockot): Use a constant name for this pipe attachment rather than a
-  // randomly generated token.
-  service_token_ = mojo::edk::GenerateRandomToken();
+  service_token_ = base::NumberToString(base::RandUint64());
   context_->Initialize(child_identity_, connector,
                        invitation->AttachMessagePipe(service_token_),
                        io_task_runner);
@@ -142,6 +148,10 @@ void ChildConnection::BindInterface(
 void ChildConnection::SetProcessHandle(base::ProcessHandle handle) {
   process_handle_ = handle;
   context_->SetProcessHandle(handle);
+}
+
+void ChildConnection::ForceCrash() {
+  context_->ForceCrash();
 }
 
 }  // namespace content

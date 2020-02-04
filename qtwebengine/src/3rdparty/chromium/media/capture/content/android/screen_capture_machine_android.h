@@ -9,25 +9,28 @@
 #include <memory>
 
 #include "base/android/scoped_java_ref.h"
+#include "base/memory/scoped_refptr.h"
 #include "media/capture/capture_export.h"
-#include "media/capture/content/screen_capture_device_core.h"
 
 namespace media {
 
+class ThreadSafeCaptureOracle;
+struct VideoCaptureParams;
+class VideoFrame;
+
 // ScreenCaptureMachineAndroid captures 32bit RGB or YUV420 triplanar.
-class CAPTURE_EXPORT ScreenCaptureMachineAndroid : public VideoCaptureMachine {
+class CAPTURE_EXPORT ScreenCaptureMachineAndroid {
  public:
   ScreenCaptureMachineAndroid();
-  ~ScreenCaptureMachineAndroid() override;
+  virtual ~ScreenCaptureMachineAndroid();
 
-  static bool RegisterScreenCaptureMachine(JNIEnv* env);
   static base::android::ScopedJavaLocalRef<jobject>
   createScreenCaptureMachineAndroid(jlong nativeScreenCaptureMachineAndroid);
 
   // Implement org.chromium.media.ScreenCapture.nativeOnRGBAFrameAvailable.
   void OnRGBAFrameAvailable(JNIEnv* env,
-                            jobject obj,
-                            jobject buf,
+                            const base::android::JavaRef<jobject>& obj,
+                            const base::android::JavaRef<jobject>& buf,
                             jint row_stride,
                             jint left,
                             jint top,
@@ -36,11 +39,11 @@ class CAPTURE_EXPORT ScreenCaptureMachineAndroid : public VideoCaptureMachine {
                             jlong timestamp);
   // Implement org.chromium.media.ScreenCapture.nativeOnI420FrameAvailable.
   void OnI420FrameAvailable(JNIEnv* env,
-                            jobject obj,
-                            jobject y_buffer,
+                            const base::android::JavaRef<jobject>& obj,
+                            const base::android::JavaRef<jobject>& y_buffer,
                             jint y_stride,
-                            jobject u_buffer,
-                            jobject v_buffer,
+                            const base::android::JavaRef<jobject>& u_buffer,
+                            const base::android::JavaRef<jobject>& v_buffer,
                             jint uv_row_stride,
                             jint uv_pixel_stride,
                             jint left,
@@ -50,17 +53,23 @@ class CAPTURE_EXPORT ScreenCaptureMachineAndroid : public VideoCaptureMachine {
                             jlong timestamp);
 
   // Implement org.chromium.media.ScreenCapture.nativeOnActivityResult.
-  void OnActivityResult(JNIEnv* env, jobject obj, jboolean result);
+  void OnActivityResult(JNIEnv* env,
+                        const base::android::JavaRef<jobject>& obj,
+                        jboolean result);
 
   // Implement org.chromium.media.ScreenCaptuer.nativeOnOrientationChange.
-  void OnOrientationChange(JNIEnv* env, jobject obj, jint rotation);
+  void OnOrientationChange(JNIEnv* env,
+                           const base::android::JavaRef<jobject>& obj,
+                           jint rotation);
 
-  // VideoCaptureMachine overrides.
-  void Start(const scoped_refptr<media::ThreadSafeCaptureOracle>& oracle_proxy,
-             const media::VideoCaptureParams& params,
-             const base::Callback<void(bool)> callback) override;
-  void Stop(const base::Closure& callback) override;
-  void MaybeCaptureForRefresh() override;
+  // Starts/Stops capturing.
+  bool Start(scoped_refptr<ThreadSafeCaptureOracle> oracle_proxy,
+             const VideoCaptureParams& params);
+  void Stop();
+
+  // If there is a cached frame, and the oracle allows sending another frame
+  // right now, the cached captured frame is redelivered.
+  void MaybeCaptureForRefresh();
 
  private:
   // Indicates the orientation of the device.

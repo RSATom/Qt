@@ -134,6 +134,10 @@ def IsNativeOnlyKind(kind):
       kind.native_only
 
 
+def UseCustomSerializer(kind):
+  return mojom.IsStructKind(kind) and kind.custom_serializer
+
+
 def AllEnumValues(enum):
   """Return all enum values associated with an enum.
 
@@ -286,6 +290,8 @@ class Generator(generator.Generator):
 
     return {
       "all_enums": all_enums,
+      "disallow_interfaces": self.disallow_interfaces,
+      "disallow_native_types": self.disallow_native_types,
       "enums": self.module.enums,
       "export_attribute": self.export_attribute,
       "export_header": self.export_header,
@@ -301,7 +307,6 @@ class Generator(generator.Generator):
       "structs": self.module.structs,
       "support_lazy_serialization": self.support_lazy_serialization,
       "unions": self.module.unions,
-      "use_once_callback": self.use_once_callback,
       "variant": self.variant,
     }
 
@@ -315,13 +320,15 @@ class Generator(generator.Generator):
       "constant_value": self._ConstantValue,
       "contains_handles_or_interfaces": mojom.ContainsHandlesOrInterfaces,
       "contains_move_only_members": self._ContainsMoveOnlyMembers,
-      "cpp_wrapper_param_type": self._GetCppWrapperParamType,
       "cpp_data_view_type": self._GetCppDataViewType,
       "cpp_field_type": self._GetCppFieldType,
       "cpp_union_field_type": self._GetCppUnionFieldType,
       "cpp_pod_type": GetCppPodType,
       "cpp_union_getter_return_type": self._GetUnionGetterReturnType,
       "cpp_union_trait_getter_return_type": self._GetUnionTraitGetterReturnType,
+      "cpp_wrapper_call_type": self._GetCppWrapperCallType,
+      "cpp_wrapper_param_type": self._GetCppWrapperParamType,
+      "cpp_wrapper_param_type_new": self._GetCppWrapperParamTypeNew,
       "cpp_wrapper_type": self._GetCppWrapperType,
       "default_value": self._DefaultValue,
       "expression_to_text": self._ExpressionToText,
@@ -341,6 +348,7 @@ class Generator(generator.Generator):
       "is_array_kind": mojom.IsArrayKind,
       "is_enum_kind": mojom.IsEnumKind,
       "is_integral_kind": mojom.IsIntegralKind,
+      "is_interface_kind": mojom.IsInterfaceKind,
       "is_native_only_kind": IsNativeOnlyKind,
       "is_any_handle_kind": mojom.IsAnyHandleKind,
       "is_any_interface_kind": mojom.IsAnyInterfaceKind,
@@ -359,6 +367,7 @@ class Generator(generator.Generator):
       "struct_constructors": self._GetStructConstructors,
       "under_to_camel": generator.ToCamel,
       "unmapped_type_for_serializer": self._GetUnmappedTypeForSerializer,
+      "use_custom_serializer": UseCustomSerializer,
       "wtf_hash_fn_name_for_enum": GetWtfHashFnNameForEnum,
     }
     return cpp_filters
@@ -379,26 +388,46 @@ class Generator(generator.Generator):
   def _GenerateModuleSharedInternalHeader(self):
     return self._GetJinjaExports()
 
+  @UseJinja("module-shared-message-ids.h.tmpl")
+  def _GenerateModuleSharedMessageIdsHeader(self):
+    return self._GetJinjaExports()
+
   @UseJinja("module-shared.cc.tmpl")
   def _GenerateModuleSharedSource(self):
+    return self._GetJinjaExports()
+
+  @UseJinja("module-test-utils.h.tmpl")
+  def _GenerateModuleTestUtilsHeader(self):
+    return self._GetJinjaExports()
+
+  @UseJinja("module-test-utils.cc.tmpl")
+  def _GenerateModuleTestUtilsSource(self):
     return self._GetJinjaExports()
 
   def GenerateFiles(self, args):
     self.module.Stylize(generator.Stylizer())
 
     if self.generate_non_variant_code:
-      self.Write(self._GenerateModuleSharedHeader(),
-                 "%s-shared.h" % self.module.path)
-      self.Write(self._GenerateModuleSharedInternalHeader(),
-                 "%s-shared-internal.h" % self.module.path)
-      self.Write(self._GenerateModuleSharedSource(),
-                 "%s-shared.cc" % self.module.path)
+      if self.generate_message_ids:
+        self.Write(self._GenerateModuleSharedMessageIdsHeader(),
+           "%s-shared-message-ids.h" % self.module.path)
+      else:
+        self.Write(self._GenerateModuleSharedHeader(),
+                   "%s-shared.h" % self.module.path)
+        self.Write(self._GenerateModuleSharedInternalHeader(),
+                   "%s-shared-internal.h" % self.module.path)
+        self.Write(self._GenerateModuleSharedSource(),
+                   "%s-shared.cc" % self.module.path)
     else:
       suffix = "-%s" % self.variant if self.variant else ""
       self.Write(self._GenerateModuleHeader(),
                  "%s%s.h" % (self.module.path, suffix))
       self.Write(self._GenerateModuleSource(),
                  "%s%s.cc" % (self.module.path, suffix))
+      self.Write(self._GenerateModuleTestUtilsHeader(),
+                 "%s%s-test-utils.h" % (self.module.path, suffix))
+      self.Write(self._GenerateModuleTestUtilsSource(),
+                 "%s%s-test-utils.cc" % (self.module.path, suffix))
 
   def _ConstantValue(self, constant):
     return self._ExpressionToText(constant.value, kind=constant.kind)
@@ -457,6 +486,8 @@ class Generator(generator.Generator):
       if mojom.IsNullableKind(kind):
         return False
       elif mojom.IsStructKind(kind):
+        if kind.native_only:
+          return False
         if (self._IsTypemappedKind(kind) and
             not self.typemap[self._GetFullMojomNameForKind(kind)]["hashable"]):
           return False
@@ -497,8 +528,7 @@ class Generator(generator.Generator):
 
   def _GetCppWrapperType(self, kind, add_same_module_namespaces=False):
     def _AddOptional(type_name):
-      pattern = "WTF::Optional<%s>" if self.for_blink else "base::Optional<%s>"
-      return pattern % type_name
+      return "base::Optional<%s>" % type_name
 
     if self._IsTypemappedKind(kind):
       type_name = self._GetNativeTypeName(kind)
@@ -521,7 +551,7 @@ class Generator(generator.Generator):
           kind.kind, add_same_module_namespaces=add_same_module_namespaces)
     if mojom.IsMapKind(kind):
       pattern = ("WTF::HashMap<%s, %s>" if self.for_blink else
-                 "std::unordered_map<%s, %s>")
+                 "base::flat_map<%s, %s>")
       if mojom.IsNullableKind(kind):
         pattern = _AddOptional(pattern)
       return pattern % (
@@ -532,7 +562,7 @@ class Generator(generator.Generator):
               kind.value_kind,
               add_same_module_namespaces=add_same_module_namespaces))
     if mojom.IsInterfaceKind(kind):
-      return "%sPtr" % self._GetNameForKind(
+      return "%sPtrInfo" % self._GetNameForKind(
           kind, add_same_module_namespaces=add_same_module_namespaces)
     if mojom.IsInterfaceRequestKind(kind):
       return "%sRequest" % self._GetNameForKind(
@@ -589,7 +619,23 @@ class Generator(generator.Generator):
     return ((not mojom.IsReferenceKind(kind)) or self._IsMoveOnlyKind(kind) or
         self._IsCopyablePassByValue(kind))
 
+  def _GetCppWrapperCallType(self, kind):
+    # TODO: Remove this once interfaces are always passed as PtrInfo.
+    if mojom.IsInterfaceKind(kind):
+      return "%sPtr" % self._GetNameForKind(kind)
+    return self._GetCppWrapperType(kind)
+
   def _GetCppWrapperParamType(self, kind):
+    # TODO: Remove all usage of this method in favor of
+    # _GetCppWrapperParamTypeNew. This requires all generated code which passes
+    # interface handles to use PtrInfo instead of Ptr.
+    if mojom.IsInterfaceKind(kind):
+      return "%sPtr" % self._GetNameForKind(kind)
+    cpp_wrapper_type = self._GetCppWrapperType(kind)
+    return (cpp_wrapper_type if self._ShouldPassParamByValue(kind)
+                             else "const %s&" % cpp_wrapper_type)
+
+  def _GetCppWrapperParamTypeNew(self, kind):
     cpp_wrapper_type = self._GetCppWrapperType(kind)
     return (cpp_wrapper_type if self._ShouldPassParamByValue(kind)
                              else "const %s&" % cpp_wrapper_type)
@@ -651,10 +697,36 @@ class Generator(generator.Generator):
                                              add_same_module_namespaces=True)
     return self._GetCppWrapperType(kind, add_same_module_namespaces=True)
 
+  def _KindMustBeSerialized(self, kind, processed_kinds=None):
+    if not processed_kinds:
+      processed_kinds = set()
+    if kind in processed_kinds:
+      return False
+
+    if (self._IsTypemappedKind(kind) and
+        self.typemap[self._GetFullMojomNameForKind(kind)]["force_serialize"]):
+      return True
+
+    processed_kinds.add(kind)
+
+    if mojom.IsStructKind(kind) or mojom.IsUnionKind(kind):
+      return any(self._KindMustBeSerialized(field.kind,
+                                            processed_kinds=processed_kinds)
+                 for field in kind.fields)
+
+    return False
+
   def _MethodSupportsLazySerialization(self, method):
-    return self.support_lazy_serialization and (
-        not mojom.MethodPassesAssociatedKinds(method) and
-        not mojom.MethodPassesInterfaces(method))
+    if not self.support_lazy_serialization:
+      return False
+
+    # TODO(crbug.com/753433): Support lazy serialization for methods which pass
+    # associated handles.
+    if mojom.MethodPassesAssociatedKinds(method):
+      return False
+
+    return not any(self._KindMustBeSerialized(param.kind) for param in
+                   method.parameters + (method.response_parameters or []))
 
   def _TranslateConstants(self, token, kind):
     if isinstance(token, mojom.NamedValue):

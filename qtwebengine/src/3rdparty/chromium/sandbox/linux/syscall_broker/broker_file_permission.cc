@@ -7,14 +7,14 @@
 #include <fcntl.h>
 #include <stddef.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <string>
 
 #include "base/logging.h"
-#include "sandbox/linux/syscall_broker/broker_common.h"
+#include "sandbox/linux/syscall_broker/broker_command.h"
 
 namespace sandbox {
-
 namespace syscall_broker {
 
 // Async signal safe
@@ -52,25 +52,21 @@ bool BrokerFilePermission::ValidatePath(const char* path) {
 // methods are async signal safe in common standard libs.
 // TODO(leecam): remove dependency on std::string
 bool BrokerFilePermission::MatchPath(const char* requested_filename) const {
-  const char* path = path_.c_str();
-  if ((recursive_ && strncmp(requested_filename, path, strlen(path)) == 0)) {
-    // Note: This prefix match will allow any path under the whitelisted
-    // path, for any number of directory levels. E.g. if the whitelisted
-    // path is /good/ then the following will be permitted by the policy.
-    //   /good/file1
-    //   /good/folder/file2
-    //   /good/folder/folder2/file3
-    // If an attacker could make 'folder' a symlink to ../../ they would have
-    // access to the entire filesystem.
-    // Whitelisting with multiple depths is useful, e.g /proc/ but
-    // the system needs to ensure symlinks can not be created!
-    // That said if an attacker can convert any of the absolute paths
-    // to a symlink they can control any file on the system also.
-    return true;
-  } else if (strcmp(requested_filename, path) == 0) {
-    return true;
-  }
-  return false;
+  // Note: This recursive match will allow any path under the whitelisted
+  // path, for any number of directory levels. E.g. if the whitelisted
+  // path is /good/ then the following will be permitted by the policy.
+  //   /good/file1
+  //   /good/folder/file2
+  //   /good/folder/folder2/file3
+  // If an attacker could make 'folder' a symlink to ../../ they would have
+  // access to the entire filesystem.
+  // Whitelisting with multiple depths is useful, e.g /proc/ but
+  // the system needs to ensure symlinks can not be created!
+  // That said if an attacker can convert any of the absolute paths
+  // to a symlink they can control any file on the system also.
+  return recursive_
+             ? strncmp(requested_filename, path_.c_str(), path_.length()) == 0
+             : strcmp(requested_filename, path_.c_str()) == 0;
 }
 
 // Async signal safe.
@@ -82,45 +78,46 @@ bool BrokerFilePermission::CheckAccess(const char* requested_filename,
                                        const char** file_to_access) const {
   // First, check if |mode| is existence, ability to read or ability
   // to write. We do not support X_OK.
-  if (mode != F_OK && mode & ~(R_OK | W_OK)) {
+  if (mode != F_OK && mode & ~(R_OK | W_OK))
     return false;
-  }
 
   if (!ValidatePath(requested_filename))
     return false;
 
-  if (!MatchPath(requested_filename)) {
+  return CheckAccessInternal(requested_filename, mode, file_to_access);
+}
+
+bool BrokerFilePermission::CheckAccessInternal(
+    const char* requested_filename,
+    int mode,
+    const char** file_to_access) const {
+  if (!MatchPath(requested_filename))
     return false;
-  }
+
   bool allowed = false;
   switch (mode) {
     case F_OK:
-      if (allow_read_ || allow_write_)
-        allowed = true;
+      allowed = allow_read_ || allow_write_;
       break;
     case R_OK:
-      if (allow_read_)
-        allowed = true;
+      allowed = allow_read_;
       break;
     case W_OK:
-      if (allow_write_)
-        allowed = true;
+      allowed = allow_write_;
       break;
     case R_OK | W_OK:
-      if (allow_read_ && allow_write_)
-        allowed = true;
+      allowed = allow_read_ && allow_write_;
       break;
     default:
-      return false;
+      break;
   }
+  if (!allowed)
+    return false;
 
-  if (allowed && file_to_access) {
-    if (!recursive_)
-      *file_to_access = path_.c_str();
-    else
-      *file_to_access = requested_filename;
-  }
-  return allowed;
+  if (file_to_access)
+    *file_to_access = recursive_ ? requested_filename : path_.c_str();
+
+  return true;
 }
 
 // Async signal safe.
@@ -134,9 +131,8 @@ bool BrokerFilePermission::CheckOpen(const char* requested_filename,
   if (!ValidatePath(requested_filename))
     return false;
 
-  if (!MatchPath(requested_filename)) {
+  if (!MatchPath(requested_filename))
     return false;
-  }
 
   // First, check the access mode is valid.
   const int access_mode = flags & O_ACCMODE;
@@ -145,12 +141,12 @@ bool BrokerFilePermission::CheckOpen(const char* requested_filename,
     return false;
   }
 
-  // Check if read is allowed
+  // Check if read is allowed.
   if (!allow_read_ && (access_mode == O_RDONLY || access_mode == O_RDWR)) {
     return false;
   }
 
-  // Check if write is allowed
+  // Check if write is allowed.
   if (!allow_write_ && (access_mode == O_WRONLY || access_mode == O_RDWR)) {
     return false;
   }
@@ -160,13 +156,9 @@ bool BrokerFilePermission::CheckOpen(const char* requested_filename,
     return false;
   }
 
-  // If O_CREAT is present, ensure O_EXCL
-  if ((flags & O_CREAT) && !(flags & O_EXCL)) {
-    return false;
-  }
-
-  // If this file is to be unlinked, ensure it's created.
-  if (unlink_ && !(flags & O_CREAT)) {
+  // If this file is to be temporary, ensure it is created, not pre-existing.
+  // See https://crbug.com/415681#c17
+  if (temporary_only_ && (!(flags & O_CREAT) || !(flags & O_EXCL))) {
     return false;
   }
 
@@ -176,9 +168,14 @@ bool BrokerFilePermission::CheckOpen(const char* requested_filename,
     return false;
   }
 
+  // The effect of (O_RDONLY | O_TRUNC) is undefined, and in some cases it
+  // actually truncates, so deny.
+  if (access_mode == O_RDONLY && (flags & O_TRUNC) != 0) {
+    return false;
+  }
+
   // Now check that all the flags are known to us.
   const int creation_and_status_flags = flags & ~O_ACCMODE;
-
   const int known_flags = O_APPEND | O_ASYNC | O_CLOEXEC | O_CREAT | O_DIRECT |
                           O_DIRECTORY | O_EXCL | O_LARGEFILE | O_NOATIME |
                           O_NOCTTY | O_NOFOLLOW | O_NONBLOCK | O_NDELAY |
@@ -186,59 +183,91 @@ bool BrokerFilePermission::CheckOpen(const char* requested_filename,
 
   const int unknown_flags = ~known_flags;
   const bool has_unknown_flags = creation_and_status_flags & unknown_flags;
-
   if (has_unknown_flags)
     return false;
 
-  if (file_to_open) {
-    if (!recursive_)
-      *file_to_open = path_.c_str();
-    else
-      *file_to_open = requested_filename;
-  }
+  if (file_to_open)
+    *file_to_open = recursive_ ? requested_filename : path_.c_str();
+
   if (unlink_after_open)
-    *unlink_after_open = unlink_;
+    *unlink_after_open = temporary_only_;
 
   return true;
 }
 
-const char* BrokerFilePermission::GetErrorMessageForTests() {
-  static char kInvalidBrokerFileString[] = "Invalid BrokerFilePermission";
-  return kInvalidBrokerFileString;
+bool BrokerFilePermission::CheckStat(const char* requested_filename,
+                                     const char** file_to_access) const {
+  if (!ValidatePath(requested_filename))
+    return false;
+
+  // Ability to access implies ability to stat().
+  if (CheckAccessInternal(requested_filename, F_OK, file_to_access))
+    return true;
+
+  // Allow stat() on leading directories if have create or stat() permission.
+  if (!(allow_create_ || allow_stat_with_intermediates_))
+    return false;
+
+  // NOTE: ValidatePath proved requested_length != 0;
+  size_t requested_length = strlen(requested_filename);
+  CHECK(requested_length);
+
+  // Special case for root: only one slash, otherwise must have a second
+  // slash in the right spot to avoid substring matches.
+  // |allow_stat_with_intermediates_| can match on the full path, and
+  // |allow_create_| only matches a leading directory.
+  if ((requested_length == 1 && requested_filename[0] == '/') ||
+      (allow_stat_with_intermediates_ && path_ == requested_filename) ||
+      (requested_length < path_.length() &&
+       memcmp(path_.c_str(), requested_filename, requested_length) == 0 &&
+       path_.c_str()[requested_length] == '/')) {
+    if (file_to_access)
+      *file_to_access = requested_filename;
+
+    return true;
+  }
+
+  return false;
 }
 
-BrokerFilePermission::BrokerFilePermission(const std::string& path,
-                                           bool recursive,
-                                           bool unlink,
-                                           bool allow_read,
-                                           bool allow_write,
-                                           bool allow_create)
-    : path_(path),
-      recursive_(recursive),
-      unlink_(unlink),
-      allow_read_(allow_read),
-      allow_write_(allow_write),
-      allow_create_(allow_create) {
-  // Validate this permission and die if invalid!
+const char* BrokerFilePermission::GetErrorMessageForTests() {
+  return "Invalid BrokerFilePermission";
+}
 
+BrokerFilePermission::BrokerFilePermission(
+    const std::string& path,
+    RecursionOption recurse_opt,
+    PersistenceOption persist_opt,
+    ReadPermission read_perm,
+    WritePermission write_perm,
+    CreatePermission create_perm,
+    StatWithIntermediatesPermission stat_perm)
+    : path_(path),
+      recursive_(recurse_opt == RecursionOption::kRecursive),
+      temporary_only_(persist_opt == PersistenceOption::kTemporaryOnly),
+      allow_read_(read_perm == ReadPermission::kAllowRead),
+      allow_write_(write_perm == WritePermission::kAllowWrite),
+      allow_create_(create_perm == CreatePermission::kAllowCreate),
+      allow_stat_with_intermediates_(
+          stat_perm ==
+          StatWithIntermediatesPermission::kAllowStatWithIntermediates) {
   // Must have enough length for a '/'
   CHECK(path_.length() > 0) << GetErrorMessageForTests();
+
   // Whitelisted paths must be absolute.
   CHECK(path_[0] == '/') << GetErrorMessageForTests();
 
-  // Don't allow unlinking on creation without create permission
-  if (unlink_) {
-    CHECK(allow_create) << GetErrorMessageForTests();
-  }
+  // Don't allow temporary creation without create permission
+  if (temporary_only_)
+    CHECK(allow_create_) << GetErrorMessageForTests();
+
+  // Recursive paths must have a trailing slash, absolutes must not.
   const char last_char = *(path_.rbegin());
-  // Recursive paths must have a trailing slash
-  if (recursive_) {
+  if (recursive_)
     CHECK(last_char == '/') << GetErrorMessageForTests();
-  } else {
+  else
     CHECK(last_char != '/') << GetErrorMessageForTests();
-  }
 }
 
 }  // namespace syscall_broker
-
 }  // namespace sandbox

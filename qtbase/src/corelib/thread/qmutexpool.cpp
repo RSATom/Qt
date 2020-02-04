@@ -40,8 +40,6 @@
 #include "qatomic.h"
 #include "qmutexpool_p.h"
 
-#ifndef QT_NO_THREAD
-
 QT_BEGIN_NAMESPACE
 
 Q_GLOBAL_STATIC_WITH_ARGS(QMutexPool, globalMutexPool, (QMutex::Recursive))
@@ -106,7 +104,7 @@ QMutexPool::QMutexPool(QMutex::RecursionMode recursionMode, int size)
 QMutexPool::~QMutexPool()
 {
     for (int index = 0; index < mutexes.count(); ++index)
-        delete mutexes[index].load();
+        delete mutexes[index].loadAcquire();
 }
 
 /*!
@@ -131,9 +129,12 @@ QMutex *QMutexPool::createMutex(int index)
 {
     // mutex not created, create one
     QMutex *newMutex = new QMutex(recursionMode);
-    if (!mutexes[index].testAndSetRelease(0, newMutex))
+    if (!mutexes[index].testAndSetRelease(nullptr, newMutex)) {
         delete newMutex;
-    return mutexes[index].load();
+        return mutexes[index].loadAcquire();
+    } else {
+        return newMutex;
+    }
 }
 
 /*!
@@ -148,5 +149,3 @@ QMutex *QMutexPool::globalInstanceGet(const void *address)
 }
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_THREAD

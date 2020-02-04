@@ -13,10 +13,12 @@ const char kCrosDisksServiceError[] = "org.chromium.CrosDisks.Error";
 
 // Methods.
 const char kEnumerateAutoMountableDevices[] = "EnumerateAutoMountableDevices";
+const char kEnumerateDevices[] = "EnumerateDevices";
 const char kEnumerateMountEntries[] = "EnumerateMountEntries";
 const char kFormat[] = "Format";
 const char kGetDeviceProperties[] = "GetDeviceProperties";
 const char kMount[] = "Mount";
+const char kRename[] = "Rename";
 const char kUnmount[] = "Unmount";
 
 // Signals.
@@ -28,10 +30,11 @@ const char kDiskChanged[] = "DiskChanged";
 const char kDiskRemoved[] = "DiskRemoved";
 const char kFormatCompleted[] = "FormatCompleted";
 const char kMountCompleted[] = "MountCompleted";
+const char kRenameCompleted[] = "RenameCompleted";
 
 // Properties.
-// TODO(benchan): Rename 'DeviceIs*' property to 'DiskIs*' as the latter is more
-// accurate.
+// TODO(benchan): Drop unnecessary 'Device' / 'Drive' prefix as they were
+// carried through old code base.
 const char kDeviceFile[] = "DeviceFile";
 const char kDeviceIsDrive[] = "DeviceIsDrive";
 const char kDeviceIsMediaAvailable[] = "DeviceIsMediaAvailable";
@@ -44,8 +47,8 @@ const char kDeviceMediaType[] = "DeviceMediaType";
 const char kDeviceMountPaths[] = "DeviceMountPaths";
 const char kDevicePresentationHide[] = "DevicePresentationHide";
 const char kDeviceSize[] = "DeviceSize";
-const char kDriveIsRotational[] = "DriveIsRotational";
 const char kDriveModel[] = "DriveModel";
+const char kIsAutoMountable[] = "IsAutoMountable";
 const char kIdLabel[] = "IdLabel";
 const char kIdUuid[] = "IdUuid";
 const char kVendorId[] = "VendorId";
@@ -53,6 +56,7 @@ const char kVendorName[] = "VendorName";
 const char kProductId[] = "ProductId";
 const char kProductName[] = "ProductName";
 const char kNativePath[] = "NativePath";
+const char kFileSystemType[] = "FileSystemType";
 
 // Enum values.
 // DeviceMediaType enum values are reported through UMA.
@@ -112,6 +116,20 @@ enum MountSourceType {
   MOUNT_SOURCE_REMOVABLE_DEVICE = 1,
   MOUNT_SOURCE_ARCHIVE = 2,
   MOUNT_SOURCE_NETWORK_STORAGE = 3,
+};
+
+enum RenameErrorType {
+  RENAME_ERROR_NONE = 0,
+  RENAME_ERROR_UNKNOWN = 1,
+  RENAME_ERROR_INTERNAL = 2,
+  RENAME_ERROR_INVALID_DEVICE_PATH = 3,
+  RENAME_ERROR_DEVICE_BEING_RENAMED = 4,
+  RENAME_ERROR_UNSUPPORTED_FILESYSTEM = 5,
+  RENAME_ERROR_RENAME_PROGRAM_NOT_FOUND = 6,
+  RENAME_ERROR_RENAME_PROGRAM_FAILED = 7,
+  RENAME_ERROR_DEVICE_NOT_ALLOWED = 8,
+  RENAME_ERROR_LONG_NAME = 9,
+  RENAME_ERROR_INVALID_CHARACTER = 10,
 };
 }  // namespace cros_disks
 

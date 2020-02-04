@@ -1,6 +1,7 @@
-<link rel="import" href="chrome://resources/html/polymer.html">
-<link rel="import" href="chrome://resources/cr_elements/chromeos/network/cr_network_list.html">
-<link rel="import" href="chrome://resources/cr_elements/chromeos/network/cr_onc_types.html">
+<link rel="import" href="../../../html/polymer.html">
+
+<link rel="import" href="../../chromeos/network/cr_network_list.html">
+<link rel="import" href="../../chromeos/network/cr_onc_types.html">
 
 <dom-module id="cr-network-select">
   <template>
@@ -15,7 +16,6 @@
     </style>
     <cr-network-list id="networkList"
         on-selected="onNetworkListItemSelected_"
-        on-network-connected="onNetworkConnected_"
         networks="[[networkStateList_]]" custom-items="[[customItems]]"
         show-buttons="[[showButtons]]"
         no-bottom-scroll-border="[[noBottomScrollBorder]]">
